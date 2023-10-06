@@ -72,6 +72,8 @@ enum Command {
 
     /// Given a step, takes a slice of a proof consisting of all its transitive premises.
     Slice(SliceCommandOption),
+
+    //Compress(CompressOptions),
 }
 
 #[derive(Args)]
@@ -305,6 +307,18 @@ struct SliceCommandOption {
     max_distance: Option<usize>,
 }
 
+/*#[derive(Args)]
+struct CompressOptions {
+    #[clap(flatten)]
+    input: Input,
+    
+    #[clap(flatten)]
+    parsing: ParsingOptions,
+
+    #[clap(flatten)]
+    checking: CheckingOptions,
+}*/
+
 #[derive(ArgEnum, Clone)]
 enum LogLevel {
     Off,
@@ -362,6 +376,7 @@ fn main() {
         }
         Command::Elaborate(options) => elaborate_command(options),
         Command::Bench(options) => bench_command(options),
+        //Command::Compress(options) => compress_command(options),
         Command::Slice(options) => slice_command(options),
     };
     if let Err(e) = result {
@@ -431,6 +446,19 @@ fn elaborate_command(options: ElaborateCommandOptions) -> CliResult<()> {
     print_proof(&elaborated.commands, options.printing.use_sharing)?;
     Ok(())
 }
+
+/*fn compress_command(options: CompressOptions) -> CliResult<()>{
+    println!("Tá lento mas tá indo");
+    let (problem, proof) = get_instance(&options.input)?;
+    println!("Tá mesmo?");
+    let compressed = compress_proof(
+        problem, 
+        proof, 
+        build_carcara_options(options.parsing, options.checking))/*?*/;
+    println!("Tá sim");
+    //print_proof(&compressed.commands,options.printing.use_sharing)?;
+    Ok(())
+}*/
 
 fn bench_command(options: BenchCommandOptions) -> CliResult<()> {
     let instances = get_instances_from_paths(options.files.iter().map(|s| s.as_str()))?;

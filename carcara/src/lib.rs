@@ -339,3 +339,32 @@ pub fn check_and_elaborate<T: io::BufRead>(
         checker.check_and_elaborate(proof)
     }
 }
+
+/*pub fn compress_proof<T: io::BufRead>(
+    problem: T,
+    proof: T,
+    options: CarcaraOptions,
+) -> /*Result<ast::Proof, Error>*/Result<(),Error> {
+    let (prelude, proof, mut pool) = parser::parse_instance(
+        problem,
+        proof,
+        options.apply_function_defs,
+        options.expand_lets,
+        options.allow_int_real_subtyping,
+    )?;
+    
+    /*println!("Preludio");
+    println!("{:?}",prelude);
+    println!("Prova");
+    for i in proof.iter(){
+        println!("{:?}",i);    
+    }
+    let var = &proof.commands[4];
+    if let ProofCommand::Step(step) = var{
+        println!("Termos:");
+        for i in step.clause.iter(){
+            println!("{:?}",i);
+        }
+    }*/
+    Ok(())
+}*/
