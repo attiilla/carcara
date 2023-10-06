@@ -12,6 +12,8 @@ use std::hash::Hash;
 // Is essential to have a representation of the proof refered by id, since the standard representation 
 // refers to previous steps by its number, and these numbers will certainly change in a successfull compression
 pub type IdIndexedProof = AHashMap<String, ProofStepParameters>;
+//Everything i used from ProofStep, except it is a hash map
+//Does have an extra flag deleted, doesn't have arguments and discharge
 
 #[derive(Clone,Debug)]
 pub struct ProofStepParameters{
@@ -36,10 +38,21 @@ impl ProofStepParameters{
 
 #[derive(Debug)]
 pub struct Compressor<'a>{
+    //keeps a reference to the original proof stored to find the original root
+    //the root may be found at any time when a proof is complete by looking for an empty clause
+    //but after fix_broken_proof the root will no longer be an empty_clause
+    //could have just stored the root_id, but preferred store the original proof because the id and the reference are cheap to store
+    //and i though i maybe would need to look to the original proof when shifting back to the previous representation of the proof
     pub original_proof: &'a Proof,
     pub formated_proof: IdIndexedProof,
+    
+    //needed for reinsert units, could have been stored in the function as a local variable
+    //but i thought it would be interesting to be able to get the root at const time
     pub current_root: String,
 //    pub compression_steps: Vec<CompressionAlgorithms>,
+
+    //used to name the new nodes created in reinsert_units
+    //could have been stored in the function as a local varible
     pub new_node_index: usize
 }
 
@@ -123,32 +136,39 @@ impl<'a> Compressor<'a>{
             unwrap().
             premises.
             clone();
-        if children.len()<2{
+        if children.len()<2{    //se não tem premissas, é um assume unário, ou seja, uma "folha" da árvore
+                                //se só tem uma premissa, essa premissa é um Assume não unário e portanto não participa de nenhuma resolução
             return node_id.clone();
         }
-        let premise_deleted = (
+        let premise_deleted = ( //checo se alguma premissa foi deletada
+                                              //nunca ambas terão sido deletadas, pois isso implica em premissas unárias, o que implica que o nó atual é a clausula vazia
+                                              //mas as premissas da cláusula vazia nunca são deletadas pela construção da função collect_units
             self.formated_proof.get(&children[0]).unwrap().deleted, 
             self.formated_proof.get(&children[1]).unwrap().deleted
         );
-        if (premise_deleted.0 || premise_deleted.1) == false{
-            let ans_left = self.fix_broken_proof(&children[0]);
+        if (premise_deleted.0 || premise_deleted.1) == false{ //entra nesse if se nenhuma premissa foi deletada
+            //chama recursivamente o algoritmos para as 2 premissas
+            let ans_left = self.fix_broken_proof(&children[0]); //se algum nó diretamente acima dessa premissa foi deletado, a nova premissa será o nó que não foi deletado
             let ans_right = self.fix_broken_proof(&children[1]);
             let new_conclusion = self.binary_resolution(&ans_left, &ans_right);
             let mut node = self.formated_proof
             .get_mut(node_id)
             .unwrap();
-            node.premises = vec![ans_left.clone(),ans_right.clone()];
-            node.clause = new_conclusion;
+            node.premises = vec![ans_left.clone(),ans_right.clone()]; //atualiza as premissas
+            node.clause = new_conclusion;   //atualiza a conclusão
             return node_id.clone();
-        } else {
+        } else { //caso alguma premissa foi deletada
             let i: usize;
-            if premise_deleted.1{
+            if premise_deleted.1{ //i indicará a premissa que não foi deletada
                 i = 0;
             } else {
                 i = 1;
             }
+            //se a premissa restante não tiver nenhum nó diretamente acima deletado, retorna a própria premissa
+            //se algum nó acima houver sido deletado, retorna alguma chamada recursiva da função
             let glue = self.fix_broken_proof(&children[i]);
-            self.formated_proof.remove(node_id);
+            self.formated_proof.remove(node_id);//deleta o nó atual pois ele será substituífo pelo último nó do "caminho" gerado pelas
+                                                //premissas não-deletadas de sua premissa não deletada
             return glue;
         }
     }
@@ -222,7 +242,7 @@ impl<'a> Compressor<'a>{
     // Working
     // remove pub
     pub fn collect_units(&mut self) -> VecDeque<(String,ProofStepParameters)>{
-        let mut clauses_numb;
+        let mut clause_len;
         let mut units_queue: VecDeque<(String,ProofStepParameters)> = VecDeque::new();
         let mut bfs_queue: VecDeque<String> = VecDeque::new();
         let mut visited: AHashSet<String> = AHashSet::new();
@@ -239,8 +259,9 @@ impl<'a> Compressor<'a>{
             if visited.contains(&s[..]) {
               current_node = bfs_queue.pop_front();
             } else {
-                // Checks if the rule used to derive this node is "or"
-                // If it is "or", don't put the childs of the node in the queue
+                // Checks if the rule used to derive this node is "or"                //IMPORTANTE
+                // If it is "or", don't put the childs of the node in the queue         Regra or transforma uma aplicação de operador or em uma cláusula
+                                                                                      //Não pode ser resolvida
                 if &self.formated_proof.get(&s).unwrap().rule!="or"{
                     //Put the childs of the current_node on the search queue
                     for i in &self.formated_proof.get(&s).unwrap().premises{
@@ -250,16 +271,20 @@ impl<'a> Compressor<'a>{
                 // Checks if the current_node can get closer to the proof root
                 if !root_and_premises.contains(&s){
                     // Checks if the clause of the node is unitary
-                    clauses_numb = self.formated_proof.get(&s).unwrap().clause.len();
-                    if clauses_numb==1{
+                    clause_len = self.formated_proof.get(&s).unwrap().clause.len();
+                    if clause_len==1{
                         self.formated_proof.get_mut(&s).unwrap().deleted = true;
                         let node_data = self.formated_proof.get(&s).unwrap().clone();
                         let mut switch = false;
                         for i in &node_data.premises{
+                            //IMPORTANTE
+                            //Checa se alguma premissa do nó atual já está na fila
+                            //em caso afirmativo, retorna sua posição e adiciona o nó atual na fila antes de sua premissa 
                             let early_child = units_queue.iter().position(|(node_id, _)| node_id==i);
                             match early_child{
                                 None => (),
                                 Some(u) => {
+                                    println!("u vale {}",u);
                                     units_queue.insert(u,(s.clone(),node_data.clone()));
                                     switch = true;
                                 },
@@ -309,4 +334,4 @@ mod test{
 
 //Descrever as adaptações do algoritmo para funcionar para resolução n-ária formalmente como no artigo
 //Rever e explicar as decisões de projeto a respeito da representação do grafo no algoritmo
-// Explicar com detalhes a implementação do algoritmo
+//Explicar com detalhes a implementação do algoritmo
