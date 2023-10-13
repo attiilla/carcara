@@ -49,7 +49,7 @@ pub struct Compressor<'a>{
     //needed for reinsert units, could have been stored in the function as a local variable
     //but i thought it would be interesting to be able to get the root at const time
     pub current_root: String,
-//    pub compression_steps: Vec<CompressionAlgorithms>,
+//  pub compression_steps: Vec<CompressionAlgorithms>,
 
     //used to name the new nodes created in reinsert_units
     //could have been stored in the function as a local varible
@@ -335,3 +335,9 @@ mod test{
 //Descrever as adaptações do algoritmo para funcionar para resolução n-ária formalmente como no artigo
 //Rever e explicar as decisões de projeto a respeito da representação do grafo no algoritmo
 //Explicar com detalhes a implementação do algoritmo
+
+//Não é dever do algoritmo ficar testando o tempo todo a prórpia corretude
+//Não é padronizado o nome do passo
+//Começar a inserir na fila a partir da disância 2 até a raiz(collect_units)
+
+//bottom-up/fila
