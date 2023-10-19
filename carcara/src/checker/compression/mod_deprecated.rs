@@ -336,8 +336,3 @@ mod test{
 //Rever e explicar as decisões de projeto a respeito da representação do grafo no algoritmo
 //Explicar com detalhes a implementação do algoritmo
 
-//Não é dever do algoritmo ficar testando o tempo todo a prórpia corretude
-//Não é padronizado o nome do passo
-//Começar a inserir na fila a partir da disância 2 até a raiz(collect_units)
-
-//bottom-up/fila

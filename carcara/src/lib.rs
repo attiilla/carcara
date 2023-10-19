@@ -49,6 +49,7 @@ use parser::{ParserError, Position};
 use std::io;
 use std::time::{Duration, Instant};
 use thiserror::Error;
+use ast::ProofCommand;
 
 pub type CarcaraResult<T> = Result<T, Error>;
 
@@ -340,20 +341,21 @@ pub fn check_and_elaborate<T: io::BufRead>(
     }
 }
 
-/*pub fn compress_proof<T: io::BufRead>(
+pub fn compress_proof<T: io::BufRead>(
     problem: T,
     proof: T,
     options: CarcaraOptions,
 ) -> /*Result<ast::Proof, Error>*/Result<(),Error> {
-    let (prelude, proof, mut pool) = parser::parse_instance(
-        problem,
-        proof,
-        options.apply_function_defs,
-        options.expand_lets,
-        options.allow_int_real_subtyping,
-    )?;
+    // Parsing
+    let total = Instant::now();
+    let config = parser::Config {
+        apply_function_defs: options.apply_function_defs,
+        expand_lets: options.expand_lets,
+        allow_int_real_subtyping: options.allow_int_real_subtyping,
+    };
+    let (prelude, proof, mut pool) = parser::parse_instance(problem, proof, config)?;
     
-    /*println!("Preludio");
+    println!("Preludio");
     println!("{:?}",prelude);
     println!("Prova");
     for i in proof.iter(){
@@ -365,6 +367,6 @@ pub fn check_and_elaborate<T: io::BufRead>(
         for i in step.clause.iter(){
             println!("{:?}",i);
         }
-    }*/
+    }
     Ok(())
-}*/
+}

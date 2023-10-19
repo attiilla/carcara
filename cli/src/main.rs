@@ -5,7 +5,7 @@ mod path_args;
 
 use carcara::{
     ast::print_proof, benchmarking::OnlineBenchmarkResults, check, check_and_elaborate,
-    check_parallel, parser, CarcaraOptions, LiaGenericOptions,
+    check_parallel, parser, CarcaraOptions, LiaGenericOptions, compress_proof
 };
 use clap::{AppSettings, ArgEnum, Args, Parser, Subcommand};
 use const_format::{formatcp, str_index};
@@ -73,7 +73,7 @@ enum Command {
     /// Given a step, takes a slice of a proof consisting of all its transitive premises.
     Slice(SliceCommandOption),
 
-    //Compress(CompressOptions),
+    Compress(CompressOptions),
 }
 
 #[derive(Args)]
@@ -307,7 +307,7 @@ struct SliceCommandOption {
     max_distance: Option<usize>,
 }
 
-/*#[derive(Args)]
+#[derive(Args)]
 struct CompressOptions {
     #[clap(flatten)]
     input: Input,
@@ -317,7 +317,10 @@ struct CompressOptions {
 
     #[clap(flatten)]
     checking: CheckingOptions,
-}*/
+
+    #[clap(flatten)]
+    stats: StatsOptions,
+}
 
 #[derive(ArgEnum, Clone)]
 enum LogLevel {
@@ -376,7 +379,7 @@ fn main() {
         }
         Command::Elaborate(options) => elaborate_command(options),
         Command::Bench(options) => bench_command(options),
-        //Command::Compress(options) => compress_command(options),
+        Command::Compress(options) => compress_command(options),
         Command::Slice(options) => slice_command(options),
     };
     if let Err(e) = result {
@@ -447,18 +450,18 @@ fn elaborate_command(options: ElaborateCommandOptions) -> CliResult<()> {
     Ok(())
 }
 
-/*fn compress_command(options: CompressOptions) -> CliResult<()>{
+fn compress_command(options: CompressOptions) -> CliResult<()>{
     println!("Tá lento mas tá indo");
     let (problem, proof) = get_instance(&options.input)?;
     println!("Tá mesmo?");
     let compressed = compress_proof(
         problem, 
         proof, 
-        build_carcara_options(options.parsing, options.checking))/*?*/;
+        build_carcara_options(options.parsing, options.checking, options.stats))/*?*/;
     println!("Tá sim");
     //print_proof(&compressed.commands,options.printing.use_sharing)?;
     Ok(())
-}*/
+}
 
 fn bench_command(options: BenchCommandOptions) -> CliResult<()> {
     let instances = get_instances_from_paths(options.files.iter().map(|s| s.as_str()))?;
