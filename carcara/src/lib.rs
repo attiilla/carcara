@@ -41,10 +41,12 @@ pub mod benchmarking;
 pub mod checker;
 pub mod elaborator;
 pub mod parser;
+pub mod compressor;
 mod utils;
 
 use crate::benchmarking::{CollectResults, OnlineBenchmarkResults, RunMeasurement};
 use checker::{error::CheckerError, CheckerStatistics};
+use compressor::{ProofCompressor};
 use parser::{ParserError, Position};
 use std::io;
 use std::time::{Duration, Instant};
@@ -368,5 +370,9 @@ pub fn compress_proof<T: io::BufRead>(
             println!("{:?}",i);
         }
     }
+    println!("\nTestando collect_units:\n");
+    let comp: ProofCompressor = ProofCompressor::new(&proof);
+    let (a,b) = comp.collect_units();
+    println!("{:?}\n{:?}",a,b);
     Ok(())
 }
