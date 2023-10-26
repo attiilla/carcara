@@ -1,6 +1,6 @@
 //use ahash::{AHashMap, AHashSet};
 //use indexmap::IndexMap;
-use indexmap::IndexSet;
+//use indexmap::IndexSet;
 use crate::ast::*;
 use std::collections::HashSet;
 
@@ -31,18 +31,20 @@ impl<'a> ProofCompressor<'a>{
         self.reinsert_units(units_queue);
     }*/
 
-    fn collect_units(&self) -> (Vec<(usize, usize)>, HashSet<usize>){
+    fn collect_units(&self) -> (Vec<usize>, HashSet<usize>){
         let mut units_queue: Vec<(usize, usize)> = Vec::new();
         let mut marked: HashSet<usize> = HashSet::new();
         self.recursive_collect_units(self.current_root, &mut marked, &mut units_queue);
         let mut deleted: HashSet<usize> = HashSet::new();
+        let mut cleaned_queue: Vec<usize> = Vec::new();
         for (i,j) in &units_queue{
             if j>&1 {               //the if ensures the node has more than one child
+                cleaned_queue.push(*i);
                 deleted.insert(*i);
                 ()
             }
         }
-        (units_queue, deleted)
+        (cleaned_queue, deleted)
     }
 
     fn recursive_collect_units(
@@ -113,7 +115,7 @@ impl<'a> ProofCompressor<'a>{
         }
     }
 
-    fn fix_broken_proof(&mut self, node:usize, collected_nodes: &mut (Vec<(usize, usize)>, Vec<bool>))-> (){
+    /*fn fix_broken_proof(&mut self, node:usize, collected_nodes: &mut (Vec<(usize, usize)>, Vec<bool>))-> (){
         let mut deleted: &Vec<bool> = &collected_nodes.1;
         let units_queue: &Vec<(usize, usize)> = &collected_nodes.0;
         match &self.proof.commands[node]{
@@ -127,7 +129,7 @@ impl<'a> ProofCompressor<'a>{
                 }
             }
         }
-    }
+    }*/
 
 }
 
