@@ -360,8 +360,8 @@ pub fn compress_proof<T: io::BufRead>(
     println!("Preludio");
     println!("{:?}",prelude);
     println!("Prova");
-    for i in proof.iter(){
-        println!("{:?}",i);    
+    for i in 0..proof.commands.len(){
+        println!("{:?}: {:?}",i,&proof.commands[i]);    
     }
     let var = &proof.commands[4];
     if let ProofCommand::Step(step) = var{
@@ -370,9 +370,19 @@ pub fn compress_proof<T: io::BufRead>(
             println!("{:?}",i);
         }
     }
-    println!("\nTestando collect_units:\n");
-    let comp: ProofCompressor = ProofCompressor::new(&proof);
-    let (a,b) = comp.collect_units();
-    println!("{:?}\n{:?}",a,b);
+    
+    let mut comp: ProofCompressor = ProofCompressor::new(&proof);
+    println!("print1\n");
+    comp.print();
+    comp.compress();
+    println!("print2\n");
+    comp.print();
+/*
+    let v = comp.assumes();
+    for i in 0..v.len(){
+        println!("v{}: {}",i,v[i]);
+    }
+*/
+
     Ok(())
 }
