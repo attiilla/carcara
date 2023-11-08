@@ -2,13 +2,13 @@
 //use indexmap::IndexMap;
 //use indexmap::IndexSet;
 use crate::ast::*;
-use std::collections::HashSet;
+use std::collections::{HashSet, HashMap};
 use multiset::HashMultiSet;
 
 
 #[derive(Debug)]
 pub struct ProofCompressor<'a>{
-    original_proof: &'a Proof,
+    _original_proof: &'a Proof,
     proof: Proof,       //remove pub
     current_root: usize,
 //    pub compression_steps: Vec<CompressionAlgorithms>,
@@ -17,7 +17,7 @@ pub struct ProofCompressor<'a>{
 impl<'a> ProofCompressor<'a>{
     pub fn new(p: &Proof)->ProofCompressor{
         ProofCompressor{
-            original_proof: &p,
+            _original_proof: &p,
             proof: p.clone(),
             current_root: ProofCompressor::get_original_root(&p),
         }
@@ -56,7 +56,7 @@ impl<'a> ProofCompressor<'a>{
         }
     }
 
-
+/*
     fn substitute_parents_on_childs(
         &mut self,
         ind: usize,
@@ -81,6 +81,23 @@ impl<'a> ProofCompressor<'a>{
             }
         } 
     }
+*/
+    fn substitute_node_by_parent(
+        &mut self,
+        ind: usize,
+        unitary_parent_ind: usize,
+        substituted: &mut HashMap<usize,usize>
+    ) -> (){
+        if let ProofCommand::Step(node) = &self.proof.commands[ind]{
+            let mut substitute = node.premises[(unitary_parent_ind+1)%2].1;
+            if substituted.contains_key(&substitute){//while provavelmente desnecessário e poderia ser um if, conferir depois
+                substitute = *substituted.get(&substitute).unwrap();
+            }
+            substituted.insert(ind, substitute);
+        }
+    }
+
+
     pub fn compress(&mut self)->(){
         let (mut collected_queue, mut deleted_nodes, mut conclusion_lists)  = self.collect_units();
         self.fix_broken_proof(&deleted_nodes, &conclusion_lists);
@@ -189,27 +206,32 @@ impl<'a> ProofCompressor<'a>{
     )-> (){
         let mut top_down_queue = self.assumes();
         let mut wait_list: HashMultiSet<usize> = HashMultiSet::new();
-        let mut re_resolve: HashSet<usize> = HashSet::new();
+        let mut substituted: HashMap<usize,usize> = HashMap::new();
         for ind in 0..self.proof.commands.len() {
             let i = top_down_queue[ind];
-            println!("fixing {:?}",i);
+            println!("\nfixing {:?}",i);
             let access = &self.proof.commands;
             match &access[i]{
                 ProofCommand::Assume { .. } => {
                     self.increment_conclusions(i, conclusion_lists, &mut top_down_queue, &mut wait_list);
-                    println!("We are in an assume node");
+                    //println!("We are in an assume node");
                 },
                 ProofCommand::Step(ps) => {
                     self.increment_conclusions(i, conclusion_lists, &mut top_down_queue, &mut wait_list);
-                    println!("We are in an proof step node");
+                    //println!("We are in an proof step node");
                     let premises_clone = ps.premises.clone();
+                    let mut deleted_parent_flag = false;
                     for parent in 0..premises_clone.len(){ 
                         if deleted.contains(&premises_clone[parent].1){
+                            deleted_parent_flag = true;
                             println!("There is an deleted parent in this node: {:?}", &premises_clone[parent].1);
-                            self.substitute_parents_on_childs(i, conclusion_lists, (parent+1)%2);
+                            self.substitute_node_by_parent(i, (parent+1)%2, &mut substituted);
                         }
                     }
-                    self.resolve(ps)
+                    if !deleted_parent_flag{
+                        //self.re_resolve(i, &substituted);
+                    }
+                    //self.resolve(ps)
 
                 }
                 ProofCommand::Subproof(_) => (/*Not handled yet*/),
