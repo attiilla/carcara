@@ -372,17 +372,10 @@ pub fn compress_proof<T: io::BufRead>(
     }
     
     let mut comp: ProofCompressor = ProofCompressor::new(&proof);
-    println!("print1\n");
+  
     comp.print();
-    comp.compress();
-    println!("print2\n");
-    comp.print();
-/*
-    let v = comp.assumes();
-    for i in 0..v.len(){
-        println!("v{}: {}",i,v[i]);
-    }
-*/
+    comp.play();
+
 
     Ok(())
 }

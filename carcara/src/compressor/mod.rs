@@ -56,32 +56,7 @@ impl<'a> ProofCompressor<'a>{
         }
     }
 
-/*
-    fn substitute_parents_on_childs(
-        &mut self,
-        ind: usize,
-        conclusion_lists: &Vec<HashSet<usize>>,
-        parent_ind: usize
-    ) -> (){
-        println!("ind: {ind}; ind_p: {parent_ind}");
-        let mut parent: (usize, usize) = (50,50);
-        if let ProofCommand::Step(node) = &self.proof.commands[ind]{
-            parent = node.premises[parent_ind];
-        }
-        println!("Here i want to change the occurrences of {:?} in the childs of {:?} to {:?}",(0,ind),ind,parent);
-        for &child in &conclusion_lists[ind]{
-            println!("{child} is a child of {ind}");
-            if let ProofCommand::Step(ps) = &mut self.proof.commands[child]{
-                for k in 0..ps.premises.len(){
-                    println!("premise {k}: {:?}",ps.premises[k]);
-                    if ps.premises[k] == (0,ind){
-                        ps.premises[k] = parent;
-                   } 
-                }
-            }
-        } 
-    }
-*/
+
     fn substitute_node_by_parent(
         &mut self,
         ind: usize,
@@ -105,7 +80,7 @@ impl<'a> ProofCompressor<'a>{
         //self.reinsert_units(units_queue);
     }
 
-    pub fn collect_units(&self) -> (Vec<usize>, HashSet<usize>, Vec<HashSet<usize>>){
+    fn collect_units(&self) -> (Vec<usize>, HashSet<usize>, Vec<HashSet<usize>>){
         let mut units_queue: Vec<(usize, usize)> = Vec::new();
         let mut marked: HashSet<usize> = HashSet::new();
         let mut conclusion_lists: Vec<HashSet<usize>> = vec![];
@@ -199,7 +174,7 @@ impl<'a> ProofCompressor<'a>{
         }
     }
 
-    pub fn fix_broken_proof(
+    fn fix_broken_proof(
         &mut self,
         deleted: &HashSet<usize>, 
         conclusion_lists: &Vec<HashSet<usize>>
@@ -231,7 +206,6 @@ impl<'a> ProofCompressor<'a>{
                     if !deleted_parent_flag{
                         //self.re_resolve(i, &substituted);
                     }
-                    //self.resolve(ps)
 
                 }
                 ProofCommand::Subproof(_) => (/*Not handled yet*/),
@@ -247,5 +221,72 @@ impl<'a> ProofCompressor<'a>{
                 _ => ()
             }
         }
+    }
+    fn extract_term(&self, p: &ProofCommand) -> Vec<Rc<Term>>{
+        let terms: Vec<Rc<Term>>;
+        terms = match p{
+            ProofCommand::Assume {term,.. } => vec![term.clone()],
+            ProofCommand::Step(ps) => ps.clause.clone(),
+            ProofCommand::Subproof(sp) => {
+                match sp.commands.iter().last(){
+                    Some(pc) => self.extract_term(pc),
+                    None => panic!("Empty subproof")
+                }
+            }
+        };
+        terms
+    }
+
+    /*fn find_arguments(&self, i: usize, j: usize)->(){
+        let terms: [Vec<Rc<Term>>;2] = [
+        self.extract_term(&self.proof.commands[i]),
+        self.extract_term(&self.proof.commands[j])];
+        let left_terms_with_parity: Vec<usize,&Rc<Term>> = terms[0].iter().map(|x| x.remove_all_negations_with_polarity()).collect();
+        let right_terms_with_parity = terms[1].iter().map(|x| x.remove_all_negations_with_polarity()).collect();
+        let left_set: HashSet<(u32, &Rc<Term>)> = left_terms_with_parity.into_iter().map(|(_,b)| b).collect();
+        //let pivot = right_terms_with_parity.iter().find(|(x,y)| 
+        //    left_set.iter().any(|(a,b)| 
+        //            compare_possible_pivot(*x,y))).unwrap();
+        println!("marca");
+    }*/
+
+
+    pub fn find_pivot(&self,i: usize, j: usize) -> Rc<Term>{
+        fn compare_possible_pivot(p: (u32, &Rc<Term>), q: (u32, &Rc<Term>)) -> bool{
+            // check if the literals are distinct && compares how many not they have to see if they can  be used as pivot
+            if (p.1==q.1)&&(p.0%2!=q.0%2){
+                return true;
+            }
+            false
+        }
+        let terms_left: &Vec<Rc<Term>> = &self.extract_term(&self.proof.commands[i]);
+        let terms_right: &Vec<Rc<Term>> = &self.extract_term(&self.proof.commands[j]);
+        let non_negated_terms_left: Vec<(u32, &Rc<Term>)> = terms_left.iter().map(|term| term.remove_all_negations()).collect();
+        
+        let non_negated_terms_right: Vec<(u32, &Rc<Term>)> = terms_right.iter().map(|term| term.remove_all_negations()).collect();
+
+        let aux_set: HashSet<(u32, &Rc<Term>)> = non_negated_terms_left.clone().into_iter().collect();
+        let pivot = non_negated_terms_right.into_iter().find(|&x| 
+                                                    aux_set.iter().any(|&y| 
+                                                            compare_possible_pivot(x,y))).unwrap().1.clone();
+        pivot
+    }
+
+
+    pub fn play(&mut self) -> (){
+        let mut node;
+        for i in 0..self.proof.commands.len(){
+            node = &self.proof.commands[i];
+            match node{
+                ProofCommand::Assume { id, term } => println!("{:?}: Assume {:?}",id,term),
+                ProofCommand::Step(ps) => println!("{:?}: {:?}({:?}) = {:?} (Arguments: {:?})",
+                ps.id, ps.rule, ps.premises, ps.clause, ps.args),
+                ProofCommand::Subproof(_) => ()
+            }
+        }
+        let ans = self.find_pivot(4,0);
+        //println!("terms1: {:?}\nterms2: {:?}",ans[0],ans[1]);
+        println!("{:?}",ans);
+
     }
 }
