@@ -67,6 +67,13 @@ impl<T: ?Sized> Clone for Rc<T> {
     }
 }
 
+
+impl<T: ?Sized> Rc<T> {
+    pub fn get_arc(&self) -> &sync::Arc<T> {
+        &self.0
+    }
+}
+
 impl<T: ?Sized> PartialEq for Rc<T> {
     fn eq(&self, other: &Self) -> bool {
         sync::Arc::ptr_eq(&self.0, &other.0)

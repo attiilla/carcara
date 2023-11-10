@@ -44,12 +44,16 @@ pub mod parser;
 pub mod compressor;
 mod utils;
 
+use crate::ast::{ProofArg, Rc, Term, Ident, Sort};//delete
+use crate::ast::macros::*;//delete
 use crate::benchmarking::{CollectResults, OnlineBenchmarkResults, RunMeasurement};
-use checker::{error::CheckerError, CheckerStatistics};
-use compressor::{ProofCompressor};
+use crate::rules::Premise;
+use checker::{error::CheckerError, CheckerStatistics, rules};
+use compressor::ProofCompressor;
 use parser::{ParserError, Position};
 use std::io;
 use std::time::{Duration, Instant};
+use std::sync;//delete
 use thiserror::Error;
 use ast::ProofCommand;
 
@@ -372,10 +376,47 @@ pub fn compress_proof<T: io::BufRead>(
     }
     
     let mut comp: ProofCompressor = ProofCompressor::new(&proof);
-  
-    comp.print();
-    comp.play();
-
+    let prem1: Premise = Premise::new((0,5),&comp._original_proof.commands[5]);
+    let prem2: Premise = Premise::new((0,9),&comp._original_proof.commands[9]);
+    let premises = vec![prem1, prem2];
+    /*let proof = comp._original_proof.clone();
+    let commando = proof.commands.iter().last().unwrap();
+    if let ProofCommand::Step(ps) = commando{
+        let last_arg = ps.args.iter().last().unwrap();
+        if let ProofArg::Term(t) = last_arg{
+            let termo = t.clone().unwrap();
+            println!("cheguei ao menos aqui");
+            match termo{
+                Result::Ok(termo_fim) => {
+                    println!("cheguei no termo fim");
+                    match termo_fim{
+                        Term::Const(_)=> println!("achei"),
+                        _ => println!("não achei")
+                    }
+                }
+                _ => println!("não cheguei no termo fim")
+            
+            }
+        }
+    }*/
+    //comp.print();
+    //comp.play();
+    println!("Prem1");
+    println!("{:?}",prem1);
+    let arg = comp.find_args(5,9);
+    let arg_term: ProofArg = ProofArg::Term(arg.0);
+    let mut arguments: Vec<ProofArg> = Vec::new();
+    let arg_bool_str: String;
+    if arg.1{
+        arg_bool_str = String::from("true");
+    } else {
+        arg_bool_str = String::from("false");
+    }
+    let rc_var: Rc<Term> = Rc::new(Term::Var(Ident::Simple(arg_bool_str), Rc::new(Term::Sort(Sort::Bool))));
+    let arg_bool: ProofArg = ProofArg::Term(rc_var);
+    arguments.push(arg_term);
+    arguments.push(arg_bool);
+    //let r = apply_generic_resolution(&premises, &arguments, );
 
     Ok(())
 }

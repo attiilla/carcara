@@ -4,12 +4,13 @@
 use crate::ast::*;
 use std::collections::{HashSet, HashMap};
 use multiset::HashMultiSet;
+use crate::checker::rules;
 
 
 #[derive(Debug)]
 pub struct ProofCompressor<'a>{
-    _original_proof: &'a Proof,
-    proof: Proof,       //remove pub
+    pub _original_proof: &'a Proof,
+    proof: Proof,
     current_root: usize,
 //    pub compression_steps: Vec<CompressionAlgorithms>,
 }
@@ -251,7 +252,7 @@ impl<'a> ProofCompressor<'a>{
     }*/
 
 
-    pub fn find_pivot(&self,i: usize, j: usize) -> Rc<Term>{
+    pub fn find_args(&self,i: usize, j: usize) -> (Rc<Term>,bool){
         fn compare_possible_pivot(p: (u32, &Rc<Term>), q: (u32, &Rc<Term>)) -> bool{
             // check if the literals are distinct && compares how many not they have to see if they can  be used as pivot
             if (p.1==q.1)&&(p.0%2!=q.0%2){
@@ -266,10 +267,12 @@ impl<'a> ProofCompressor<'a>{
         let non_negated_terms_right: Vec<(u32, &Rc<Term>)> = terms_right.iter().map(|term| term.remove_all_negations()).collect();
 
         let aux_set: HashSet<(u32, &Rc<Term>)> = non_negated_terms_left.clone().into_iter().collect();
-        let pivot = non_negated_terms_right.into_iter().find(|&x| 
+        let parity_pivot = non_negated_terms_right.into_iter().find(|&x| 
                                                     aux_set.iter().any(|&y| 
-                                                            compare_possible_pivot(x,y))).unwrap().1.clone();
-        pivot
+                                                            compare_possible_pivot(x,y))).unwrap();
+        let order_arg: bool = parity_pivot.0%2!=0;
+        let pivot = parity_pivot.1.clone();
+        return (pivot, order_arg)
     }
 
 
@@ -284,9 +287,8 @@ impl<'a> ProofCompressor<'a>{
                 ProofCommand::Subproof(_) => ()
             }
         }
-        let ans = self.find_pivot(4,0);
+        let ans = self.find_args(9,5);
         //println!("terms1: {:?}\nterms2: {:?}",ans[0],ans[1]);
         println!("{:?}",ans);
-
     }
 }
