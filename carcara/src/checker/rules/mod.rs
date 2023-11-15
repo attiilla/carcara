@@ -219,7 +219,7 @@ pub(super) mod extras;
 pub(super) mod linear_arithmetic;
 pub(super) mod quantifier;
 pub(super) mod reflexivity;
-pub(super) mod resolution;
+pub mod resolution; //TURNBACK pub(super) mod resolution;
 pub(super) mod simplification;
 pub(super) mod subproof;
 pub(super) mod tautology;

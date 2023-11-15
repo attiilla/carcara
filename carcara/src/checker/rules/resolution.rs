@@ -13,7 +13,7 @@ use std::iter::FromIterator;
 type ResolutionTerm<'a> = (u32, &'a Rc<Term>);
 
 /// A collection that can be used as a clause during resolution.
-trait ClauseCollection<'a>: FromIterator<ResolutionTerm<'a>> {
+pub trait ClauseCollection<'a>: FromIterator<ResolutionTerm<'a>> {//TURNBACK
     fn insert_term(&mut self, item: ResolutionTerm<'a>);
 
     fn remove_term(&mut self, item: &ResolutionTerm<'a>) -> bool;
@@ -338,7 +338,7 @@ pub fn strict_resolution(
     }
 }
 
-pub fn apply_generic_resolution<'a, C: ClauseCollection<'a>>(//delete pub
+pub fn apply_generic_resolution<'a, C: ClauseCollection<'a>>(//TURNBACK delete pub
     premises: &'a [Premise],
     args: &'a [ProofArg],
     pool: &mut dyn TermPool,
