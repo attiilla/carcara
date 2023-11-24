@@ -154,7 +154,7 @@ impl<'a> ProofCompressor<'a>{
         substituted: HashMap<usize,usize>,
         proof_pool: &mut PrimitivePool
     )->(){
-        let current_root = self.proof.commands.len()-1;
+        let mut current_root = self.proof.commands.len()-1;
         /*if substituted.contains_key(&current_root){
             current_root = *substituted.get(&current_root).unwrap();
         }*/
@@ -175,6 +175,7 @@ impl<'a> ProofCompressor<'a>{
                 discharge: vec![]
             };
             self.proof.commands.push(ProofCommand::Step(new_proof_step));
+            current_root+=1;
         }
     }
 
