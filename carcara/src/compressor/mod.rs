@@ -53,7 +53,7 @@ impl<'a> ProofCompressor<'a>{
             if substituted.contains_key(&substitute){
                 substitute = *substituted.get(&substitute).unwrap();
             }
-            println!("substituindo {ind} por {substitute}, miss_ind = {unitary_parent_ind}");
+            //println!("substituindo {ind} por {substitute}, miss_ind = {unitary_parent_ind}");
             substituted.insert(ind, substitute);
         }
     }
@@ -65,19 +65,23 @@ impl<'a> ProofCompressor<'a>{
             mut deleted, 
             mut conclusions
             ) = self.smart_collect_units();
-            println!("units queue: \n{:?}\n", units_queue);
-            println!("deleted: \n{:?}\n", deleted);
-            println!("conclusions: \n{:?}\n", conclusions);
-            println!("Proof after collect units:");
-            self.print();
-            println!("Passamos do Collect Units");
+            //println!("units queue: \n{:?}\n", units_queue);
+            //println!("deleted: \n{:?}\n", deleted);
+            //println!("conclusions: \n{:?}\n", conclusions);
+            //println!("Proof after collect units:");
+            //self.print();
+            //println!("Passamos do Collect Units");
             let substituted = self.smart_fix_broken_proof(deleted,proof_pool);
-            println!("Substituted: {:?}", &substituted);
-            println!("Proof after fix:");
-            self.print();
-            println!("Inserting:");
-            self.reinsert_units(units_queue, substituted, proof_pool);
-            println!("Proof after inserting:");
+            //println!("Substituted: {:?}", &substituted);
+            //println!("Proof after fix:");
+            //self.print();
+            //println!("Inserting:");
+            self.reinsert_units(units_queue, &substituted, proof_pool);
+            //println!("Proof after inserting:");
+            //self.print();
+            //println!("Post-processing");
+            self.rebuild(&substituted);
+            //println!("Done");
             self.print()
     }
 
@@ -151,7 +155,7 @@ impl<'a> ProofCompressor<'a>{
     fn reinsert_units(
         &mut self,
         units_queue: Vec<usize>,
-        substituted: HashMap<usize,usize>,
+        substituted: &HashMap<usize,usize>,
         proof_pool: &mut PrimitivePool
     )->(){
         let mut current_root = self.proof.commands.len()-1;
@@ -163,7 +167,7 @@ impl<'a> ProofCompressor<'a>{
             if substituted.contains_key(&unit){
                 unit = *substituted.get(&unit).unwrap();
             }
-            println!("Resolving with {unit}");
+            //println!("Resolving with {unit}");
             let args = self.find_args(current_root,unit,proof_pool);
             let new_clause = self.local_resolution(current_root, unit, &args, proof_pool);
             let new_proof_step = ProofStep{
@@ -177,6 +181,44 @@ impl<'a> ProofCompressor<'a>{
             self.proof.commands.push(ProofCommand::Step(new_proof_step));
             current_root+=1;
         }
+    }
+
+    fn rebuild(&mut self, substituted: &HashMap<usize,usize>) -> (){
+        let mut assume_ind: usize = 0;
+        let mut step_ind: usize = 0;
+        let mut subproof_ind: usize = 0;
+        let mut new_commands: Vec<ProofCommand> = vec![];
+        let mut new_index_table: HashMap<usize,usize> = HashMap::new();
+        //let mut index: usize = 0;
+        for index in 0..self.proof.commands.len(){
+            if !substituted.contains_key(&index){
+                match &mut self.proof.commands[index]{
+                    ProofCommand::Assume{id,term} => {
+                        new_commands.push(ProofCommand::Assume{id: format!("a{assume_ind}"), term: term.clone()});
+                        assume_ind += 1;
+                    }
+                    ProofCommand::Step(ps) => {
+                        ps.id = format!("t{step_ind}");
+                        for (depth, p) in ps.premises.iter_mut() {
+                            if substituted.contains_key(p){
+                                *p = *substituted.get(p).unwrap();
+                            }
+                            if new_index_table.contains_key(p){
+                                *p = *new_index_table.get(p).unwrap();
+                            }
+                        }
+                        new_commands.push(ProofCommand::Step(ps.clone()));
+                        step_ind += 1;
+                    }
+                    ProofCommand::Subproof(sp) => {
+                        new_commands.push(ProofCommand::Subproof(sp.clone()));
+                        subproof_ind += 1;
+                    }
+                }
+                new_index_table.insert(index,new_commands.len()-1);
+            }
+        }
+        self.proof.commands = new_commands;
     }
 
     pub fn print(&self)->(){
@@ -233,7 +275,7 @@ impl<'a> ProofCompressor<'a>{
         substituted: &HashMap<usize,usize>, 
         proof_pool: &mut PrimitivePool
     ) -> (){
-        println!("Re-resolving clause {ind}");
+        //println!("Re-resolving clause {ind}");
         match self.proof.commands[ind].clone(){
             ProofCommand::Step(ps) =>{
                 let mut left_ind = ps.premises[0].1;

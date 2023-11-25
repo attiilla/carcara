@@ -376,6 +376,7 @@ pub fn compress_proof<T: io::BufRead>(
     }
     
     let mut comp: ProofCompressor = ProofCompressor::new(&proof);
+    println!("Comprimida:");
     comp.smart_compress(&mut pool);
     println!("Passou aqui");
     Ok(())
