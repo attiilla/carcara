@@ -3,10 +3,10 @@
 //use indexmap::IndexSet;
 use crate::ast::*;
 use std::collections::{HashSet, HashMap};
-use std::thread::current;
-use multiset::HashMultiSet;
+//use std::thread::current;
+//use multiset::HashMultiSet;
 use crate::checker::rules::Premise;
-use crate::checker::rules::resolution::apply_generic_resolution;
+use crate::checker::rules::resolution::{apply_generic_resolution, unremove_all_negations};
 use crate::checker::error::CheckerError;
 use std::sync::Arc;
 use std::env;
@@ -82,7 +82,8 @@ impl<'a> ProofCompressor<'a>{
             //println!("Post-processing");
             self.rebuild(&substituted);
             //println!("Done");
-            self.print()
+            self.print();
+            let a = print_proof(&self.proof.commands, true);
     }
 
     fn smart_collect_units(&self)->(Vec<usize>, HashSet<usize>, Vec<Vec<usize>>){
@@ -169,17 +170,28 @@ impl<'a> ProofCompressor<'a>{
             }
             //println!("Resolving with {unit}");
             let args = self.find_args(current_root,unit,proof_pool);
-            let new_clause = self.local_resolution(current_root, unit, &args, proof_pool);
-            let new_proof_step = ProofStep{
-                id: "".to_string(),
-                clause: new_clause,
-                rule: "resolution".to_string(),
-                premises: vec![(0,current_root),(0,unit)],
-                args,
-                discharge: vec![]
-            };
-            self.proof.commands.push(ProofCommand::Step(new_proof_step));
-            current_root+=1;
+            //let new_clause = self.local_resolution(current_root, unit, &args, proof_pool);
+            let premises = Self::build_premises(&self.proof.commands, current_root, unit);
+            let nc: Result<Vec<(u32, &Rc<Term>)>, CheckerError> = apply_generic_resolution(&premises, &args, proof_pool);
+            //println!("resolving {current_root} and {unit}");
+            //println!("resolution in reinsert units:\n{:?}",&nc);
+            match nc{
+                Ok(c) => {
+                    let new_clause_set: HashSet<Rc<Term>> = c.into_iter().map(|x| unremove_all_negations(proof_pool,x)).collect();
+                    let new_clause: Vec<Rc<Term>> = new_clause_set.into_iter().collect();
+                    let new_proof_step = ProofStep{
+                        id: "".to_string(),
+                        clause: new_clause,
+                        rule: "resolution".to_string(),
+                        premises: vec![(0,current_root),(0,unit)],
+                        args,
+                        discharge: vec![]
+                    };
+                    self.proof.commands.push(ProofCommand::Step(new_proof_step));
+                    current_root+=1;
+                },
+                _ => println!("Error")
+            }
         }
     }
 
@@ -246,6 +258,7 @@ impl<'a> ProofCompressor<'a>{
     }
 
     pub fn find_args(&self,i: usize, j: usize, proof_pool: &mut PrimitivePool) -> Vec<ProofArg>{
+        //println!("Encontrando argumentos para {i} e {j}");
         fn compare_possible_pivot(p: (u32, &Rc<Term>), q: (u32, &Rc<Term>)) -> bool{
             // check if the literals are distinct && compares how many not they have to see if they can  be used as pivot
             if (p.1==q.1)&&(p.0%2!=q.0%2){
@@ -256,13 +269,15 @@ impl<'a> ProofCompressor<'a>{
         let terms_left: &Vec<Rc<Term>> = &self.extract_term(&self.proof.commands[i]);
         let terms_right: &Vec<Rc<Term>> = &self.extract_term(&self.proof.commands[j]);
         let non_negated_terms_left: Vec<(u32, &Rc<Term>)> = terms_left.iter().map(|term| term.remove_all_negations()).collect();
-        
+        //println!("Esquerda:{:?}",&non_negated_terms_left);
         let non_negated_terms_right: Vec<(u32, &Rc<Term>)> = terms_right.iter().map(|term| term.remove_all_negations()).collect();
-
+        //println!("Direita:{:?}",&non_negated_terms_right);
         let aux_set: HashSet<(u32, &Rc<Term>)> = non_negated_terms_left.clone().into_iter().collect();
-        let parity_pivot = non_negated_terms_right.into_iter().find(|&x| 
+        let pp = non_negated_terms_right.into_iter().find(|&x| 
                                                     aux_set.iter().any(|&y| 
-                                                            compare_possible_pivot(x,y))).unwrap();
+                                                            compare_possible_pivot(x,y)));
+        //println!("pp:{:?}",&pp);
+        let parity_pivot = pp.unwrap();
         let order_arg: bool = parity_pivot.0%2!=0;
         let pivot = parity_pivot.1.clone();
         let args = vec![ProofArg::Term(pivot), ProofArg::Term(proof_pool.bool_constant(order_arg))];
@@ -288,14 +303,32 @@ impl<'a> ProofCompressor<'a>{
                 }
 
                 let args = self.find_args(left_ind,right_ind, proof_pool);
-                let resolvent: Vec<Rc<Term>> = self.local_resolution(left_ind, right_ind, &args, proof_pool);
-                if let ProofCommand::Step(pps) = &mut self.proof.commands[ind]{
-                    pps.args = args;
-                    pps.clause = resolvent;
+                let premises = Self::build_premises(&self.proof.commands, left_ind, right_ind);
+                //let resolvent: Vec<Rc<Term>> = self.local_resolution(left_ind, right_ind, &args, proof_pool);
+                let resolution: Result<Vec<(u32, &Rc<Term>)>, CheckerError> = apply_generic_resolution(&premises, &args, proof_pool);
+                //println!("resolving {left_ind} and {right_ind}");
+                //println!("resolution in re-resolve:\n{:?}",&resolution);
+                match resolution{
+                    Ok(r) => {
+                        let resolvent_set: HashSet<Rc<Term>> = r.into_iter().map(|x| unremove_all_negations(proof_pool,x)).collect();
+                        let resolvent: Vec<Rc<Term>> = resolvent_set.into_iter().collect();
+                        if let ProofCommand::Step(pps) = &mut self.proof.commands[ind]{
+                            pps.args = args;
+                            pps.clause = resolvent;
+                        }
+                    },
+                    _ => println!("Error")
                 }
             }
             _ => ()
         }
+    }
+
+    fn build_premises(commands: &Vec<ProofCommand>, left: usize, right: usize)->Vec<Premise> {
+        let mut ans: Vec<Premise> = vec![];
+        ans.push(Premise::new((0,left),&commands[left]));
+        ans.push(Premise::new((0,right),&commands[right]));
+        ans
     }
 
     fn local_resolution(
