@@ -59,11 +59,10 @@ impl<'a> ProofCompressor<'a>{
     }
 
     pub fn smart_compress(&mut self, proof_pool: &mut PrimitivePool) -> (){
-        env::set_var("RUST_BACKTRACE", "1");
+        //env::set_var("RUST_BACKTRACE", "1");
         let (
             mut units_queue, 
-            mut deleted, 
-            mut conclusions
+            mut deleted,
             ) = self.smart_collect_units();
             //println!("units queue: \n{:?}\n", units_queue);
             //println!("deleted: \n{:?}\n", deleted);
@@ -86,7 +85,7 @@ impl<'a> ProofCompressor<'a>{
             let a = print_proof(&self.proof.commands, true);
     }
 
-    fn smart_collect_units(&self)->(Vec<usize>, HashSet<usize>, Vec<Vec<usize>>){
+    fn smart_collect_units(&self)->(Vec<usize>, HashSet<usize>){
         let mut units_queue: Vec<usize> = vec![]; 
         let mut deleted: HashSet<usize> = HashSet::new(); 
         let mut not_mark: HashSet<usize> = HashSet::new(); 
@@ -118,7 +117,7 @@ impl<'a> ProofCompressor<'a>{
                 ProofCommand::Subproof(_) => ()
             }
         }
-        return (units_queue, deleted, conclusion_lists)
+        return (units_queue, deleted)
     }
 
     fn smart_fix_broken_proof(
