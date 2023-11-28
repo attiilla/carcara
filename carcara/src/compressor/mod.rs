@@ -61,8 +61,8 @@ impl<'a> ProofCompressor<'a>{
     pub fn smart_compress(&mut self, proof_pool: &mut PrimitivePool) -> (){
         //env::set_var("RUST_BACKTRACE", "1");
         let (
-            mut units_queue, 
-            mut deleted,
+            units_queue, 
+            deleted,
             ) = self.smart_collect_units();
             //println!("units queue: \n{:?}\n", units_queue);
             //println!("deleted: \n{:?}\n", deleted);
@@ -168,29 +168,35 @@ impl<'a> ProofCompressor<'a>{
                 unit = *substituted.get(&unit).unwrap();
             }
             //println!("Resolving with {unit}");
-            let args = self.find_args(current_root,unit,proof_pool);
-            //let new_clause = self.local_resolution(current_root, unit, &args, proof_pool);
-            let premises = Self::build_premises(&self.proof.commands, current_root, unit);
-            let nc: Result<Vec<(u32, &Rc<Term>)>, CheckerError> = apply_generic_resolution(&premises, &args, proof_pool);
-            //println!("resolving {current_root} and {unit}");
-            //println!("resolution in reinsert units:\n{:?}",&nc);
-            match nc{
-                Ok(c) => {
-                    let new_clause_set: HashSet<Rc<Term>> = c.into_iter().map(|x| unremove_all_negations(proof_pool,x)).collect();
-                    let new_clause: Vec<Rc<Term>> = new_clause_set.into_iter().collect();
-                    let new_proof_step = ProofStep{
-                        id: "".to_string(),
-                        clause: new_clause,
-                        rule: "resolution".to_string(),
-                        premises: vec![(0,current_root),(0,unit)],
-                        args,
-                        discharge: vec![]
-                    };
-                    self.proof.commands.push(ProofCommand::Step(new_proof_step));
-                    current_root+=1;
-                },
-                _ => println!("Error")
+            let args_op = self.find_args(current_root,unit,proof_pool);
+            match args_op{
+                Some(args) => {
+                    //let new_clause = self.local_resolution(current_root, unit, &args, proof_pool);
+                    let premises = Self::build_premises(&self.proof.commands, current_root, unit);
+                    let nc: Result<Vec<(u32, &Rc<Term>)>, CheckerError> = apply_generic_resolution(&premises, &args, proof_pool);
+                    //println!("resolving {current_root} and {unit}");
+                    //println!("resolution in reinsert units:\n{:?}",&nc);
+                    match nc{
+                        Ok(c) => {
+                            let new_clause_set: HashSet<Rc<Term>> = c.into_iter().map(|x| unremove_all_negations(proof_pool,x)).collect();
+                            let new_clause: Vec<Rc<Term>> = new_clause_set.into_iter().collect();
+                            let new_proof_step = ProofStep{
+                                id: "".to_string(),
+                                clause: new_clause,
+                                rule: "resolution".to_string(),
+                                premises: vec![(0,current_root),(0,unit)],
+                                args,
+                                discharge: vec![]
+                            };
+                            self.proof.commands.push(ProofCommand::Step(new_proof_step));
+                            current_root+=1;
+                        },
+                        _ => println!("Error")
+                    }
+                        }
+                        None => ()
             }
+            
         }
     }
 
@@ -204,7 +210,7 @@ impl<'a> ProofCompressor<'a>{
         for index in 0..self.proof.commands.len(){
             if !substituted.contains_key(&index){
                 match &mut self.proof.commands[index]{
-                    ProofCommand::Assume{id,term} => {
+                    ProofCommand::Assume{term,..} => {
                         new_commands.push(ProofCommand::Assume{id: format!("a{assume_ind}"), term: term.clone()});
                         assume_ind += 1;
                     }
@@ -256,7 +262,7 @@ impl<'a> ProofCompressor<'a>{
         terms
     }
 
-    pub fn find_args(&self,i: usize, j: usize, proof_pool: &mut PrimitivePool) -> Vec<ProofArg>{
+    pub fn find_args(&self,i: usize, j: usize, proof_pool: &mut PrimitivePool) -> Option<Vec<ProofArg>>{
         //println!("Encontrando argumentos para {i} e {j}");
         fn compare_possible_pivot(p: (u32, &Rc<Term>), q: (u32, &Rc<Term>)) -> bool{
             // check if the literals are distinct && compares how many not they have to see if they can  be used as pivot
@@ -276,11 +282,15 @@ impl<'a> ProofCompressor<'a>{
                                                     aux_set.iter().any(|&y| 
                                                             compare_possible_pivot(x,y)));
         //println!("pp:{:?}",&pp);
-        let parity_pivot = pp.unwrap();
-        let order_arg: bool = parity_pivot.0%2!=0;
-        let pivot = parity_pivot.1.clone();
-        let args = vec![ProofArg::Term(pivot), ProofArg::Term(proof_pool.bool_constant(order_arg))];
-        return args
+        match pp{
+            Some(parity_pivot) => {
+                let order_arg: bool = parity_pivot.0%2!=0;
+                let pivot = parity_pivot.1.clone();
+                let args = vec![ProofArg::Term(pivot), ProofArg::Term(proof_pool.bool_constant(order_arg))];
+                return Some(args)
+            }
+            None => return None
+        }
     }
 
     fn re_resolve(
@@ -301,22 +311,27 @@ impl<'a> ProofCompressor<'a>{
                     right_ind = *substituted.get(&right_ind).unwrap();
                 }
 
-                let args = self.find_args(left_ind,right_ind, proof_pool);
-                let premises = Self::build_premises(&self.proof.commands, left_ind, right_ind);
-                //let resolvent: Vec<Rc<Term>> = self.local_resolution(left_ind, right_ind, &args, proof_pool);
-                let resolution: Result<Vec<(u32, &Rc<Term>)>, CheckerError> = apply_generic_resolution(&premises, &args, proof_pool);
-                //println!("resolving {left_ind} and {right_ind}");
-                //println!("resolution in re-resolve:\n{:?}",&resolution);
-                match resolution{
-                    Ok(r) => {
-                        let resolvent_set: HashSet<Rc<Term>> = r.into_iter().map(|x| unremove_all_negations(proof_pool,x)).collect();
-                        let resolvent: Vec<Rc<Term>> = resolvent_set.into_iter().collect();
-                        if let ProofCommand::Step(pps) = &mut self.proof.commands[ind]{
-                            pps.args = args;
-                            pps.clause = resolvent;
+                let args_op = self.find_args(left_ind,right_ind, proof_pool);
+                match args_op{
+                    Some(args)=>{
+                        let premises = Self::build_premises(&self.proof.commands, left_ind, right_ind);
+                        //let resolvent: Vec<Rc<Term>> = self.local_resolution(left_ind, right_ind, &args, proof_pool);
+                        let resolution: Result<Vec<(u32, &Rc<Term>)>, CheckerError> = apply_generic_resolution(&premises, &args, proof_pool);
+                        //println!("resolving {left_ind} and {right_ind}");
+                        //println!("resolution in re-resolve:\n{:?}",&resolution);
+                        match resolution{
+                            Ok(r) => {
+                                let resolvent_set: HashSet<Rc<Term>> = r.into_iter().map(|x| unremove_all_negations(proof_pool,x)).collect();
+                                let resolvent: Vec<Rc<Term>> = resolvent_set.into_iter().collect();
+                                if let ProofCommand::Step(pps) = &mut self.proof.commands[ind]{
+                                    pps.args = args;
+                                    pps.clause = resolvent;
+                                }
+                            },
+                            _ => println!("Error: Clauses couldn't be resolved")
                         }
-                    },
-                    _ => println!("Error")
+                    }
+                    None => println!("Error: arguments couldn't be found")
                 }
             }
             _ => ()
