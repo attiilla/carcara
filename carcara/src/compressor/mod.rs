@@ -9,7 +9,7 @@ use crate::checker::rules::Premise;
 use crate::checker::rules::resolution::{apply_generic_resolution, unremove_all_negations};
 use crate::checker::error::CheckerError;
 use std::sync::Arc;
-use std::env;
+//use std::env;
 
 
 
@@ -31,17 +31,6 @@ impl<'a> ProofCompressor<'a>{
     }
 
 
-    pub fn assumes(&self) -> Vec<usize>{
-        let mut assumes_vec: Vec<usize> = Vec::new();
-        for i in 0..self.proof.commands.len(){
-            match self.proof.commands[i]{
-                ProofCommand::Assume{..} => assumes_vec.push(i),
-                _ => ()
-            }
-        }
-        assumes_vec
-    }
-
     fn substitute_node_by_parent(
         &self,
         ind: usize,
@@ -53,7 +42,6 @@ impl<'a> ProofCompressor<'a>{
             if substituted.contains_key(&substitute){
                 substitute = *substituted.get(&substitute).unwrap();
             }
-            //println!("substituindo {ind} por {substitute}, miss_ind = {unitary_parent_ind}");
             substituted.insert(ind, substitute);
         }
     }
@@ -64,25 +52,11 @@ impl<'a> ProofCompressor<'a>{
             units_queue, 
             deleted,
             ) = self.smart_collect_units();
-            //println!("units queue: \n{:?}\n", units_queue);
-            //println!("deleted: \n{:?}\n", deleted);
-            //println!("conclusions: \n{:?}\n", conclusions);
-            //println!("Proof after collect units:");
-            //self.print();
-            //println!("Passamos do Collect Units");
             let substituted = self.smart_fix_broken_proof(deleted,proof_pool);
-            //println!("Substituted: {:?}", &substituted);
-            //println!("Proof after fix:");
-            //self.print();
-            //println!("Inserting:");
             self.reinsert_units(units_queue, &substituted, proof_pool);
-            //println!("Proof after inserting:");
-            //self.print();
-            //println!("Post-processing");
             self.rebuild(&substituted);
-            //println!("Done");
             self.print();
-            let a = print_proof(&self.proof.commands, true);
+            let _ = print_proof(&self.proof.commands, true);
     }
 
     fn smart_collect_units(&self)->(Vec<usize>, HashSet<usize>){
@@ -124,10 +98,8 @@ impl<'a> ProofCompressor<'a>{
         &mut self,
         deleted: HashSet<usize>,
         proof_pool: &mut PrimitivePool 
-    )->HashMap<usize, usize>/*()*/{
+    )->HashMap<usize, usize>{
         let mut substituted: HashMap<usize, usize> = HashMap::new();
-        //let mut i = 0;
-        //for pc in self.proof.commands.iter(){
         for i in 0..self.proof.commands.len(){
             match &self.proof.commands[i]{
                 ProofCommand::Assume {..} => (),
@@ -159,23 +131,17 @@ impl<'a> ProofCompressor<'a>{
         proof_pool: &mut PrimitivePool
     )->(){
         let mut current_root = self.proof.commands.len()-1;
-        /*if substituted.contains_key(&current_root){
-            current_root = *substituted.get(&current_root).unwrap();
-        }*/
         for u in units_queue{
             let mut unit = u;
             if substituted.contains_key(&unit){
                 unit = *substituted.get(&unit).unwrap();
             }
-            //println!("Resolving with {unit}");
             let args_op = self.find_args(current_root,unit,proof_pool);
             match args_op{
                 Some(args) => {
                     //let new_clause = self.local_resolution(current_root, unit, &args, proof_pool);
                     let premises = Self::build_premises(&self.proof.commands, current_root, unit);
                     let nc: Result<Vec<(u32, &Rc<Term>)>, CheckerError> = apply_generic_resolution(&premises, &args, proof_pool);
-                    //println!("resolving {current_root} and {unit}");
-                    //println!("resolution in reinsert units:\n{:?}",&nc);
                     match nc{
                         Ok(c) => {
                             let new_clause_set: HashSet<Rc<Term>> = c.into_iter().map(|x| unremove_all_negations(proof_pool,x)).collect();
@@ -206,7 +172,6 @@ impl<'a> ProofCompressor<'a>{
         let mut subproof_ind: usize = 0;
         let mut new_commands: Vec<ProofCommand> = vec![];
         let mut new_index_table: HashMap<usize,usize> = HashMap::new();
-        //let mut index: usize = 0;
         for index in 0..self.proof.commands.len(){
             if !substituted.contains_key(&index){
                 match &mut self.proof.commands[index]{
@@ -263,7 +228,6 @@ impl<'a> ProofCompressor<'a>{
     }
 
     pub fn find_args(&self,i: usize, j: usize, proof_pool: &mut PrimitivePool) -> Option<Vec<ProofArg>>{
-        //println!("Encontrando argumentos para {i} e {j}");
         fn compare_possible_pivot(p: (u32, &Rc<Term>), q: (u32, &Rc<Term>)) -> bool{
             // check if the literals are distinct && compares how many not they have to see if they can  be used as pivot
             if (p.1==q.1)&&(p.0%2!=q.0%2){
@@ -274,14 +238,11 @@ impl<'a> ProofCompressor<'a>{
         let terms_left: &Vec<Rc<Term>> = &self.extract_term(&self.proof.commands[i]);
         let terms_right: &Vec<Rc<Term>> = &self.extract_term(&self.proof.commands[j]);
         let non_negated_terms_left: Vec<(u32, &Rc<Term>)> = terms_left.iter().map(|term| term.remove_all_negations()).collect();
-        //println!("Esquerda:{:?}",&non_negated_terms_left);
         let non_negated_terms_right: Vec<(u32, &Rc<Term>)> = terms_right.iter().map(|term| term.remove_all_negations()).collect();
-        //println!("Direita:{:?}",&non_negated_terms_right);
         let aux_set: HashSet<(u32, &Rc<Term>)> = non_negated_terms_left.clone().into_iter().collect();
         let pp = non_negated_terms_right.into_iter().find(|&x| 
                                                     aux_set.iter().any(|&y| 
                                                             compare_possible_pivot(x,y)));
-        //println!("pp:{:?}",&pp);
         match pp{
             Some(parity_pivot) => {
                 let order_arg: bool = parity_pivot.0%2!=0;
@@ -299,7 +260,6 @@ impl<'a> ProofCompressor<'a>{
         substituted: &HashMap<usize,usize>, 
         proof_pool: &mut PrimitivePool
     ) -> (){
-        //println!("Re-resolving clause {ind}");
         match self.proof.commands[ind].clone(){
             ProofCommand::Step(ps) =>{
                 let mut left_ind = ps.premises[0].1;
@@ -315,10 +275,7 @@ impl<'a> ProofCompressor<'a>{
                 match args_op{
                     Some(args)=>{
                         let premises = Self::build_premises(&self.proof.commands, left_ind, right_ind);
-                        //let resolvent: Vec<Rc<Term>> = self.local_resolution(left_ind, right_ind, &args, proof_pool);
                         let resolution: Result<Vec<(u32, &Rc<Term>)>, CheckerError> = apply_generic_resolution(&premises, &args, proof_pool);
-                        //println!("resolving {left_ind} and {right_ind}");
-                        //println!("resolution in re-resolve:\n{:?}",&resolution);
                         match resolution{
                             Ok(r) => {
                                 let resolvent_set: HashSet<Rc<Term>> = r.into_iter().map(|x| unremove_all_negations(proof_pool,x)).collect();
