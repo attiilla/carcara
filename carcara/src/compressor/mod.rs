@@ -17,7 +17,6 @@ use std::sync::Arc;
 pub struct ProofCompressor<'a>{
     pub _original_proof: &'a Proof,
     proof: Proof,
-    current_root: usize,
 //    pub compression_steps: Vec<CompressionAlgorithms>,
 }
 
@@ -25,8 +24,7 @@ impl<'a> ProofCompressor<'a>{
     pub fn new(p: &Proof)->ProofCompressor{
         ProofCompressor{
             _original_proof: &p,
-            proof: p.clone(),
-            current_root: p.commands.len()-1,
+            proof: p.clone()
         }
     }
 
@@ -169,7 +167,7 @@ impl<'a> ProofCompressor<'a>{
     fn rebuild(&mut self, substituted: &HashMap<usize,usize>) -> (){
         let mut assume_ind: usize = 0;
         let mut step_ind: usize = 0;
-        let mut subproof_ind: usize = 0;
+        let mut _subproof_ind: usize = 0;
         let mut new_commands: Vec<ProofCommand> = vec![];
         let mut new_index_table: HashMap<usize,usize> = HashMap::new();
         for index in 0..self.proof.commands.len(){
@@ -181,7 +179,7 @@ impl<'a> ProofCompressor<'a>{
                     }
                     ProofCommand::Step(ps) => {
                         ps.id = format!("t{step_ind}");
-                        for (depth, p) in ps.premises.iter_mut() {
+                        for (_depth, p) in ps.premises.iter_mut() {
                             if substituted.contains_key(p){
                                 *p = *substituted.get(p).unwrap();
                             }
@@ -194,7 +192,7 @@ impl<'a> ProofCompressor<'a>{
                     }
                     ProofCommand::Subproof(sp) => {
                         new_commands.push(ProofCommand::Subproof(sp.clone()));
-                        subproof_ind += 1;
+                        _subproof_ind += 1;
                     }
                 }
                 new_index_table.insert(index,new_commands.len()-1);
@@ -302,7 +300,7 @@ impl<'a> ProofCompressor<'a>{
         ans
     }
 
-    fn local_resolution(
+    /*fn local_resolution(
         &self, 
         left: usize, 
         right: usize, 
@@ -343,9 +341,9 @@ impl<'a> ProofCompressor<'a>{
         }
         let terms: Vec<_> = terms_set.into_iter().collect();
         terms
-    }
+    }*/
 
-    pub fn play(&'a mut self, pool: &mut PrimitivePool) -> (){
+    pub fn play(&'a mut self, _pool: &mut PrimitivePool) -> (){
         let pc = &self.proof.commands[11];
         if let ProofCommand::Step(ps) = pc {
             let tt = ps.clause[0].clone();
