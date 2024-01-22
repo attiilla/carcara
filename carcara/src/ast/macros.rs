@@ -159,8 +159,21 @@ macro_rules! match_term {
     (@GET_VARIANT <=)       => { $crate::ast::Operator::LessEq };
     (@GET_VARIANT >=)       => { $crate::ast::Operator::GreaterEq };
     (@GET_VARIANT bbterm)   => { $crate::ast::Operator::BvBbTerm };
-    (@GET_VARIANT bvult)    => { $crate::ast::Operator::BvULt };
+    (@GET_VARIANT bvnot)    => { $crate::ast::Operator::BvNot };
+    (@GET_VARIANT bvneg)    => { $crate::ast::Operator::BvNeg };
+    (@GET_VARIANT bvand)    => { $crate::ast::Operator::BvAnd };
+    (@GET_VARIANT bvor)    => { $crate::ast::Operator::BvOr };
+    (@GET_VARIANT bvxor)    => { $crate::ast::Operator::BvXor };
+    (@GET_VARIANT bvxnor)    => { $crate::ast::Operator::BvXNor };
     (@GET_VARIANT bvadd)    => { $crate::ast::Operator::BvAdd };
+    (@GET_VARIANT bvmul)    => { $crate::ast::Operator::BvMul };
+    (@GET_VARIANT bvudiv)    => { $crate::ast::Operator::BvUDiv };
+    (@GET_VARIANT bvurem)    => { $crate::ast::Operator::BvURem };
+    (@GET_VARIANT bvshl)    => { $crate::ast::Operator::BvShl };
+    (@GET_VARIANT bvlshr)    => { $crate::ast::Operator::BvLShr };
+    (@GET_VARIANT bvslt)    => { $crate::ast::Operator::BvSLt };
+    (@GET_VARIANT bvult)    => { $crate::ast::Operator::BvULt };
+    (@GET_VARIANT concat)    => { $crate::ast::Operator::BvConcat };
 
     (@GET_VARIANT extract)     => { $crate::ast::IndexedOperator::BvExtract };
     (@GET_VARIANT bit_of)      => { $crate::ast::IndexedOperator::BvBitOf };
