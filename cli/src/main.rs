@@ -457,7 +457,7 @@ fn compress_command(options: CompressOptions) -> CliResult<()>{
     let compressed = compress_proof(
         problem, 
         proof, 
-        build_carcara_options(options.parsing, options.checking, options.stats))/*?*/;
+        build_carcara_options(options.parsing, options.checking, options.stats))?;
     println!("Tá sim");
     //print_proof(&compressed.commands,options.printing.use_sharing)?;
     Ok(())

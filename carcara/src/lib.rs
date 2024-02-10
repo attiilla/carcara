@@ -353,14 +353,14 @@ pub fn compress_proof<T: io::BufRead>(
     options: CarcaraOptions,
 ) -> /*Result<ast::Proof, Error>*/Result<(),Error> {
     // Parsing
-    let total = Instant::now();
+    //let total = Instant::now();
     let config = parser::Config {
         apply_function_defs: options.apply_function_defs,
         expand_lets: options.expand_lets,
         allow_int_real_subtyping: options.allow_int_real_subtyping,
     };
     let (prelude, proof, mut pool) = parser::parse_instance(problem, proof, config)?;
-    
+    /*
     println!("Preludio");
     println!("{:?}",prelude);
     println!("Prova");
@@ -374,10 +374,17 @@ pub fn compress_proof<T: io::BufRead>(
             println!("{:?}",i);
         }
     }
-    
+    */
     let mut comp: ProofCompressor = ProofCompressor::new(&proof);
-    println!("Comprimida:");
-    comp.smart_compress(&mut pool);
+    comp.run_compressor(&mut pool);
+    //println!("Impressão:");
+    //comp.print();
+    //println!("\n\nPlay:");
+    //comp.play(&mut pool);
+    //println!("Impressão da subprova:");
+    //comp.inspect_subproof(0);
+    //comp.generic_compress(&mut pool);
+    //comp.print();
     println!("Passou aqui");
     Ok(())
 }

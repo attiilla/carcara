@@ -4,21 +4,54 @@
 use crate::ast::*;
 use std::collections::{HashSet, HashMap};
 //use std::thread::current;
-//use multiset::HashMultiSet;
+use multiset::HashMultiSet;
 use crate::checker::rules::Premise;
+//use crate::checker::rules::RuleArgs;
 use crate::checker::rules::resolution::{apply_generic_resolution, unremove_all_negations};
 use crate::checker::error::CheckerError;
-use std::sync::Arc;
-//use std::env;
+//use std::time::Duration;
+//use std::sync::Arc;
+use std::env;
 
+mod error;
+use crate::compressor::error::{CompressionError, CollectionError};
 
+//cvc5 file --dump-proof --proof-format-mode=alethe --proof-granularity=theory-rewrite
+//ignorar passos de subproof
 
 #[derive(Debug)]
 pub struct ProofCompressor<'a>{
     pub _original_proof: &'a Proof,
     proof: Proof,
-//    pub compression_steps: Vec<CompressionAlgorithms>,
 }
+
+pub fn print_subproof(sp: &Subproof, depth: Option<usize>) -> (){
+    println!("Assigment args:\n{:?}",sp.assignment_args);
+    println!("Variable args:\n{:?}",sp.variable_args);
+    println!("Context id: {:?}",sp.context_id);
+    println!("Commands:");
+    match depth{
+        None => {
+            for c in sp.commands.iter().enumerate(){
+                match c.1{
+                    ProofCommand::Assume { id, term } => println!("{} - assume {}: {:?}", c.0, id, term),
+                    ProofCommand::Step(ps) => println!("{} - {} {}:\n {:?} -> {:?}", c.0, ps.rule, ps.id, ps.premises, ps.clause),
+                    ProofCommand::Subproof(sp) => print_subproof(sp, Some(1))
+                }
+            }
+        }
+        Some(d) => {
+            for c in sp.commands.iter().enumerate(){
+                match c.1{
+                    ProofCommand::Assume { id, term } => println!("{}.{} - assume {}: {:?}", d, c.0, id, term),
+                    ProofCommand::Step(ps) => println!("{}.{} - {} {}:\n {:?} -> {:?}", d, c.0, ps.rule, ps.id, ps.premises, ps.clause),
+                    ProofCommand::Subproof(sp) => print_subproof(sp,Some(d+1))
+                }
+            }
+        }
+    }
+}
+
 
 impl<'a> ProofCompressor<'a>{
     pub fn new(p: &Proof)->ProofCompressor{
@@ -28,7 +61,6 @@ impl<'a> ProofCompressor<'a>{
         }
     }
 
-
     fn substitute_node_by_parent(
         &self,
         ind: usize,
@@ -36,7 +68,7 @@ impl<'a> ProofCompressor<'a>{
         substituted: &mut HashMap<usize,usize>
     ) -> (){
         if let ProofCommand::Step(node) = &self.proof.commands[ind]{
-            let mut substitute = node.premises[(unitary_parent_ind+1)%2].1;
+            let mut substitute = node.premises[unitary_parent_ind].1;
             if substituted.contains_key(&substitute){
                 substitute = *substituted.get(&substitute).unwrap();
             }
@@ -44,17 +76,75 @@ impl<'a> ProofCompressor<'a>{
         }
     }
 
+
     pub fn smart_compress(&mut self, proof_pool: &mut PrimitivePool) -> (){
-        //env::set_var("RUST_BACKTRACE", "1");
+        env::set_var("RUST_BACKTRACE", "1");
+        println!("Prova original");
+        self.print();
         let (
             units_queue, 
             deleted,
             ) = self.smart_collect_units();
+        println!("collected");
+        if units_queue.len()>0 {
             let substituted = self.smart_fix_broken_proof(deleted,proof_pool);
+            println!("fixed");
             self.reinsert_units(units_queue, &substituted, proof_pool);
+            println!("reinserted");
             self.rebuild(&substituted);
+            println!("Prova após compressão");
             self.print();
             let _ = print_proof(&self.proof.commands, true);
+        }
+    }
+
+    pub fn generic_compress(&'a mut self, _pool: &mut PrimitivePool) ->(){
+        env::set_var("RUST_BACKTRACE", "1");
+        println!("Prova original");
+        self.print();
+        let (
+            units_queue, 
+            del,
+            ) = self.generic_collect_units();
+        println!("collected");
+        if units_queue.len()>0{
+            let substituted = self.generic_fix_broken_proof(del,_pool);
+            println!("fixed");
+            self.generic_reinsert_units(units_queue, &substituted, _pool);
+            println!("reinserted");
+            self.rebuild(&substituted);
+            println!("Prova após compressão");
+            self.print();
+            let _ = print_proof(&self.proof.commands, true);
+        }
+    }
+
+    pub fn run_compressor(&'a mut self, _pool: &mut PrimitivePool) -> (){
+        match self.compress(_pool){
+            Err(e) => {
+                println!("Compression is impossible.");
+                match e{
+                    CompressionError::Collection(_) => println!("There is no collectable clauses."),
+                    CompressionError::SubproofNotImplementedYet => println!("The logic to compress subproofs is yet to be implemented."),
+                    CompressionError::ResolutionError(res) => println!("There was an error when resolving the clauses {:?}.",res),
+                }
+            }
+            Ok(()) => ()
+        }
+        ()
+    }
+
+    fn compress(&'a mut self, _pool: &mut PrimitivePool) -> Result<(),CompressionError>{
+        match self.collect_units(){
+            Err(e) => return Err(CompressionError::Collection(e)),
+            Ok((units_queue, del)) => {
+                let substituted = self.fix_broken_proof(del,_pool)?;
+                self.handled_reinsert_units(units_queue, &substituted, _pool)?;
+                self.rebuild(&substituted);
+                let _ = print_proof(&self.proof.commands, true);
+            }
+        };
+        Ok(())
     }
 
     fn smart_collect_units(&self)->(Vec<usize>, HashSet<usize>){
@@ -75,21 +165,91 @@ impl<'a> ProofCompressor<'a>{
                     }
                 }
                 ProofCommand::Step(ps) => {
-                    for (_,j) in ps.premises.clone(){
-                        conclusion_lists[j].push(i);
-                    }
-                    if ps.rule=="or"{
-                        not_mark.insert(ps.premises[0].1);
-                    }
-                    if ps.clause.len()==1 && conclusion_lists[i].len()>1{
-                        units_queue.push(i);
-                        deleted.insert(i);
+                    let is_resolution = ps.rule=="resolution";
+                    if is_resolution{
+                        for (_,j) in ps.premises.clone(){
+                            conclusion_lists[j].push(i);
+                        }
+                        if ps.rule=="or"{
+                            not_mark.insert(ps.premises[0].1);
+                        }
+                        if ps.clause.len()==1 && conclusion_lists[i].len()>1{
+                            units_queue.push(i);
+                            deleted.insert(i);
+                        }
                     }
                 }
                 ProofCommand::Subproof(_) => ()
             }
         }
         return (units_queue, deleted)
+    }
+
+    fn generic_collect_units(&self)->(Vec<usize>, HashSet<usize>){
+        let mut units_queue: Vec<usize> = vec![]; 
+        let mut deleted: HashSet<usize> = HashSet::new();  
+        let mut resolution_premises: HashMultiSet<usize> = HashMultiSet::new();
+
+        for i in (0..self.proof.commands.len()).rev(){
+            let pc = &self.proof.commands[i];
+            match pc{
+                ProofCommand::Assume{..} => {
+                    if resolution_premises.count_of(&i)>=2{
+                        units_queue.push(i);
+                        deleted.insert(i);
+                    }
+                }
+                ProofCommand::Step(ps) => {
+                    let is_resolution = ps.rule=="resolution";
+                    if is_resolution{
+                        for (_,j) in ps.premises.clone(){
+                            resolution_premises.insert(j);
+                        }
+                        if resolution_premises.count_of(&i)>=2 && ps.clause.len()==1{
+                            units_queue.push(i);
+                            deleted.insert(i);
+                        }
+                    }
+                }
+                ProofCommand::Subproof(_) => ()
+            }
+        }
+        return (units_queue, deleted)
+    }
+
+    fn collect_units(&self)->Result<(Vec<usize>, HashSet<usize>),CollectionError>{
+        let mut units_queue: Vec<usize> = vec![]; 
+        let mut deleted: HashSet<usize> = HashSet::new();  
+        let mut resolution_premises: HashMultiSet<usize> = HashMultiSet::new();
+
+        for i in (0..self.proof.commands.len()).rev(){
+            let pc = &self.proof.commands[i];
+            match pc{
+                ProofCommand::Assume{..} => {
+                    if resolution_premises.count_of(&i)>=2{
+                        units_queue.push(i);
+                        deleted.insert(i);
+                    }
+                }
+                ProofCommand::Step(ps) => {
+                    let is_resolution = ps.rule=="resolution";
+                    if is_resolution{
+                        for (_,j) in ps.premises.clone(){
+                            resolution_premises.insert(j);
+                        }
+                        if resolution_premises.count_of(&i)>=2 && ps.clause.len()==1{
+                            units_queue.push(i);
+                            deleted.insert(i);
+                        }
+                    }
+                }
+                ProofCommand::Subproof(_) => ()
+            }
+        }
+        if units_queue.len()>0{
+            return Ok((units_queue, deleted));
+        }
+        return Err(CollectionError);
     }
 
     fn smart_fix_broken_proof(
@@ -99,20 +259,24 @@ impl<'a> ProofCompressor<'a>{
     )->HashMap<usize, usize>{
         let mut substituted: HashMap<usize, usize> = HashMap::new();
         for i in 0..self.proof.commands.len(){
+            //println!("fixing {i}");
             match &self.proof.commands[i]{
                 ProofCommand::Assume {..} => (),
                 ProofCommand::Step(ps) => {
+                    let is_resolution = ps.rule=="resolution";
                     let mut missing_index: Option<usize> = None;
                     let aux = ps.premises.clone();
-                    for j in 0..aux.len(){
-                        if deleted.contains(&aux[j].1){
-                            missing_index = Some(j);
+                    if is_resolution{
+                        for j in 0..aux.len(){
+                            if deleted.contains(&aux[j].1){
+                                missing_index = Some(j);
+                            }
                         }
-                    }
-                    if aux.len()!=1{
-                        match missing_index{
-                            None => self.re_resolve(i, &substituted, proof_pool),
-                            Some(miss_ind) => self.substitute_node_by_parent(i,miss_ind, &mut substituted),
+                        if aux.len()!=1{
+                            match missing_index{
+                                None => self.re_resolve(i, &substituted, proof_pool),
+                                Some(miss_ind) => self.substitute_node_by_parent(i,(miss_ind+1)%2, &mut substituted),
+                            }
                         }
                     }
                 }
@@ -121,6 +285,91 @@ impl<'a> ProofCompressor<'a>{
         }
         substituted
     }
+
+
+    fn generic_fix_broken_proof(
+        &mut self,
+        deleted: HashSet<usize>,
+        proof_pool: &mut PrimitivePool 
+    )->HashMap<usize, usize>{
+        let mut substituted: HashMap<usize, usize> = HashMap::new();
+        for i in 0..self.proof.commands.len(){
+            //println!("fixing {i}");
+            match &self.proof.commands[i]{
+                ProofCommand::Assume {..} => (),
+                ProofCommand::Step(ps) => {
+                    /*if ps.rule=="resolution"{
+                    let mut missing_index: Option<usize> = None;
+                    let aux = ps.premises.clone();
+                        for j in 0..aux.len(){
+                            if deleted.contains(&aux[j].1){
+                                missing_index = Some(j);
+                            }
+                        }
+                        if aux.len()!=1{
+                            match missing_index{
+                                None => self.re_resolve(i, &substituted, proof_pool),
+                                Some(miss_ind) => self.substitute_node_by_parent(i,(miss_ind+1)%2, &mut substituted),
+                            }
+                        }
+                    }*/if ps.rule=="th-resolution"||ps.rule=="resolution"{
+                        let mut not_missing_index: Vec<(usize, usize)> = Vec::new();
+                        let aux = ps.premises.clone();
+                        for j in 0..aux.len(){
+                            if !deleted.contains(&aux[j].1){
+                                not_missing_index.push((j,aux[j].1.clone()));
+                            }
+                        }
+                        //println!("The non missing premises of the clause {:?} are {:?}", &ps.clause, &not_missing_index);
+                        //println!("Non missing len: {:?}\naux len:{:?}",&not_missing_index.len(),&aux.len());
+                        if not_missing_index.len()==1{
+                            self.substitute_node_by_parent(i, not_missing_index[0].0, &mut substituted);
+                        } else {//not_missing_index.len()<=aux.len()-1{//ADD exception to loop
+                            if not_missing_index.len()!=ps.premises.len() || not_missing_index.iter().any(|(_,key)| substituted.contains_key(key)){
+                                self.generic_re_resolve(i, &mut not_missing_index, &substituted, proof_pool);
+                            }
+                        }
+                    }
+                }
+                ProofCommand::Subproof(_) => ()
+            }
+        }
+        substituted
+    }
+
+    fn fix_broken_proof(
+        &mut self,
+        deleted: HashSet<usize>,
+        proof_pool: &mut PrimitivePool 
+    )->Result<HashMap<usize, usize>,CompressionError>{
+        let mut substituted: HashMap<usize, usize> = HashMap::new();
+        for i in 0..self.proof.commands.len(){
+            match &self.proof.commands[i]{
+                ProofCommand::Assume {..} => (),
+                ProofCommand::Step(ps) => {
+                    if ps.rule=="th-resolution"||ps.rule=="resolution"{
+                        let mut not_missing_index: Vec<(usize, usize)> = Vec::new();
+                        let aux = ps.premises.clone();
+                        for j in 0..aux.len(){
+                            if !deleted.contains(&aux[j].1){
+                                not_missing_index.push((j,aux[j].1.clone()));
+                            }
+                        }
+                        if not_missing_index.len()==1{
+                            self.substitute_node_by_parent(i, not_missing_index[0].0, &mut substituted);
+                        } else {
+                            if not_missing_index.len()!=ps.premises.len() || not_missing_index.iter().any(|(_,key)| substituted.contains_key(key)){
+                                self.generic_re_resolve(i, &mut not_missing_index, &substituted, proof_pool);
+                            }
+                        }
+                    }
+                }
+                ProofCommand::Subproof(_) => return Err(CompressionError::SubproofNotImplementedYet)
+            }
+        }
+        Ok(substituted)
+    }
+
 
     fn reinsert_units(
         &mut self,
@@ -139,6 +388,7 @@ impl<'a> ProofCompressor<'a>{
                 Some(args) => {
                     //let new_clause = self.local_resolution(current_root, unit, &args, proof_pool);
                     let premises = Self::build_premises(&self.proof.commands, current_root, unit);
+                    //println!("args_op: {:?},\npremises: {:?}",&args,&premises);
                     let nc: Result<Vec<(u32, &Rc<Term>)>, CheckerError> = apply_generic_resolution(&premises, &args, proof_pool);
                     match nc{
                         Ok(c) => {
@@ -155,7 +405,7 @@ impl<'a> ProofCompressor<'a>{
                             self.proof.commands.push(ProofCommand::Step(new_proof_step));
                             current_root+=1;
                         },
-                        _ => println!("Error")
+                        _ => println!("Error on reinsertion")
                     }
                         }
                         None => ()
@@ -163,6 +413,123 @@ impl<'a> ProofCompressor<'a>{
             
         }
     }
+
+
+    fn generic_reinsert_units(
+        &mut self,
+        units_queue: Vec<usize>,
+        substituted: &HashMap<usize,usize>,
+        proof_pool: &mut PrimitivePool
+    )->(){
+        let mut current_root = self.proof.commands.len()-1;
+        for u in units_queue{
+            let mut args_op: Vec<ProofArg> = Vec::new();
+            match self.proof.commands[u].clone(){
+                ProofCommand::Assume { id, term } => {
+                    let removed_negations = term.remove_all_negations_with_polarity();
+                    args_op.push(ProofArg::Term(removed_negations.1.clone()));
+                    let parity = removed_negations.0;
+                    args_op.push(ProofArg::Term(proof_pool.bool_constant(!parity)));
+
+                }
+                ProofCommand::Step(ps) => {
+                    let term = ps.clause[0].clone();
+                    let removed_negations = term.remove_all_negations_with_polarity();
+                    let parity = removed_negations.0;
+                    args_op.push(ProofArg::Term(removed_negations.1.clone()));
+                    args_op.push(ProofArg::Term(proof_pool.bool_constant(!parity)));
+                }
+                _ => ()
+            }
+            let mut unit = u;
+            if substituted.contains_key(&unit){
+                unit = *substituted.get(&unit).unwrap();
+            }
+            if args_op.len()!=0{
+                let premises = Self::build_premises(&self.proof.commands, current_root, unit);
+                println!("args_op: {:?},\npremises: {:?}",&args_op,&premises);
+                let nc: Result<Vec<(u32, &Rc<Term>)>, CheckerError> = apply_generic_resolution(&premises, &args_op, proof_pool);
+                match nc{
+                    Ok(c) => {
+                        let new_clause_set: HashSet<Rc<Term>> = c.into_iter().map(|x| unremove_all_negations(proof_pool,x)).collect();
+                        let new_clause: Vec<Rc<Term>> = new_clause_set.into_iter().collect();
+                        let new_proof_step = ProofStep{
+                            id: "".to_string(),
+                            clause: new_clause,
+                            rule: "resolution".to_string(),
+                            premises: vec![(0,current_root),(0,unit)],
+                            args: args_op,
+                            discharge: vec![]
+                        };
+                        self.proof.commands.push(ProofCommand::Step(new_proof_step));
+                        current_root+=1;
+                    },
+                    _ => println!("Error on generic reinsertion")
+                }
+            }
+        }
+    }
+
+
+    fn handled_reinsert_units(
+        &mut self,
+        units_queue: Vec<usize>,
+        substituted: &HashMap<usize,usize>,
+        proof_pool: &mut PrimitivePool
+    )->Result<(),CompressionError> {
+        let mut current_root = self.proof.commands.len()-1;
+        for u in units_queue{
+            let mut args_op: Vec<ProofArg> = Vec::new();
+            match self.proof.commands[u].clone(){
+                ProofCommand::Assume { id, term } => {
+                    let removed_negations = term.remove_all_negations_with_polarity();
+                    args_op.push(ProofArg::Term(removed_negations.1.clone()));
+                    let parity = removed_negations.0;
+                    args_op.push(ProofArg::Term(proof_pool.bool_constant(!parity)));
+
+                }
+                ProofCommand::Step(ps) => {
+                    let term = ps.clause[0].clone();
+                    let removed_negations = term.remove_all_negations_with_polarity();
+                    let parity = removed_negations.0;
+                    args_op.push(ProofArg::Term(removed_negations.1.clone()));
+                    args_op.push(ProofArg::Term(proof_pool.bool_constant(!parity)));
+                }
+                _ => return Err(CompressionError::SubproofNotImplementedYet)
+            }
+            let mut unit = u;
+            if substituted.contains_key(&unit){
+                unit = *substituted.get(&unit).unwrap();
+            }
+            if args_op.len()!=0{
+                let premises = Self::build_premises(&self.proof.commands, current_root, unit);
+                //println!("args_op: {:?},\npremises: {:?}",&args_op,&premises);
+                let nc: Result<Vec<(u32, &Rc<Term>)>, CheckerError> = apply_generic_resolution(&premises, &args_op, proof_pool);
+                match nc{
+                    Ok(c) => {
+                        let new_clause_set: HashSet<Rc<Term>> = c.into_iter().map(|x| unremove_all_negations(proof_pool,x)).collect();
+                        let new_clause: Vec<Rc<Term>> = new_clause_set.into_iter().collect();
+                        let new_proof_step = ProofStep{
+                            id: "".to_string(),
+                            clause: new_clause,
+                            rule: "resolution".to_string(),
+                            premises: vec![(0,current_root),(0,unit)],
+                            args: args_op,
+                            discharge: vec![]
+                        };
+                        self.proof.commands.push(ProofCommand::Step(new_proof_step));
+                        current_root+=1;
+                    },
+                    Err(e) => {
+                       let res = vec![(0,current_root),(0,unit)];
+                        return Err(CompressionError::ResolutionError(res));
+                    }
+                }
+            }
+        }
+        return Ok(());
+    }
+
 
     fn rebuild(&mut self, substituted: &HashMap<usize,usize>) -> (){
         let mut assume_ind: usize = 0;
@@ -201,7 +568,7 @@ impl<'a> ProofCompressor<'a>{
         self.proof.commands = new_commands;
     }
 
-    pub fn print(&self)->(){
+    /*pub fn print(&self)->(){
         for i in &self.proof.commands{
             match i{
                 ProofCommand::Assume{id,term} => println!("Assume {:?}: {:?}",id,term),
@@ -209,7 +576,7 @@ impl<'a> ProofCompressor<'a>{
                 _ => ()
             }
         }
-    }
+    }*/
     fn extract_term(&self, p: &ProofCommand) -> Vec<Rc<Term>>{
         let terms: Vec<Rc<Term>>;
         terms = match p{
@@ -252,6 +619,44 @@ impl<'a> ProofCompressor<'a>{
         }
     }
 
+    pub fn generic_get_args(&self, ind: usize, not_missing: &Vec<(usize,usize)>, proof_pool: &mut PrimitivePool) -> Option<Vec<ProofArg>>{
+        if let ProofCommand::Step(ps) = &self.proof.commands[ind]{
+            let mut arg_vec: Vec<ProofArg> = Vec::new();
+            //println!("Args: {:?}",&ps.args);
+            //println!("Non missing: {:?}",&not_missing);
+            let premise_number = &ps.args.len()/2;
+            let remaining_indexes: Vec<usize> = not_missing.iter().map(|(i,_)| *i).collect();
+            let remaining_set: HashSet<usize> = remaining_indexes.clone().into_iter().collect();
+            let range_set: HashSet<usize> = (0..premise_number).collect();
+            let missing_set: HashSet<usize> = range_set.difference(&remaining_set).cloned().collect();
+            //let missing_indexes: Vec<usize> = missing_set.into_iter().collect();
+            let mut flag_start: usize = 1;
+            //println!("checkpoint0");
+            if !missing_set.contains(&0) && !missing_set.contains(&1){
+                arg_vec.push(ps.args[0].clone());
+                arg_vec.push(ps.args[1].clone());
+                //println!("entrou");
+                flag_start = 2;
+            }
+            //println!("Remaining: {:?}", &remaining_indexes);
+            //println!("Missing: {:?}", &missing_set);
+            //println!("checkpoint1");
+            //println!("{:?}",flag_start..remaining_indexes.len());
+            for i in flag_start..remaining_indexes.len(){
+                //println!("checkpoint {:?}",i+2);
+                if !missing_set.contains(&remaining_indexes[i]){
+                //println!("Args to get: {:?}, {:?}", 2*remaining_indexes[i]-2, 2*remaining_indexes[i]-1);
+                    arg_vec.push(ps.args[2*remaining_indexes[i]-2].clone());
+                    arg_vec.push(ps.args[2*remaining_indexes[i]-1].clone());
+                }
+            }
+            //println!("Returning {:?}", &arg_vec);
+            return Some(arg_vec)
+        } else {
+            return None
+        }
+    }
+
     fn re_resolve(
         &mut self, 
         ind: usize, 
@@ -268,7 +673,7 @@ impl<'a> ProofCompressor<'a>{
                 if substituted.contains_key(&right_ind){
                     right_ind = *substituted.get(&right_ind).unwrap();
                 }
-
+                println!("Resolving {:?} and {:?}", left_ind, right_ind);
                 let args_op = self.find_args(left_ind,right_ind, proof_pool);
                 match args_op{
                     Some(args)=>{
@@ -293,10 +698,59 @@ impl<'a> ProofCompressor<'a>{
         }
     }
 
+
+    fn generic_re_resolve(
+        &mut self, 
+        ind: usize, 
+        not_missing: &mut Vec<(usize,usize)>,
+        substituted: &HashMap<usize,usize>, 
+        proof_pool: &mut PrimitivePool
+    ) -> (){
+        match self.proof.commands[ind].clone(){
+            ProofCommand::Step(ps) =>{
+                for i in 0..not_missing.len(){
+                    if substituted.contains_key(&not_missing[i].1){
+                        not_missing[i].1 = *substituted.get(&not_missing[i].1).unwrap();
+                    } 
+                }
+                //println!("Resolving {:?}", not_missing);
+                let args_op = self.generic_get_args(ind, not_missing, proof_pool);
+                match args_op{
+                    Some(args)=>{
+                        let premises = Self::generic_build_premises(&self.proof.commands, not_missing.clone());
+                        let resolution: Result<Vec<(u32, &Rc<Term>)>, CheckerError> = apply_generic_resolution(&premises, &args, proof_pool);
+                        match resolution{
+                            Ok(r) => {
+                                let resolvent_set: HashSet<Rc<Term>> = r.into_iter().map(|x| unremove_all_negations(proof_pool,x)).collect();
+                                let resolvent: Vec<Rc<Term>> = resolvent_set.into_iter().collect();
+                                if let ProofCommand::Step(pps) = &mut self.proof.commands[ind]{
+                                    pps.args = args;
+                                    pps.clause = resolvent;
+                                }
+                            },
+                            _ => println!("Error: Clauses couldn't be resolved")
+                        }
+                    }
+                    None => println!("Error: arguments couldn't be found")
+                }
+            }
+            _ => ()
+        }
+    }
+
+
     fn build_premises(commands: &Vec<ProofCommand>, left: usize, right: usize)->Vec<Premise> {
         let mut ans: Vec<Premise> = vec![];
         ans.push(Premise::new((0,left),&commands[left]));
         ans.push(Premise::new((0,right),&commands[right]));
+        ans
+    }
+
+    fn generic_build_premises(commands: &Vec<ProofCommand>, not_missing: Vec<(usize,usize)>)->Vec<Premise> {
+        let mut ans: Vec<Premise> = vec![];
+        for i in not_missing{
+            ans.push(Premise::new((0,i.1),&commands[i.1]));
+        }
         ans
     }
 
@@ -342,27 +796,90 @@ impl<'a> ProofCompressor<'a>{
         let terms: Vec<_> = terms_set.into_iter().collect();
         terms
     }*/
-
-    pub fn play(&'a mut self, _pool: &mut PrimitivePool) -> (){
-        let pc = &self.proof.commands[11];
-        if let ProofCommand::Step(ps) = pc {
-            let tt = ps.clause[0].clone();
-            let termo = tt.get_arc();
-            let cloned_termo = Arc::clone(termo);
-            // Now, you can access the Term inside the cloned Arc
-             let term: &Term = &*cloned_termo;
-             match term{
-                Term::Const(_) => println!("const"),
-                Term::Var(_,_) => println!("var"),
-                Term::App(_,_) => println!("app"),
-                Term::Op(_,_) => println!("op"),
-                Term::Sort(_) => println!("sort"),
-                Term::Quant(_,_,_) => println!("quant"),
-                Term::Choice(_,_) => println!("choice"),
-                Term::Let(_,_) => println!("let"),
-                Term::Lambda(_,_) => println!("lambda")
-             }
-
+    
+    pub fn print(&self)->(){
+        let mut ind = 0;
+        for i in &self.proof.commands{
+            match i{
+                ProofCommand::Assume{id,term} => println!("{ind} - Assume {:?}: {:?}",id,term),
+                ProofCommand::Step(ps) => println!("{ind} - {:?} {:?}: {:?}->{:?}",ps.rule,ps.id,ps.premises,ps.clause),
+                ProofCommand::Subproof(sp)=> {
+                    println!("{ind} - Subproof:");
+                    print_subproof(&sp,Some(1));
+                }
+            }
+            ind+=1;
         }
+    }
+
+    pub fn inspect_subproof(&self, i:usize) -> (){
+        let mut ind: usize = 0;
+        for j in self.proof.commands.iter(){
+            if let ProofCommand::Subproof(sp) = j{
+                if ind==i{
+                    print_subproof(&sp,Some(1));
+                } else {
+                    ind+=1;
+                }
+            }
+        }
+    }
+
+    /*pub fn compute_arguments(&self, proof_pool: &mut PrimitivePool) -> (){
+        let mut iter = self.proof.iter();
+        while let Some(command) = iter.next(){
+            match command{
+                ProofCommand::Step(step) => self.elaborate_step(step, proof_pool, &iter),
+                ProofCommand::Assume { id, term } => (),
+                _ => ()
+            }
+        }
+    }
+
+    fn elaborate_step(&self, step: &ProofStep, proof_pool: &mut PrimitivePool, iter: &ProofIter,) -> (){
+        let premises: Vec<_> = step
+                .premises
+                .iter()
+                .map(|&p| {
+                    let command = iter.get_premise(p);
+                    Premise::new(p, command)
+                })
+                .collect();
+            
+        let discharge: Vec<_> = step
+            .discharge
+            .iter()
+            .map(|&i| iter.get_premise(i))
+            .collect();
+
+        let rule_args = RuleArgs {
+            conclusion: &step.clause, //
+            premises: &premises, //
+            args: &step.args,
+            pool: proof_pool,
+            context: &mut self.context,
+            previous_command: None, 
+            discharge: &discharge, //
+            polyeq_time: &mut polyeq_time,
+        };
+    }
+*/
+    pub fn play(&'a mut self, _pool: &mut PrimitivePool) -> (){
+        let (
+            units_queue, 
+            del,
+            ) = self.generic_collect_units();
+        println!("Queue: \n{:?}",&units_queue);
+        println!("Deleted: \n{:?}",&del);
+
+        let substituted = self.generic_fix_broken_proof(del,_pool);
+        println!("Substituted");
+        println!("{:?}",substituted);
+        self.print();
+        println!("Reinserting");
+        self.generic_reinsert_units(units_queue, &substituted, _pool);
+        self.rebuild(&substituted);
+        self.print();
+        ()
     }
 }
