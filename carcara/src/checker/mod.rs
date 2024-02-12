@@ -566,6 +566,7 @@ impl<'c> ProofChecker<'c> {
             "bitblast_bvult" => bitvectors::ult,
             "bitblast_bvslt" => bitvectors::slt,
             "bitblast_bvadd" => bitvectors::add,
+            "bitblast_bvmult" => bitvectors::mult,
             "bitblast_bvneg" => bitvectors::neg,
             "bitblast_equal" => bitvectors::equality,
             "bitblast_extract" => bitvectors::extract,
