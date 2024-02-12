@@ -165,6 +165,7 @@ macro_rules! match_term {
     (@GET_VARIANT bvor)    => { $crate::ast::Operator::BvOr };
     (@GET_VARIANT bvxor)    => { $crate::ast::Operator::BvXor };
     (@GET_VARIANT bvxnor)    => { $crate::ast::Operator::BvXNor };
+    (@GET_VARIANT bvcomp)    => { $crate::ast::Operator::BvComp };
     (@GET_VARIANT bvadd)    => { $crate::ast::Operator::BvAdd };
     (@GET_VARIANT bvmul)    => { $crate::ast::Operator::BvMul };
     (@GET_VARIANT bvudiv)    => { $crate::ast::Operator::BvUDiv };
@@ -179,6 +180,9 @@ macro_rules! match_term {
     (@GET_VARIANT bit_of)      => { $crate::ast::IndexedOperator::BvBitOf };
     (@GET_VARIANT zero_extend) => { $crate::ast::IndexedOperator::ZeroExtend };
     (@GET_VARIANT sign_extend) => { $crate::ast::IndexedOperator::SignExtend };
+    (@GET_VARIANT rotate_left) => { $crate::ast::IndexedOperator::RotateLeft };
+    (@GET_VARIANT rotate_right) => { $crate::ast::IndexedOperator::RotateRight };
+    (@GET_VARIANT repeat) => { $crate::ast::IndexedOperator::Repeat };
 
     (@GET_VARIANT strconcat) => { $crate::ast::Operator::StrConcat };
     (@GET_VARIANT strlen) => { $crate::ast::Operator::StrLen };

@@ -1319,7 +1319,6 @@ impl<'a, R: BufRead> Parser<'a, R> {
             constant_args.insert(0, Constant::Integer(parsed_value));
             return Ok((IndexedOperator::BvConst, constant_args));
         }
-
         let op = IndexedOperator::from_str(bv_symbol.as_str()).unwrap();
         let args = self.parse_sequence(Self::parse_term, true)?;
         let mut constant_args = Vec::new();
@@ -1388,7 +1387,10 @@ impl<'a, R: BufRead> Parser<'a, R> {
             }
             IndexedOperator::BvBitOf
             | IndexedOperator::ZeroExtend
-            | IndexedOperator::SignExtend => {
+            | IndexedOperator::SignExtend
+            | IndexedOperator::RotateLeft
+            | IndexedOperator::RotateRight
+            | IndexedOperator::Repeat => {
                 assert_num_args(&op_args, 1)?;
                 assert_num_args(&args, 1)?;
                 SortError::assert_eq(&Sort::Int, &op_args[0].sort())?;

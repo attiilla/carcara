@@ -421,6 +421,9 @@ pub enum IndexedOperator {
     BvBitOf,
     ZeroExtend,
     SignExtend,
+    RotateLeft,
+    RotateRight,
+    Repeat,
     BvConst,
 
     RePower,
@@ -432,6 +435,9 @@ impl_str_conversion_traits!(IndexedOperator {
     BvBitOf: "bit_of",
     ZeroExtend: "zero_extend",
     SignExtend: "sign_extend",
+    RotateLeft: "rotate_left",
+    RotateRight: "rotate_right",
+    Repeat: "repeat",
     BvConst: "bv",
 
     RePower: "re.^",
@@ -702,7 +708,8 @@ impl Term {
     }
 
     /// Constructs a new bv term.
-    pub fn new_bv(value: impl Into<Integer>, width: impl Into<Integer>) -> Self {
+    pub fn new_bv(value: impl Into<Integer>, width: impl Into<Integer>) -> Self
+    {
         Term::Const(Constant::BitVec(value.into(), width.into()))
     }
 
