@@ -3,7 +3,7 @@
 pub mod advanced;
 mod storage;
 
-use super::{Rc, Sort, Term};
+use super::{Operator, Rc, Sort, Term};
 use crate::ast::{Constant, IndexedOperator};
 use indexmap::{IndexMap, IndexSet};
 use rug::Integer;
@@ -76,7 +76,7 @@ impl PrimitivePool {
         let bool_sort = storage.add(Term::Sort(Sort::Bool));
 
         let [bool_true, bool_false] =
-            ["true", "false"].map(|b| storage.add(Term::new_var(b, bool_sort.clone())));
+            [Operator::True, Operator::False].map(|op| storage.add(Term::Op(op, Vec::new())));
 
         sorts_cache.insert(bool_false.clone(), bool_sort.clone());
         sorts_cache.insert(bool_true.clone(), bool_sort.clone());
@@ -94,8 +94,6 @@ impl PrimitivePool {
 
     /// Computes the sort of a term and adds it to the sort cache.
     fn compute_sort(&mut self, term: &Rc<Term>) -> Rc<Term> {
-        use super::Operator;
-
         if let Some(sort) = self.sorts_cache.get(term) {
             return sort.clone();
         }
@@ -109,7 +107,9 @@ impl PrimitivePool {
             },
             Term::Var(_, sort) => sort.as_sort().unwrap().clone(),
             Term::Op(op, args) => match op {
-                Operator::Not
+                Operator::True
+                | Operator::False
+                | Operator::Not
                 | Operator::Implies
                 | Operator::And
                 | Operator::Or
