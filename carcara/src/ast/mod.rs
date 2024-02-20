@@ -582,7 +582,7 @@ pub enum Sort {
     RareList,
 
     /// The sort of sorts.
-    Sort,
+    Type,
 }
 
 /// A quantifier, either `forall` or `exists`.

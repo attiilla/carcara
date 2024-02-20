@@ -72,7 +72,7 @@ impl PrimitivePool {
     pub fn new() -> Self {
         let mut storage = Storage::new();
         let mut sorts_cache = IndexMap::new();
-        let sort_sort = storage.add(Term::Sort(Sort::Sort));
+        let sort_sort = storage.add(Term::Sort(Sort::Type));
         let bool_sort = storage.add(Term::Sort(Sort::Bool));
 
         let [bool_true, bool_false] =
@@ -227,7 +227,7 @@ impl PrimitivePool {
                     _ => unreachable!(), // We assume that the function is correctly sorted
                 }
             }
-            Term::Sort(_) => Sort::Sort,
+            Term::Sort(_) => Sort::Type,
             Term::Quant(_, _, _) => Sort::Bool,
             Term::Choice((_, sort), _) => sort.as_sort().unwrap().clone(),
             Term::Let(_, inner) => self.compute_sort(inner).as_sort().unwrap().clone(),
