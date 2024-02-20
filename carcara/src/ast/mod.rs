@@ -698,6 +698,14 @@ impl From<SortedVar> for Term {
 }
 
 impl Term {
+    pub fn new_bool(value: impl Into<bool>) -> Self {
+        let op = match value.into() {
+            true => Operator::True,
+            false => Operator::False,
+        };
+        Term::Op(op, Vec::new())
+    }
+
     /// Constructs a new integer term.
     pub fn new_int(value: impl Into<Integer>) -> Self {
         Term::Const(Constant::Integer(value.into()))
