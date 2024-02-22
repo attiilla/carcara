@@ -422,7 +422,7 @@ pub enum Operator {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum IndexedOperator {
+pub enum ParamOperator {
     BvExtract,
     BvBitOf,
     ZeroExtend,
@@ -433,7 +433,7 @@ pub enum IndexedOperator {
     ReLoop,
 }
 
-impl_str_conversion_traits!(IndexedOperator {
+impl_str_conversion_traits!(ParamOperator {
     BvExtract: "extract",
     BvBitOf: "bit_of",
     ZeroExtend: "zero_extend",
@@ -683,10 +683,17 @@ pub enum Term {
     /// A `lambda` term.
     Lambda(BindingList, Rc<Term>),
 
-    /// A `indexed` operator term.
-    IndexedOp {
-        op: IndexedOperator,
-        op_args: Vec<Constant>,
+    /// A parameterized operation term, that is, an operation term whose operator receives extra
+    /// parameters.
+    ///
+    /// This can be either:
+    /// - An `indexed` operation term, that uses an indexed operator denoted by the `(_ ...)`
+    ///   syntax. In this case, the operator parameters must be constants.
+    /// - A `qualified` operation term, that uses a qualified operator denoted by the `(as ...)`
+    ///   syntax. In this case, the single operator parameter must be a sort.
+    ParamOp {
+        op: ParamOperator,
+        op_args: Vec<Rc<Term>>,
         args: Vec<Rc<Term>>,
     },
 }
@@ -773,7 +780,7 @@ impl Term {
     }
 
     /// Tries to extract a `Integer` from a term. Returns `Some` if the term is an integer constant.
-    pub fn as_integer_number(&self) -> Option<Integer> {
+    pub fn as_integer(&self) -> Option<Integer> {
         match self {
             Term::Const(Constant::Integer(i)) => Some(i.clone()),
             _ => None,
@@ -795,8 +802,8 @@ impl Term {
     /// constant negated with the `-` operator.
     pub fn as_signed_integer(&self) -> Option<Integer> {
         match match_term!((-x) = self) {
-            Some(x) => x.as_integer_number().map(|r| -r),
-            None => self.as_integer_number(),
+            Some(x) => x.as_integer().map(|r| -r),
+            None => self.as_integer(),
         }
     }
 

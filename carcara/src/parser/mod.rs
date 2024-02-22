@@ -1321,7 +1321,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
         Ok(inner)
     }
 
-    fn parse_indexed_operator(&mut self) -> CarcaraResult<(IndexedOperator, Vec<Constant>)> {
+    fn parse_indexed_operator(&mut self) -> CarcaraResult<(ParamOperator, Vec<Constant>)> {
         let bv_symbol = self.expect_symbol()?;
 
         if let Some(value) = bv_symbol.strip_prefix("bv") {
@@ -1339,10 +1339,10 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 }
             }
             constant_args.insert(0, Constant::Integer(parsed_value));
-            return Ok((IndexedOperator::BvConst, constant_args));
+            return Ok((ParamOperator::BvConst, constant_args));
         }
 
-        let op = IndexedOperator::from_str(bv_symbol.as_str()).unwrap();
+        let op = ParamOperator::from_str(bv_symbol.as_str()).unwrap();
         let args = self.parse_sequence(Self::parse_term, true)?;
         let mut constant_args = Vec::new();
         for arg in args {
@@ -1361,14 +1361,14 @@ impl<'a, R: BufRead> Parser<'a, R> {
     /// Constructs, check operation arguments and sort checks an indexed operation term.
     fn make_indexed_op(
         &mut self,
-        op: IndexedOperator,
+        op: ParamOperator,
         op_args: Vec<Constant>,
         args: Vec<Rc<Term>>,
     ) -> Result<Rc<Term>, ParserError> {
         let sorts: Vec<_> = args.iter().map(|t| self.pool.sort(t)).collect();
         let sorts: Vec<_> = sorts.iter().map(|s| s.as_sort().unwrap()).collect();
         match &op {
-            IndexedOperator::BvConst => {
+            ParamOperator::BvConst => {
                 assert_num_args(&op_args, 2)?;
                 assert_num_args(&args, 0)?;
                 let value = op_args[0].as_integer().unwrap();
@@ -1377,7 +1377,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 assert_indexed_op_args_value(&[op_args[1].clone()], 1..)?;
                 return Ok(self.pool.add(Term::Const(Constant::BitVec(value, width))));
             }
-            IndexedOperator::BvExtract => {
+            ParamOperator::BvExtract => {
                 /*
                 ((_ extract i j) (_ BitVec m) (_ BitVec n))
 
@@ -1408,9 +1408,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
                     ));
                 }
             }
-            IndexedOperator::BvBitOf
-            | IndexedOperator::ZeroExtend
-            | IndexedOperator::SignExtend => {
+            ParamOperator::BvBitOf | ParamOperator::ZeroExtend | ParamOperator::SignExtend => {
                 assert_num_args(&op_args, 1)?;
                 assert_num_args(&args, 1)?;
                 SortError::assert_eq(&Sort::Int, &op_args[0].sort())?;
@@ -1419,14 +1417,14 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 }
                 assert_indexed_op_args_value(&op_args, 0..)?;
             }
-            IndexedOperator::RePower => {
+            ParamOperator::RePower => {
                 assert_num_args(&op_args, 1)?;
                 assert_num_args(&args, 1)?;
                 SortError::assert_eq(&Sort::Int, &op_args[0].sort())?;
                 SortError::assert_eq(&Sort::RegLan, sorts[0])?;
                 assert_indexed_op_args_value(&op_args, 0..)?;
             }
-            IndexedOperator::ReLoop => {
+            ParamOperator::ReLoop => {
                 assert_num_args(&op_args, 2)?;
                 assert_num_args(&args, 1)?;
                 for arg in &op_args {
@@ -1436,7 +1434,11 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 assert_indexed_op_args_value(&op_args, 0..)?;
             }
         }
-        Ok(self.pool.add(Term::IndexedOp { op, op_args, args }))
+        let op_args = op_args
+            .into_iter()
+            .map(|c| self.pool.add(Term::Const(c)))
+            .collect();
+        Ok(self.pool.add(Term::ParamOp { op, op_args, args }))
     }
 
     /// Parses any term that starts with `(`, that is, any term that is not a constant or a
