@@ -14,7 +14,7 @@ use crate::{
 };
 use error::assert_num_args;
 use indexmap::{IndexMap, IndexSet};
-use rug::Integer;
+use rug::{Integer, Rational};
 use std::{io::BufRead, str::FromStr};
 
 use self::error::assert_indexed_op_args_value;
@@ -256,6 +256,17 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 } else {
                     SortError::assert_eq(&Sort::Real, sorts[0])?;
                     SortError::assert_all_eq(&sorts)?;
+                }
+
+                // If the term is a division between two positive integer constants, and their GCD
+                // is 1, then it should be interpreted as a rational literal. The only exception to
+                // this is the term '(/ 1 1)', which is still interpreted as a divison term.
+                if let Some(a) = args[0].as_integer() {
+                    if let Some(b) = args[1].as_integer() {
+                        if a > 0 && b > 0 && !(a == 1 && b == 1) && a.clone().gcd(&b) == 1 {
+                            return Ok(self.pool.add(Term::new_real(Rational::from((a, b)))));
+                        }
+                    }
                 }
             }
             Operator::Mod => {
