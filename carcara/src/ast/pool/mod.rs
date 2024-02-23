@@ -236,6 +236,7 @@ impl PrimitivePool {
                     ),
                     ParamOperator::BvBitOf => Sort::Bool,
                     ParamOperator::RePower | ParamOperator::ReLoop => Sort::RegLan,
+                    ParamOperator::ArrayConst => op_args[0].as_sort().unwrap().clone(),
                 };
                 sort
             }

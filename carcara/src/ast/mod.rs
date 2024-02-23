@@ -423,6 +423,7 @@ pub enum Operator {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ParamOperator {
+    // Indexed operators
     BvExtract,
     BvBitOf,
     ZeroExtend,
@@ -431,6 +432,9 @@ pub enum ParamOperator {
 
     RePower,
     ReLoop,
+
+    // Qualified operators
+    ArrayConst,
 }
 
 impl_str_conversion_traits!(ParamOperator {
@@ -441,7 +445,9 @@ impl_str_conversion_traits!(ParamOperator {
     BvConst: "bv",
 
     RePower: "re.^",
-    ReLoop: "re.loop"
+    ReLoop: "re.loop",
+
+    ArrayConst: "const",
 });
 
 impl_str_conversion_traits!(Operator {
