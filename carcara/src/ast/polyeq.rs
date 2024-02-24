@@ -66,7 +66,7 @@ pub fn tracing_polyeq_mod_nary(a: &Rc<Term>, b: &Rc<Term>, time: &mut Duration) 
 /// This function records how long it takes to run, and adds that duration to the `time` argument.
 pub fn alpha_equiv(a: &Rc<Term>, b: &Rc<Term>, time: &mut Duration) -> bool {
     let start = Instant::now();
-    let result = Polyeq::eq(&mut PolyeqComparator::new(true, true, false), a, b);
+    let result = a == b || Polyeq::eq(&mut PolyeqComparator::new(true, true, false), a, b);
     *time += start.elapsed();
     result
 }
