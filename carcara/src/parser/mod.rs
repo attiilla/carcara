@@ -14,7 +14,7 @@ use crate::{
 };
 use error::assert_num_args;
 use indexmap::{IndexMap, IndexSet};
-use rug::Integer;
+use rug::{Integer, Rational};
 use std::{io::BufRead, str::FromStr};
 
 use self::error::assert_indexed_op_args_value;
@@ -70,6 +70,12 @@ struct FunctionDef {
     body: Rc<Term>,
 }
 
+/// A sort definition, from a `define-sort` command.
+struct SortDef {
+    params: Vec<String>,
+    body: Rc<Term>,
+}
+
 /// Represents a "raw" `anchor` command. This is only used while parsing, and does not appear in
 /// the final AST.
 struct AnchorCommand {
@@ -93,7 +99,8 @@ enum AnchorArg {
 struct ParserState {
     symbol_table: HashMapStack<HashCache<String>, Rc<Term>>,
     function_defs: IndexMap<String, FunctionDef>,
-    sort_declarations: IndexMap<String, usize>,
+    sort_declarations: HashMapStack<String, usize>,
+    sort_defs: IndexMap<String, SortDef>,
     step_ids: HashMapStack<HashCache<String>, usize>,
 }
 
@@ -114,14 +121,6 @@ impl<'a, R: BufRead> Parser<'a, R> {
     ///
     /// This operation can fail if there is an IO or lexer error on the first token.
     pub fn new(pool: &'a mut PrimitivePool, config: Config, input: R) -> CarcaraResult<Self> {
-        let mut state = ParserState::default();
-        let bool_sort = pool.add(Term::Sort(Sort::Bool));
-
-        for iden in ["true", "false"] {
-            let iden = HashCache::new(iden.to_owned());
-            state.symbol_table.insert(iden, bool_sort.clone());
-        }
-
         let mut lexer = Lexer::new(input)?;
         let (current_token, current_position) = lexer.next_token()?;
         Ok(Parser {
@@ -130,7 +129,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
             lexer,
             current_token,
             current_position,
-            state,
+            state: ParserState::default(),
             interpret_integers_as_reals: false,
             problem: None,
         })
@@ -187,6 +186,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
         let sorts: Vec<_> = args.iter().map(|t| self.pool.sort(t)).collect();
         let sorts: Vec<_> = sorts.iter().map(|s| s.as_sort().unwrap()).collect();
         match op {
+            Operator::True | Operator::False => assert_num_args(&args, 0)?,
             Operator::Not => {
                 assert_num_args(&args, 1)?;
                 SortError::assert_eq(&Sort::Bool, sorts[0])?;
@@ -257,6 +257,17 @@ impl<'a, R: BufRead> Parser<'a, R> {
                     SortError::assert_eq(&Sort::Real, sorts[0])?;
                     SortError::assert_all_eq(&sorts)?;
                 }
+
+                // If the term is a division between two positive integer constants, and their GCD
+                // is 1, then it should be interpreted as a rational literal. The only exception to
+                // this is the term '(/ 1 1)', which is still interpreted as a divison term.
+                if let Some(a) = args[0].as_integer() {
+                    if let Some(b) = args[1].as_integer() {
+                        if a > 0 && b > 0 && !(a == 1 && b == 1) && a.clone().gcd(&b) == 1 {
+                            return Ok(self.pool.add(Term::new_real(Rational::from((a, b)))));
+                        }
+                    }
+                }
             }
             Operator::Mod => {
                 assert_num_args(&args, 2)?;
@@ -285,43 +296,11 @@ impl<'a, R: BufRead> Parser<'a, R> {
             }
             Operator::Select => {
                 assert_num_args(&args, 2)?;
-                match sorts[0] {
-                    Sort::Array(_, _) => (),
-                    got => {
-                        // Instead of creating some special case for sort errors with parametric
-                        // sorts, we just create a sort `Y` to represent the sort parameter. We
-                        // infer the `X` sort from the second operator argument. This may be
-                        // changed later
-                        let got = got.clone();
-                        let x = self.pool.add(Term::Sort(sorts[1].clone()));
-                        let y = self
-                            .pool
-                            .add(Term::Sort(Sort::Atom("Y".to_owned(), Vec::new())));
-                        return Err(SortError {
-                            expected: vec![Sort::Array(x, y)],
-                            got,
-                        }
-                        .into());
-                    }
-                }
+                SortError::assert_array_sort(self.pool, Some(sorts[1]), None, sorts[0])?;
             }
             Operator::Store => {
                 assert_num_args(&args, 3)?;
-                match sorts[0] {
-                    Sort::Array(x, y) => {
-                        SortError::assert_eq(x.as_sort().unwrap(), sorts[1])?;
-                        SortError::assert_eq(y.as_sort().unwrap(), sorts[2])?;
-                    }
-                    got => {
-                        let got = got.clone();
-                        let [x, y] = [sorts[0], sorts[1]].map(|s| Term::Sort(s.clone()));
-                        return Err(SortError {
-                            expected: vec![Sort::Array(self.pool.add(x), self.pool.add(y))],
-                            got,
-                        }
-                        .into());
-                    }
-                }
+                SortError::assert_array_sort(self.pool, Some(sorts[1]), Some(sorts[2]), sorts[0])?;
             }
             Operator::StrConcat => {
                 assert_num_args(&args, 2..)?;
@@ -642,7 +621,6 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 Token::ReservedWord(Reserved::DeclareConst) => {
                     let name = self.expect_symbol()?;
                     let sort = self.parse_sort()?;
-                    let sort = self.pool.add(sort);
                     self.expect_token(Token::CloseParen)?;
                     self.insert_sorted_var((name.clone(), sort.clone()));
                     self.prelude().function_declarations.push((name, sort));
@@ -656,7 +634,6 @@ impl<'a, R: BufRead> Parser<'a, R> {
                     // User declared sorts are represented with the `Atom` sort kind, and an
                     // argument which is a string terminal representing the sort name.
                     self.state.sort_declarations.insert(name, arity);
-                    continue;
                 }
                 Token::ReservedWord(Reserved::DefineFun) => {
                     let (name, func_def) = self.parse_define_fun()?;
@@ -682,6 +659,10 @@ impl<'a, R: BufRead> Parser<'a, R> {
                         self.premises().insert(assertion_term);
                     }
                     continue;
+                }
+                Token::ReservedWord(Reserved::DefineSort) => {
+                    let (name, def) = self.parse_define_sort()?;
+                    self.state.sort_defs.insert(name, def);
                 }
                 Token::ReservedWord(Reserved::Assert) => {
                     let term = self.parse_term()?;
@@ -997,7 +978,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
         } else {
             let symbol = self.expect_symbol()?;
             let sort = self.parse_sort()?;
-            let var = (symbol, self.pool.add(sort));
+            let var = (symbol, sort);
             self.insert_sorted_var(var.clone());
             self.expect_token(Token::CloseParen)?;
             AnchorArg::Variable(var)
@@ -1012,7 +993,6 @@ impl<'a, R: BufRead> Parser<'a, R> {
             self.expect_token(Token::OpenParen)?;
             let mut sorts = self.parse_sequence(Self::parse_sort, false)?;
             sorts.push(self.parse_sort()?);
-            let sorts = self.pool.add_all(sorts);
             if sorts.len() == 1 {
                 sorts.into_iter().next().unwrap()
             } else {
@@ -1059,6 +1039,27 @@ impl<'a, R: BufRead> Parser<'a, R> {
         Ok((name, FunctionDef { params, body }))
     }
 
+    /// Parses a `define-sort` proof command. Returns the sort name and its definition. This method
+    /// assumes that the `(` and `define-sort` tokens were already consumed.
+    fn parse_define_sort(&mut self) -> CarcaraResult<(String, SortDef)> {
+        let name = self.expect_symbol()?;
+        self.expect_token(Token::OpenParen)?;
+        let params = self.parse_sequence(Self::expect_symbol, false)?;
+
+        // In order to correctly parse the sort definition, we push a new scope to the sort
+        // declarations table and add the sort parameters to it.
+        self.state.sort_declarations.push_scope();
+        for s in &params {
+            self.state.sort_declarations.insert(s.clone(), 0);
+        }
+        let body = self.parse_sort()?;
+        self.state.sort_declarations.pop_scope();
+
+        self.expect_token(Token::CloseParen)?;
+
+        Ok((name, SortDef { params, body }))
+    }
+
     /// Parses a clause of the form `(cl <term>*)`.
     fn parse_clause(&mut self) -> CarcaraResult<Vec<Rc<Term>>> {
         self.expect_token(Token::OpenParen)?;
@@ -1099,7 +1100,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
         let symbol = self.expect_symbol()?;
         let sort = self.parse_sort()?;
         self.expect_token(Token::CloseParen)?;
-        Ok((symbol, self.pool.add(sort)))
+        Ok((symbol, sort))
     }
 
     /// Parses a term.
@@ -1299,10 +1300,10 @@ impl<'a, R: BufRead> Parser<'a, R> {
         Ok(inner)
     }
 
-    fn parse_indexed_operator(&mut self) -> CarcaraResult<(IndexedOperator, Vec<Constant>)> {
-        let bv_symbol = self.expect_symbol()?;
+    fn parse_indexed_operator(&mut self) -> CarcaraResult<(ParamOperator, Vec<Constant>)> {
+        let op_symbol = self.expect_symbol()?;
 
-        if let Some(value) = bv_symbol.strip_prefix("bv") {
+        if let Some(value) = op_symbol.strip_prefix("bv") {
             let parsed_value = value.parse::<Integer>().unwrap();
             let args = self.parse_sequence(Self::parse_term, true)?;
             let mut constant_args = Vec::new();
@@ -1317,9 +1318,15 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 }
             }
             constant_args.insert(0, Constant::Integer(parsed_value));
-            return Ok((IndexedOperator::BvConst, constant_args));
+            return Ok((ParamOperator::BvConst, constant_args));
         }
-        let op = IndexedOperator::from_str(bv_symbol.as_str()).unwrap();
+
+        let op = ParamOperator::from_str(op_symbol.as_str()).map_err(|_| {
+            Error::Parser(
+                ParserError::InvalidIndexedOp(op_symbol),
+                self.current_position,
+            )
+        })?;
         let args = self.parse_sequence(Self::parse_term, true)?;
         let mut constant_args = Vec::new();
         for arg in args {
@@ -1335,17 +1342,30 @@ impl<'a, R: BufRead> Parser<'a, R> {
         Ok((op, constant_args))
     }
 
+    fn parse_qualified_operator(&mut self) -> CarcaraResult<(ParamOperator, Rc<Term>)> {
+        let op_symbol = self.expect_symbol()?;
+        let op = ParamOperator::from_str(op_symbol.as_str()).map_err(|_| {
+            Error::Parser(
+                ParserError::InvalidQualifiedOp(op_symbol),
+                self.current_position,
+            )
+        })?;
+        let sort = self.parse_sort()?;
+        self.expect_token(Token::CloseParen)?;
+        Ok((op, sort))
+    }
+
     /// Constructs, check operation arguments and sort checks an indexed operation term.
     fn make_indexed_op(
         &mut self,
-        op: IndexedOperator,
+        op: ParamOperator,
         op_args: Vec<Constant>,
         args: Vec<Rc<Term>>,
     ) -> Result<Rc<Term>, ParserError> {
         let sorts: Vec<_> = args.iter().map(|t| self.pool.sort(t)).collect();
         let sorts: Vec<_> = sorts.iter().map(|s| s.as_sort().unwrap()).collect();
         match &op {
-            IndexedOperator::BvConst => {
+            ParamOperator::BvConst => {
                 assert_num_args(&op_args, 2)?;
                 assert_num_args(&args, 0)?;
                 let value = op_args[0].as_integer().unwrap();
@@ -1354,7 +1374,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 assert_indexed_op_args_value(&[op_args[1].clone()], 1..)?;
                 return Ok(self.pool.add(Term::Const(Constant::BitVec(value, width))));
             }
-            IndexedOperator::BvExtract => {
+            ParamOperator::BvExtract => {
                 /*
                 ((_ extract i j) (_ BitVec m) (_ BitVec n))
 
@@ -1385,12 +1405,12 @@ impl<'a, R: BufRead> Parser<'a, R> {
                     ));
                 }
             }
-            IndexedOperator::BvBitOf
-            | IndexedOperator::ZeroExtend
-            | IndexedOperator::SignExtend
-            | IndexedOperator::RotateLeft
-            | IndexedOperator::RotateRight
-            | IndexedOperator::Repeat => {
+            ParamOperator::BvBitOf
+            | ParamOperator::ZeroExtend
+            | ParamOperator::SignExtend
+            | ParamOperator::RotateLeft
+            | ParamOperator::RotateRight
+            | ParamOperator::Repeat => {
                 assert_num_args(&op_args, 1)?;
                 assert_num_args(&args, 1)?;
                 SortError::assert_eq(&Sort::Int, &op_args[0].sort())?;
@@ -1399,14 +1419,14 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 }
                 assert_indexed_op_args_value(&op_args, 0..)?;
             }
-            IndexedOperator::RePower => {
+            ParamOperator::RePower => {
                 assert_num_args(&op_args, 1)?;
                 assert_num_args(&args, 1)?;
                 SortError::assert_eq(&Sort::Int, &op_args[0].sort())?;
                 SortError::assert_eq(&Sort::RegLan, sorts[0])?;
                 assert_indexed_op_args_value(&op_args, 0..)?;
             }
-            IndexedOperator::ReLoop => {
+            ParamOperator::ReLoop => {
                 assert_num_args(&op_args, 2)?;
                 assert_num_args(&args, 1)?;
                 for arg in &op_args {
@@ -1415,8 +1435,38 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 SortError::assert_eq(&Sort::RegLan, sorts[0])?;
                 assert_indexed_op_args_value(&op_args, 0..)?;
             }
+            ParamOperator::ArrayConst => return Err(ParserError::InvalidIndexedOp(op.to_string())),
         }
-        Ok(self.pool.add(Term::IndexedOp { op, op_args, args }))
+        let op_args = op_args
+            .into_iter()
+            .map(|c| self.pool.add(Term::Const(c)))
+            .collect();
+        Ok(self.pool.add(Term::ParamOp { op, op_args, args }))
+    }
+
+    /// Constructs and sort checks a qualified operation term
+    fn make_qualified_op(
+        &mut self,
+        op: ParamOperator,
+        op_sort: Rc<Term>,
+        args: Vec<Rc<Term>>,
+    ) -> Result<Rc<Term>, ParserError> {
+        let sorts: Vec<_> = args.iter().map(|t| self.pool.sort(t)).collect();
+        let sorts: Vec<_> = sorts.iter().map(|s| s.as_sort().unwrap()).collect();
+        match &op {
+            ParamOperator::ArrayConst => {
+                assert_num_args(&args, 1)?;
+                SortError::assert_array_sort(
+                    self.pool,
+                    None,
+                    Some(sorts[0]),
+                    op_sort.as_sort().unwrap(),
+                )?;
+            }
+            _ => return Err(ParserError::InvalidQualifiedOp(op.to_string())),
+        }
+        let op_args = vec![op_sort];
+        Ok(self.pool.add(Term::ParamOp { op, op_args, args }))
     }
 
     /// Parses any term that starts with `(`, that is, any term that is not a constant or a
@@ -1430,6 +1480,11 @@ impl<'a, R: BufRead> Parser<'a, R> {
                     Reserved::Underscore => {
                         let (op, op_args) = self.parse_indexed_operator()?;
                         self.make_indexed_op(op, op_args, Vec::new())
+                            .map_err(|err| Error::Parser(err, head_pos))
+                    }
+                    Reserved::As => {
+                        let (op, sort) = self.parse_qualified_operator()?;
+                        self.make_qualified_op(op, sort, Vec::new())
                             .map_err(|err| Error::Parser(err, head_pos))
                     }
                     Reserved::Exists => self.parse_quantifier(Quantifier::Exists),
@@ -1494,17 +1549,27 @@ impl<'a, R: BufRead> Parser<'a, R> {
             }
             Token::OpenParen => {
                 self.next_token()?;
-                if self.current_token == Token::ReservedWord(Reserved::Underscore) {
-                    self.next_token()?;
-                    let (op, op_args) = self.parse_indexed_operator()?;
-                    let args = self.parse_sequence(Self::parse_term, true)?;
-                    self.make_indexed_op(op, op_args, args)
-                        .map_err(|err| Error::Parser(err, head_pos))
-                } else {
-                    let func = self.parse_application()?;
-                    let args = self.parse_sequence(Self::parse_term, true)?;
-                    self.make_app(func, args)
-                        .map_err(|err| Error::Parser(err, head_pos))
+                match self.current_token {
+                    Token::ReservedWord(Reserved::Underscore) => {
+                        self.next_token()?;
+                        let (op, op_args) = self.parse_indexed_operator()?;
+                        let args = self.parse_sequence(Self::parse_term, true)?;
+                        self.make_indexed_op(op, op_args, args)
+                            .map_err(|err| Error::Parser(err, head_pos))
+                    }
+                    Token::ReservedWord(Reserved::As) => {
+                        self.next_token()?;
+                        let (op, op_sort) = self.parse_qualified_operator()?;
+                        let args = self.parse_sequence(Self::parse_term, true)?;
+                        self.make_qualified_op(op, op_sort, args)
+                            .map_err(|err| Error::Parser(err, head_pos))
+                    }
+                    _ => {
+                        let func = self.parse_application()?;
+                        let args = self.parse_sequence(Self::parse_term, true)?;
+                        self.make_app(func, args)
+                            .map_err(|err| Error::Parser(err, head_pos))
+                    }
                 }
             }
             _ => {
@@ -1517,7 +1582,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
     }
 
     /// Parses a sort.
-    fn parse_sort(&mut self) -> CarcaraResult<Term> {
+    fn parse_sort(&mut self) -> CarcaraResult<Rc<Term>> {
         let pos = self.current_position;
         let (name, args) = match self.next_token()?.0 {
             Token::Symbol(s) => (s, Vec::new()),
@@ -1527,12 +1592,12 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 assert_eq!(name, "BitVec"); // TODO: Add proper error handling
                 let width = self.expect_numeral()?;
                 self.expect_token(Token::CloseParen)?;
-                return Ok(Term::Sort(Sort::BitVec(width)));
+                return Ok(self.pool.add(Term::Sort(Sort::BitVec(width))));
             }
             Token::OpenParen => {
                 let name = self.expect_symbol()?;
                 let args = self.parse_sequence(Parser::parse_sort, true)?;
-                (name, self.pool.add_all(args))
+                (name, args)
             }
             other => {
                 return Err(Error::Parser(ParserError::UnexpectedToken(other), pos));
@@ -1555,6 +1620,30 @@ impl<'a, R: BufRead> Parser<'a, R> {
                     pos,
                 )),
             },
+            other if self.state.sort_defs.get(other).is_some() => {
+                let def = self.state.sort_defs.get(other).unwrap();
+                return if def.params.len() != args.len() {
+                    Err(Error::Parser(
+                        ParserError::WrongNumberOfArgs(def.params.len().into(), args.len()),
+                        pos,
+                    ))
+                } else if def.params.is_empty() {
+                    Ok(def.body.clone())
+                } else {
+                    let substitution = def
+                        .params
+                        .iter()
+                        .cloned()
+                        .map(|name| self.pool.add(Term::Sort(Sort::Atom(name, Vec::new()))))
+                        .zip(args)
+                        .collect();
+
+                    let result = Substitution::new(self.pool, substitution)
+                        .unwrap()
+                        .apply(self.pool, &def.body);
+                    Ok(result)
+                };
+            }
             _ => match self.state.sort_declarations.get(&name) {
                 Some(arity) if *arity == args.len() => Ok(Sort::Atom(name, args)),
                 Some(arity) => Err(Error::Parser(
@@ -1564,6 +1653,6 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 None => Err(Error::Parser(ParserError::UndefinedSort(name), pos)),
             },
         }?;
-        Ok(Term::Sort(sort))
+        Ok(self.pool.add(Term::Sort(sort)))
     }
 }

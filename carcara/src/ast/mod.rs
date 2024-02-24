@@ -16,7 +16,7 @@ mod tests;
 
 pub use context::{Context, ContextStack};
 pub use iter::ProofIter;
-pub use polyeq::{alpha_equiv, polyeq, tracing_polyeq};
+pub use polyeq::{alpha_equiv, polyeq, polyeq_mod_nary, tracing_polyeq_mod_nary};
 pub use pool::{PrimitivePool, TermPool};
 pub use printer::{print_proof, USE_SHARING_IN_TERM_DISPLAY};
 pub use rc::Rc;
@@ -198,6 +198,12 @@ impl ProofArg {
 /// The operator of an operation term.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Operator {
+    /// The `true` boolean constant.
+    True,
+
+    /// The `false` boolean constant.
+    False,
+
     // Logic
     /// The `not` operator.
     Not,
@@ -416,7 +422,8 @@ pub enum Operator {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum IndexedOperator {
+pub enum ParamOperator {
+    // Indexed operators
     BvExtract,
     BvBitOf,
     ZeroExtend,
@@ -428,9 +435,12 @@ pub enum IndexedOperator {
 
     RePower,
     ReLoop,
+
+    // Qualified operators
+    ArrayConst,
 }
 
-impl_str_conversion_traits!(IndexedOperator {
+impl_str_conversion_traits!(ParamOperator {
     BvExtract: "extract",
     BvBitOf: "bitOf",
     ZeroExtend: "zero_extend",
@@ -441,10 +451,15 @@ impl_str_conversion_traits!(IndexedOperator {
     BvConst: "bv",
 
     RePower: "re.^",
-    ReLoop: "re.loop"
+    ReLoop: "re.loop",
+
+    ArrayConst: "const",
 });
 
 impl_str_conversion_traits!(Operator {
+    True: "true",
+    False: "false",
+
     Not: "not",
     Implies: "=>",
     And: "and",
@@ -586,6 +601,9 @@ pub enum Sort {
 
     /// The sort of RARE lists.
     RareList,
+
+    /// The sort of sorts.
+    Type,
 }
 
 /// A quantifier, either `forall` or `exists`.
@@ -677,10 +695,17 @@ pub enum Term {
     /// A `lambda` term.
     Lambda(BindingList, Rc<Term>),
 
-    /// A `indexed` operator term.
-    IndexedOp {
-        op: IndexedOperator,
-        op_args: Vec<Constant>,
+    /// A parameterized operation term, that is, an operation term whose operator receives extra
+    /// parameters.
+    ///
+    /// This can be either:
+    /// - An `indexed` operation term, that uses an indexed operator denoted by the `(_ ...)`
+    ///   syntax. In this case, the operator parameters must be constants.
+    /// - A `qualified` operation term, that uses a qualified operator denoted by the `(as ...)`
+    ///   syntax. In this case, the single operator parameter must be a sort.
+    ParamOp {
+        op: ParamOperator,
+        op_args: Vec<Rc<Term>>,
         args: Vec<Rc<Term>>,
     },
 }
@@ -692,6 +717,14 @@ impl From<SortedVar> for Term {
 }
 
 impl Term {
+    pub fn new_bool(value: impl Into<bool>) -> Self {
+        let op = match value.into() {
+            true => Operator::True,
+            false => Operator::False,
+        };
+        Term::Op(op, Vec::new())
+    }
+
     /// Constructs a new integer term.
     pub fn new_int(value: impl Into<Integer>) -> Self {
         Term::Const(Constant::Integer(value.into()))
@@ -726,11 +759,6 @@ impl Term {
         pool.sort(&added).as_sort().unwrap().clone()
     }
 
-    /// Returns `true` if the term is a terminal, that is, if it is a constant or a variable.
-    pub fn is_terminal(&self) -> bool {
-        matches!(self, Term::Const(_) | Term::Var(..))
-    }
-
     /// Returns `true` if the term is an integer or real constant.
     pub fn is_number(&self) -> bool {
         matches!(self, Term::Const(Constant::Real(_) | Constant::Integer(_)))
@@ -755,21 +783,17 @@ impl Term {
         }
     }
 
-    /// Tries to extract a `bool` from a term. Returns `Some` if the term is an boolean
-    /// constant.
+    /// Tries to extract a `bool` from a term. Returns `Some` if the term is a boolean constant.
     pub fn as_bool(&self) -> Option<bool> {
         match self {
-            Term::Var(name, sort) if sort.as_sort() == Some(&Sort::Bool) => match name.as_str() {
-                "true" => Some(true),
-                "false" => Some(false),
-                _ => None,
-            },
+            Term::Op(Operator::True, _) => Some(true),
+            Term::Op(Operator::False, _) => Some(false),
             _ => None,
         }
     }
 
     /// Tries to extract a `Integer` from a term. Returns `Some` if the term is an integer constant.
-    pub fn as_integer_number(&self) -> Option<Integer> {
+    pub fn as_integer(&self) -> Option<Integer> {
         match self {
             Term::Const(Constant::Integer(i)) => Some(i.clone()),
             _ => None,
@@ -791,8 +815,8 @@ impl Term {
     /// constant negated with the `-` operator.
     pub fn as_signed_integer(&self) -> Option<Integer> {
         match match_term!((-x) = self) {
-            Some(x) => x.as_integer_number().map(|r| -r),
-            None => self.as_integer_number(),
+            Some(x) => x.as_integer().map(|r| -r),
+            None => self.as_integer(),
         }
     }
 
@@ -827,6 +851,11 @@ impl Term {
         }
     }
 
+    /// Returns `true` if the term is a constant.
+    pub fn is_const(&self) -> bool {
+        matches!(self, Term::Const(_))
+    }
+
     /// Returns `true` if the term is a variable.
     pub fn is_var(&self) -> bool {
         matches!(self, Term::Var(_, _))
@@ -851,6 +880,11 @@ impl Term {
             Term::Sort(s) => Some(s),
             _ => None,
         }
+    }
+
+    /// Returns `true` if the term is a user defined sort with arity zero, or a sort variable.
+    pub fn is_sort_var(&self) -> bool {
+        matches!(self, Term::Sort(Sort::Atom(_, args)) if args.is_empty())
     }
 
     /// Tries to unwrap an operation term, returning the `Operator` and the arguments. Returns
@@ -882,20 +916,12 @@ impl Term {
 
     /// Returns `true` if the term is the boolean constant `true`.
     pub fn is_bool_true(&self) -> bool {
-        if let Term::Var(name, sort) = self {
-            sort.as_sort() == Some(&Sort::Bool) && name == "true"
-        } else {
-            false
-        }
+        *self == Term::Op(Operator::True, Vec::new())
     }
 
     /// Returns `true` if the term is the boolean constant `false`.
     pub fn is_bool_false(&self) -> bool {
-        if let Term::Var(name, sort) = self {
-            sort.as_sort() == Some(&Sort::Bool) && name == "false"
-        } else {
-            false
-        }
+        *self == Term::Op(Operator::False, Vec::new())
     }
 
     /// Returns `true` if the term is the given boolean constant `b`.

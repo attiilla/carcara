@@ -94,7 +94,7 @@ macro_rules! match_term {
     };
     ($bind:ident = $var:expr) => { Some($var) };
     (((_ $indexed_op:tt $($op_args:tt)+) $($args:tt)+) = $var:expr) => {{
-        if let $crate::ast::Term::IndexedOp {
+        if let $crate::ast::Term::ParamOp {
             op: match_term!(@GET_VARIANT $indexed_op),
             op_args,
             args,
@@ -158,7 +158,7 @@ macro_rules! match_term {
     (@GET_VARIANT >)        => { $crate::ast::Operator::GreaterThan };
     (@GET_VARIANT <=)       => { $crate::ast::Operator::LessEq };
     (@GET_VARIANT >=)       => { $crate::ast::Operator::GreaterEq };
-    (@GET_VARIANT bbterm)   => { $crate::ast::Operator::BvBbTerm };
+    (@GET_VARIANT bbT)   => { $crate::ast::Operator::BvBbTerm };
     (@GET_VARIANT bvnot)    => { $crate::ast::Operator::BvNot };
     (@GET_VARIANT bvneg)    => { $crate::ast::Operator::BvNeg };
     (@GET_VARIANT bvand)    => { $crate::ast::Operator::BvAnd };
@@ -176,13 +176,13 @@ macro_rules! match_term {
     (@GET_VARIANT bvult)    => { $crate::ast::Operator::BvULt };
     (@GET_VARIANT concat)    => { $crate::ast::Operator::BvConcat };
 
-    (@GET_VARIANT extract)     => { $crate::ast::IndexedOperator::BvExtract };
-    (@GET_VARIANT bit_of)      => { $crate::ast::IndexedOperator::BvBitOf };
-    (@GET_VARIANT zero_extend) => { $crate::ast::IndexedOperator::ZeroExtend };
-    (@GET_VARIANT sign_extend) => { $crate::ast::IndexedOperator::SignExtend };
-    (@GET_VARIANT rotate_left) => { $crate::ast::IndexedOperator::RotateLeft };
-    (@GET_VARIANT rotate_right) => { $crate::ast::IndexedOperator::RotateRight };
-    (@GET_VARIANT repeat) => { $crate::ast::IndexedOperator::Repeat };
+    (@GET_VARIANT extract)     => { $crate::ast::ParamOperator::BvExtract };
+    (@GET_VARIANT bitOf)      => { $crate::ast::ParamOperator::BvBitOf };
+    (@GET_VARIANT zero_extend) => { $crate::ast::ParamOperator::ZeroExtend };
+    (@GET_VARIANT sign_extend) => { $crate::ast::ParamOperator::SignExtend };
+    (@GET_VARIANT rotate_left) => { $crate::ast::ParamOperator::RotateLeft };
+    (@GET_VARIANT rotate_right) => { $crate::ast::ParamOperator::RotateRight };
+    (@GET_VARIANT repeat) => { $crate::ast::ParamOperator::Repeat };
 
     (@GET_VARIANT strconcat) => { $crate::ast::Operator::StrConcat };
     (@GET_VARIANT strlen) => { $crate::ast::Operator::StrLen };
@@ -227,11 +227,12 @@ macro_rules! match_term_err {
 macro_rules! build_term {
     ($pool:expr, true) => { $pool.bool_true() };
     ($pool:expr, false) => { $pool.bool_false() };
+    ($pool:expr, $int:literal) => { $pool.add(Term::Const(Constant::Integer($int.into()))) };
     ($pool:expr, {$terminal:expr}) => { $terminal };
     ($pool:expr, ((_ $indexed_op:tt $($op_args:tt)+) $($args:tt)+)) => {{
-        let term = $crate::ast::Term::IndexedOp {
+        let term = $crate::ast::Term::ParamOp {
             op: match_term!(@GET_VARIANT $indexed_op),
-            op_args: vec![ $($op_args),+ ],
+            op_args: vec![ $(build_term!($pool, $op_args)),+ ],
             args: vec![ $(build_term!($pool, $args)),+ ],
         };
         $pool.add(term)
@@ -349,21 +350,21 @@ mod tests {
         }
 
         let term = parse_term(&mut p, "((_ extract 3 1) (_ bv0 5))");
-        let ((i, j), b): ((&Constant, &Constant), &Rc<Term>) =
+        let ((i, j), b): ((&Rc<Term>, &Rc<Term>), &Rc<Term>) =
             match_term!(((_ extract i j) b) = term).unwrap();
-        assert_eq!(Constant::Integer(3.into()), *i);
-        assert_eq!(Constant::Integer(1.into()), *j);
+        assert_eq!(3, i.as_integer().unwrap());
+        assert_eq!(1, j.as_integer().unwrap());
         assert_eq!(Term::new_bv(0, 5), **b);
 
-        let term = parse_term(&mut p, "((_ bit_of 2) (_ bv0 5))");
-        let (i, b): (&Constant, &[Rc<Term>]) = match_term!(((_ bit_of i) ...) = term).unwrap();
-        assert_eq!(Constant::Integer(2.into()), *i);
+        let term = parse_term(&mut p, "((_ bitOf 2) (_ bv0 5))");
+        let (i, b): (&Rc<Term>, &[Rc<Term>]) = match_term!(((_ bitOf i) ...) = term).unwrap();
+        assert_eq!(2, i.as_integer().unwrap());
         assert_eq!(Term::new_bv(0, 5), *b[0]);
 
         let term = parse_term(&mut p, "((_ zero_extend 3) (_ bv0 5))");
-        let (i, b): (&[Constant], &[Rc<Term>]) =
+        let (i, b): (&[Rc<Term>], &[Rc<Term>]) =
             match_term!(((_ zero_extend ...) ...) = term).unwrap();
-        assert_eq!(Constant::Integer(3.into()), i[0]);
+        assert_eq!(3, i[0].as_integer().unwrap());
         assert_eq!(Term::new_bv(0, 5), *b[0]);
     }
 
@@ -382,7 +383,6 @@ mod tests {
         let [one, two, three] = [1, 2, 3].map(|n| pool.add(Term::new_int(n)));
         let [a, b] = ["a", "b"].map(|s| pool.add(Term::new_var(s, int_sort.clone())));
         let [p, q] = ["p", "q"].map(|s| pool.add(Term::new_var(s, bool_sort.clone())));
-        let [const_one, const_two, const_three] = [1, 2, 3].map(|n| Constant::Integer(n.into()));
         let zeros = pool.add(Term::new_bv(0, 6));
 
         let cases = [
@@ -415,9 +415,9 @@ mod tests {
                 )),
             ),
             (
-                "((_ bit_of 1) ((_ extract 3 2) #b000000))",
+                "((_ bitOf 1) ((_ extract 3 2) #b000000))",
                 build_term!(pool,
-                    ((_ bit_of const_one) ((_ extract const_three const_two) {zeros}))
+                    ((_ bitOf 1) ((_ extract 3 2) {zeros}))
                 ),
             ),
             ("(and true false)", build_term!(pool, (and true false))),

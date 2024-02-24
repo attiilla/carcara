@@ -71,7 +71,7 @@ impl PrintWithSharing for Rc<Term> {
             //
             // - If a term is only used once in the proof, there is no reason to give it a name. We
             // detect this case by checking if the number of references to it's `Rc` is exactly 1.
-            if !self.is_terminal() && !self.is_sort() && Rc::strong_count(self) > 1 {
+            if !self.is_const() && !self.is_var() && !self.is_sort() && Rc::strong_count(self) > 1 {
                 return if let Some(i) = indices.get(self) {
                     write!(p.inner, "{}{}", p.term_sharing_variable_prefix, i)
                 } else {
@@ -117,7 +117,7 @@ impl PrintWithSharing for Operator {
     }
 }
 
-impl PrintWithSharing for IndexedOperator {
+impl PrintWithSharing for ParamOperator {
     fn print_with_sharing(&self, p: &mut AlethePrinter) -> io::Result<()> {
         write!(p.inner, "{}", self)
     }
@@ -198,7 +198,13 @@ impl<'a> AlethePrinter<'a> {
             Term::Const(c) => write!(self.inner, "{}", c),
             Term::Var(name, _) => write!(self.inner, "{}", quote_symbol(name)),
             Term::App(func, args) => self.write_s_expr(func, args),
-            Term::Op(op, args) => self.write_s_expr(op, args),
+            Term::Op(op, args) => {
+                if args.is_empty() {
+                    write!(self.inner, "{}", op)
+                } else {
+                    self.write_s_expr(op, args)
+                }
+            }
             Term::Sort(sort) => write!(self.inner, "{}", sort),
             Term::Quant(quantifier, bindings, term) => {
                 write!(self.inner, "({} ", quantifier)?;
@@ -228,7 +234,7 @@ impl<'a> AlethePrinter<'a> {
                 term.print_with_sharing(self)?;
                 write!(self.inner, ")")
             }
-            Term::IndexedOp { op, op_args, args } => {
+            Term::ParamOp { op, op_args, args } => {
                 if !args.is_empty() {
                     write!(self.inner, "(")?;
                 }
@@ -437,6 +443,7 @@ impl fmt::Display for Sort {
             Sort::Array(x, y) => write_s_expr(f, "Array", &[x, y]),
             Sort::BitVec(w) => write!(f, "(_ BitVec {})", w),
             Sort::RareList => unreachable!("RARE list sort should never be displayed"),
+            Sort::Type => write!(f, "Type"),
         }
     }
 }
