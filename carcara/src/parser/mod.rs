@@ -70,6 +70,35 @@ struct FunctionDef {
     body: Rc<Term>,
 }
 
+impl FunctionDef {
+    fn apply(&self, p: &mut PrimitivePool, args: Vec<Rc<Term>>) -> Result<Rc<Term>, ParserError> {
+        assert_num_args(&args, self.params.len())?;
+        if args.is_empty() {
+            return Ok(self.body.clone());
+        }
+
+        for (arg, param) in args.iter().zip(self.params.iter()) {
+            SortError::assert_eq(param.1.as_sort().unwrap(), p.sort(arg).as_sort().unwrap())?;
+        }
+
+        // Build a hash map of all the parameter names and the values they will
+        // take
+        let substitution = self
+            .params
+            .iter()
+            .zip(args)
+            .map(|((n, s), arg)| (p.add(Term::new_var(n, s.clone())), arg))
+            .collect();
+
+        // Since we already checked the sorts of the arguments, creating this substitution
+        // can never fail
+        let result = Substitution::new(p, substitution)
+            .unwrap()
+            .apply(p, &self.body);
+        Ok(result)
+    }
+}
+
 /// A sort definition, from a `define-sort` command.
 struct SortDef {
     params: Vec<String>,
@@ -638,7 +667,6 @@ impl<'a, R: BufRead> Parser<'a, R> {
                     let (name, sort) = self.parse_declare_fun()?;
                     self.insert_sorted_var((name.clone(), sort.clone()));
                     self.prelude().function_declarations.push((name, sort));
-                    continue;
                 }
                 Token::ReservedWord(Reserved::DeclareConst) => {
                     let name = self.expect_symbol()?;
@@ -646,7 +674,6 @@ impl<'a, R: BufRead> Parser<'a, R> {
                     self.expect_token(Token::CloseParen)?;
                     self.insert_sorted_var((name.clone(), sort.clone()));
                     self.prelude().function_declarations.push((name, sort));
-                    continue;
                 }
                 Token::ReservedWord(Reserved::DeclareSort) => {
                     let (name, arity) = self.parse_declare_sort()?;
@@ -658,7 +685,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
                     self.state.sort_declarations.insert(name, arity);
                 }
                 Token::ReservedWord(Reserved::DefineFun) => {
-                    let (name, func_def) = self.parse_define_fun()?;
+                    let (name, func_def) = self.parse_define_fun(false)?;
 
                     if self.config.apply_function_defs {
                         self.state.function_defs.insert(name, func_def);
@@ -668,8 +695,11 @@ impl<'a, R: BufRead> Parser<'a, R> {
                         let lambda_term = if func_def.params.is_empty() {
                             func_def.body
                         } else {
-                            self.pool
-                                .add(Term::Lambda(BindingList(func_def.params), func_def.body))
+                            self.pool.add(Term::Binder(
+                                Binder::Lambda,
+                                BindingList(func_def.params),
+                                func_def.body,
+                            ))
                         };
                         let sort = self.pool.sort(&lambda_term);
                         let var = (name, sort);
@@ -680,7 +710,38 @@ impl<'a, R: BufRead> Parser<'a, R> {
                             .add(Term::Op(Operator::Equals, vec![var_term, lambda_term]));
                         self.premises().insert(assertion_term);
                     }
-                    continue;
+                }
+                Token::ReservedWord(Reserved::DefineFunRec) => {
+                    // When we encounter a `define-func-rec`, we add a new premise that asserts that,
+                    // forall values of the arguments, the function application is equal to the
+                    // function body. For example,
+                    // ```
+                    // (define-fun-rec sumr ((x Int)) Int (+ x (ite (> x 0) (sumr (- x 1)) 0)))
+                    // ```
+                    // becomes
+                    // ```
+                    // (assert (forall ((x Int)) (= (sumr x) (+ x (ite (> x 0) (sumr (- x 1)) 0)))))
+                    // ```
+                    let (name, func_def) = self.parse_define_fun(true)?;
+                    let application = {
+                        let cached = HashCache::new(name);
+                        let func_sort = self.state.symbol_table.get(&cached).unwrap();
+                        let name = cached.unwrap();
+                        let args = func_def
+                            .params
+                            .iter()
+                            .map(|var| self.pool.add(var.clone().into()))
+                            .collect();
+                        let func_term = self.pool.add((name, func_sort.clone()).into());
+                        self.pool.add(Term::App(func_term, args))
+                    };
+                    let equality_term = build_term!(self.pool, (= {application} {func_def.body}));
+                    let premise = self.pool.add(Term::Binder(
+                        Binder::Forall,
+                        BindingList(func_def.params),
+                        equality_term,
+                    ));
+                    self.premises().insert(premise);
                 }
                 Token::ReservedWord(Reserved::DefineSort) => {
                     let (name, def) = self.parse_define_sort()?;
@@ -756,7 +817,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
                     (step.id.clone(), ProofCommand::Step(step))
                 }
                 Token::ReservedWord(Reserved::DefineFun) => {
-                    let (name, func_def) = self.parse_define_fun()?;
+                    let (name, func_def) = self.parse_define_fun(false)?;
                     self.state.function_defs.insert(name, func_def);
                     continue;
                 }
@@ -784,7 +845,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
             let id = HashCache::new(id);
             if self.state.step_ids.get(&id).is_some() {
                 return Err(Error::Parser(
-                    ParserError::RepeatedStepIndex(id.unwrap()),
+                    ParserError::RepeatedStepId(id.unwrap()),
                     position,
                 ));
             }
@@ -927,7 +988,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
             .step_ids
             .get_with_depth(&id)
             .map(|(d, &i)| (d, i))
-            .ok_or_else(|| Error::Parser(ParserError::UndefinedStepIndex(id.unwrap()), position))
+            .ok_or_else(|| Error::Parser(ParserError::UndefinedStepId(id.unwrap()), position))
     }
 
     /// Parses an argument for the `:discharge` attribute.
@@ -947,7 +1008,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
             .get_with_depth(&absolute_id)
             .or_else(|| self.state.step_ids.get_with_depth(&id))
             .map(|(d, &i)| (d, i))
-            .ok_or_else(|| Error::Parser(ParserError::UndefinedStepIndex(id.unwrap()), position))
+            .ok_or_else(|| Error::Parser(ParserError::UndefinedStepId(id.unwrap()), position))
     }
 
     /// Parses an `anchor` proof command. This method assumes that the `(` and `anchor` tokens were
@@ -1039,13 +1100,29 @@ impl<'a, R: BufRead> Parser<'a, R> {
         Ok((name, arity))
     }
 
-    /// Parses a `define-fun` proof command. Returns the function name and its definition. This
-    /// method assumes that the `(` and `define-fun` tokens were already consumed.
-    fn parse_define_fun(&mut self) -> CarcaraResult<(String, FunctionDef)> {
+    /// Parses a `define-fun` or `define-fun-rec` proof command. Returns the function name and its
+    /// definition. This method assumes that the `(` and `define-fun`/`define-fun-rec` tokens were
+    /// already consumed.
+    fn parse_define_fun(&mut self, is_rec: bool) -> CarcaraResult<(String, FunctionDef)> {
         let name = self.expect_symbol()?;
         self.expect_token(Token::OpenParen)?;
         let params = self.parse_sequence(Self::parse_sorted_var, false)?;
         let return_sort = self.parse_sort()?;
+
+        // If this is a `define-fun-rec`, we need to add the function itself to the symbol
+        // table. Note that we add it before pushing the new scope, so this entry survives for
+        // the rest of the proof
+        if is_rec {
+            let sort = if params.is_empty() {
+                return_sort.as_sort().unwrap().clone()
+            } else {
+                let mut param_sorts: Vec<_> = params.iter().map(|(_, sort)| sort.clone()).collect();
+                param_sorts.push(return_sort.clone());
+                Sort::Function(param_sorts)
+            };
+            let sort = self.pool.add(Term::Sort(sort));
+            self.insert_sorted_var((name.clone(), sort));
+        }
 
         // In order to correctly parse the function body, we push a new scope to the symbol table
         // and add the functions arguments to it.
@@ -1135,23 +1212,17 @@ impl<'a, R: BufRead> Parser<'a, R> {
             (Token::String(s), _) => Term::new_string(s),
             (Token::Symbol(s), pos) => {
                 // Check to see if there is a nullary function defined with this name
-                return Ok(if let Some(func_def) = self.state.function_defs.get(&s) {
-                    if func_def.params.is_empty() {
-                        func_def.body.clone()
-                    } else {
-                        return Err(Error::Parser(
-                            ParserError::WrongNumberOfArgs(func_def.params.len().into(), 0),
-                            pos,
-                        ));
-                    }
+                return if let Some(func) = self.state.function_defs.get(&s) {
+                    func.apply(self.pool, Vec::new())
+                        .map_err(|err| Error::Parser(err, pos))
                 } else if let Ok(op) = Operator::from_str(&s) {
                     let args = Vec::new();
 
                     self.make_op(op, args)
-                        .map_err(|err| Error::Parser(err, pos))?
+                        .map_err(|err| Error::Parser(err, pos))
                 } else {
-                    self.make_var(s).map_err(|err| Error::Parser(err, pos))?
-                });
+                    self.make_var(s).map_err(|err| Error::Parser(err, pos))
+                };
             }
             (Token::OpenParen, _) => return self.parse_application(),
             (other, pos) => {
@@ -1183,56 +1254,33 @@ impl<'a, R: BufRead> Parser<'a, R> {
         Ok(term)
     }
 
-    /// Parses a quantifier term. This method assumes that the `(` and quantifier tokens were
+    /// Parses a binder term. This method assumes that the `(` and binder tokens were
     /// already consumed.
-    fn parse_quantifier(&mut self, quantifier: Quantifier) -> CarcaraResult<Rc<Term>> {
+    fn parse_binder(&mut self, binder: Binder) -> CarcaraResult<Rc<Term>> {
         self.expect_token(Token::OpenParen)?;
         self.state.symbol_table.push_scope();
-        let bindings = self.parse_sequence(
-            |p| {
-                let var = p.parse_sorted_var()?;
-                p.insert_sorted_var(var.clone());
-                Ok(var)
-            },
-            true,
-        )?;
-        let term = self.parse_term_expecting_sort(&Sort::Bool)?;
+        let bindings = if binder == Binder::Choice {
+            let var = self.parse_sorted_var()?;
+            self.insert_sorted_var(var.clone());
+            self.expect_token(Token::CloseParen)?;
+            BindingList(vec![var])
+        } else {
+            BindingList(self.parse_sequence(
+                |p| {
+                    let var = p.parse_sorted_var()?;
+                    p.insert_sorted_var(var.clone());
+                    Ok(var)
+                },
+                true,
+            )?)
+        };
+        let term = match binder {
+            Binder::Lambda => self.parse_term()?,
+            _ => self.parse_term_expecting_sort(&Sort::Bool)?,
+        };
         self.state.symbol_table.pop_scope();
         self.expect_token(Token::CloseParen)?;
-        Ok(self
-            .pool
-            .add(Term::Quant(quantifier, BindingList(bindings), term)))
-    }
-
-    /// Parses a `choice` term. This method assumes that the `(` and `choice` tokens were already
-    /// consumed.
-    fn parse_choice_term(&mut self) -> CarcaraResult<Rc<Term>> {
-        self.expect_token(Token::OpenParen)?;
-        let var = self.parse_sorted_var()?;
-        self.insert_sorted_var(var.clone());
-        self.expect_token(Token::CloseParen)?;
-        let inner = self.parse_term()?;
-        self.expect_token(Token::CloseParen)?;
-        Ok(self.pool.add(Term::Choice(var, inner)))
-    }
-
-    /// Parses a `lambda` term. This method assumes that the `(` and `let` tokens were already
-    /// consumed.
-    fn parse_lambda_term(&mut self) -> CarcaraResult<Rc<Term>> {
-        self.expect_token(Token::OpenParen)?;
-        self.state.symbol_table.push_scope();
-        let bindings = self.parse_sequence(
-            |p| {
-                let var = p.parse_sorted_var()?;
-                p.insert_sorted_var(var.clone());
-                Ok(var)
-            },
-            true,
-        )?;
-        let body = self.parse_term()?;
-        self.state.symbol_table.pop_scope();
-        self.expect_token(Token::CloseParen)?;
-        Ok(self.pool.add(Term::Lambda(BindingList(bindings), body)))
+        Ok(self.pool.add(Term::Binder(binder, bindings, term)))
     }
 
     /// Parses a `let` term. This method assumes that the `(` and `let` tokens were already
@@ -1515,10 +1563,10 @@ impl<'a, R: BufRead> Parser<'a, R> {
                         self.make_qualified_op(op, sort, Vec::new())
                             .map_err(|err| Error::Parser(err, head_pos))
                     }
-                    Reserved::Exists => self.parse_quantifier(Quantifier::Exists),
-                    Reserved::Forall => self.parse_quantifier(Quantifier::Forall),
-                    Reserved::Choice => self.parse_choice_term(),
-                    Reserved::Lambda => self.parse_lambda_term(),
+                    Reserved::Exists => self.parse_binder(Binder::Exists),
+                    Reserved::Forall => self.parse_binder(Binder::Forall),
+                    Reserved::Choice => self.parse_binder(Binder::Choice),
+                    Reserved::Lambda => self.parse_binder(Binder::Lambda),
                     Reserved::Bang => self.parse_annotated_term(),
                     Reserved::Let => self.parse_let_term(),
                     _ => Err(Error::Parser(
@@ -1546,34 +1594,8 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 let args = self.parse_sequence(Self::parse_term, true)?;
                 let func = self.state.function_defs.get(&func_name).unwrap();
 
-                // If there is a function definition with this function name, we sort check
-                // the arguments and apply the definition by performing a beta reduction.
-                assert_num_args(&args, func.params.len())
-                    .map_err(|err| Error::Parser(err, head_pos))?;
-                for (arg, param) in args.iter().zip(func.params.iter()) {
-                    SortError::assert_eq(
-                        param.1.as_sort().unwrap(),
-                        self.pool.sort(arg).as_sort().unwrap(),
-                    )
-                    .map_err(|err| Error::Parser(err.into(), head_pos))?;
-                }
-
-                // Build a hash map of all the parameter names and the values they will
-                // take
-                let substitution = func
-                    .params
-                    .iter()
-                    .zip(args)
-                    .map(|((n, s), arg)| (self.pool.add(Term::new_var(n, s.clone())), arg))
-                    .collect();
-
-                // Since we already checked the sorts of the arguments, creating this substitution
-                // can never fail
-                let result = Substitution::new(self.pool, substitution)
-                    .unwrap()
-                    .apply(self.pool, &func.body);
-
-                Ok(result)
+                func.apply(self.pool, args)
+                    .map_err(|err| Error::Parser(err, head_pos))
             }
             Token::OpenParen => {
                 self.next_token()?;

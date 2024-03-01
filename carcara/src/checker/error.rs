@@ -117,6 +117,9 @@ pub enum CheckerError {
     #[error("expected quantifier term, got '{0}'")]
     ExpectedQuantifierTerm(Rc<Term>),
 
+    #[error("expected binder term, got '{0}'")]
+    ExpectedBinderTerm(Rc<Term>),
+
     #[error("expected 'let' term, got '{0}'")]
     ExpectedLetTerm(Rc<Term>),
 
@@ -140,7 +143,7 @@ pub enum CheckerError {
     TermEquality(#[from] EqualityError<Rc<Term>>),
 
     #[error(transparent)]
-    QuantifierEquality(#[from] EqualityError<Quantifier>),
+    QuantifierEquality(#[from] EqualityError<Binder>),
 
     #[error(transparent)]
     BindingListEquality(#[from] EqualityError<BindingList>),
