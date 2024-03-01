@@ -137,7 +137,7 @@ pub enum CheckerError {
     TermEquality(#[from] EqualityError<Rc<Term>>),
 
     #[error(transparent)]
-    QuantifierEquality(#[from] EqualityError<Quantifier>),
+    QuantifierEquality(#[from] EqualityError<Binder>),
 
     #[error(transparent)]
     BindingListEquality(#[from] EqualityError<BindingList>),

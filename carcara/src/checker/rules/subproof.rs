@@ -199,7 +199,7 @@ pub fn r#let(
     Ok(())
 }
 
-fn extract_points(quant: Quantifier, term: &Rc<Term>) -> IndexSet<(Rc<Term>, Rc<Term>)> {
+fn extract_points(quant: Binder, term: &Rc<Term>) -> IndexSet<(Rc<Term>, Rc<Term>)> {
     fn find_points(acc: &mut IndexSet<(Rc<Term>, Rc<Term>)>, polarity: bool, term: &Rc<Term>) {
         // This does not make use of a cache, so there may be performance issues
         // TODO: Measure the performance of this function, and see if a cache is needed
@@ -234,7 +234,7 @@ fn extract_points(quant: Quantifier, term: &Rc<Term>) -> IndexSet<(Rc<Term>, Rc<
     }
 
     let mut result = IndexSet::new();
-    find_points(&mut result, quant == Quantifier::Exists, term);
+    find_points(&mut result, quant == Binder::Exists, term);
     result
 }
 
@@ -338,7 +338,7 @@ pub fn onepoint(
 }
 
 fn generic_skolemization_rule(
-    rule_type: Quantifier,
+    rule_type: Binder,
     RuleArgs {
         conclusion,
         pool,
@@ -390,7 +390,7 @@ fn generic_skolemization_rule(
             // If this is the last binding, all bindings were skolemized, so we don't need to wrap
             // the term in a quantifier
             if i < bindings.len() - 1 {
-                inner = pool.add(Term::Quant(
+                inner = pool.add(Term::Binder(
                     rule_type,
                     BindingList(bindings.0[i + 1..].to_vec()),
                     inner,
@@ -398,10 +398,11 @@ fn generic_skolemization_rule(
             }
 
             // If the rule is `sko_forall`, the predicate in the choice term should be negated
-            if rule_type == Quantifier::Forall {
+            if rule_type == Binder::Forall {
                 inner = build_term!(pool, (not { inner }));
             }
-            pool.add(Term::Choice(x.clone(), inner))
+            let binding_list = BindingList(vec![x.clone()]);
+            pool.add(Term::Binder(Binder::Choice, binding_list, inner))
         };
         if !alpha_equiv(t, &expected, polyeq_time) {
             return Err(EqualityError::ExpectedEqual(t.clone(), expected).into());
@@ -415,11 +416,11 @@ fn generic_skolemization_rule(
 }
 
 pub fn sko_ex(args: RuleArgs) -> RuleResult {
-    generic_skolemization_rule(Quantifier::Exists, args)
+    generic_skolemization_rule(Binder::Exists, args)
 }
 
 pub fn sko_forall(args: RuleArgs) -> RuleResult {
-    generic_skolemization_rule(Quantifier::Forall, args)
+    generic_skolemization_rule(Binder::Forall, args)
 }
 
 #[cfg(test)]
