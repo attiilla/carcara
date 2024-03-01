@@ -114,6 +114,9 @@ pub enum CheckerError {
     #[error("expected quantifier term, got '{0}'")]
     ExpectedQuantifierTerm(Rc<Term>),
 
+    #[error("expected binder term, got '{0}'")]
+    ExpectedBinderTerm(Rc<Term>),
+
     #[error("expected 'let' term, got '{0}'")]
     ExpectedLetTerm(Rc<Term>),
 

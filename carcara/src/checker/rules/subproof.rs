@@ -62,11 +62,9 @@ pub fn bind(
 
     let (left, right) = match_term_err!((= l r) = &conclusion[0])?;
 
-    // While the documentation indicates this rule is only called with `forall` quantifiers, in
-    // some of the tests examples it is also called with the `exists` quantifier
-    let (l_quant, l_bindings, left) = left.as_quant_err()?;
-    let (r_quant, r_bindings, right) = right.as_quant_err()?;
-    assert_eq(&l_quant, &r_quant)?;
+    let (l_binder, l_bindings, left) = left.as_binder_err()?;
+    let (r_binder, r_bindings, right) = right.as_binder_err()?;
+    assert_eq(&l_binder, &r_binder)?;
 
     let [l_bindings, r_bindings] = [l_bindings, r_bindings].map(|b| {
         b.iter()
@@ -505,6 +503,15 @@ mod tests {
                 (step t1.t1 (cl (= p q)) :rule hole)
                 (step t1 (cl (= (forall ((x Real) (z Real)) p)
                     (forall ((y Real) (z Real)) q))) :rule bind)": true,
+            }
+            "Binding `lambda` and `choice` terms" {
+                "(anchor :step t1 :args ((y Real) (:= x y)))
+                (step t1.t1 (cl (= x y)) :rule hole)
+                (step t1 (cl (= (lambda ((x Real)) x) (lambda ((y Real)) y))) :rule bind)": true,
+
+                "(anchor :step t1 :args ((y Int) (:= x y)))
+                (step t1.t1 (cl (= p q)) :rule hole)
+                (step t1 (cl (= (choice ((x Int)) p) (choice ((y Int)) q))) :rule bind)": true,
             }
             "y_i appears in phi as a free variable" {
                 "(anchor :step t1 :args ((y Real) (:= x y)))

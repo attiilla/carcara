@@ -891,6 +891,15 @@ impl Term {
         }
     }
 
+    /// Tries to unwrap a binder term, returning the `Binder`, the bindings and the inner term.
+    /// Returns `None` if the term is not a binder term.
+    pub fn as_binder(&self) -> Option<(Binder, &BindingList, &Rc<Term>)> {
+        match self {
+            Term::Binder(binder, bindings, inner) => Some((*binder, bindings, inner)),
+            _ => None,
+        }
+    }
+
     /// Tries to unwrap a `let` term, returning the bindings and the inner term. Returns `None` if
     /// the term is not a `let` term.
     pub fn as_let(&self) -> Option<(&BindingList, &Rc<Term>)> {
@@ -986,6 +995,13 @@ impl Rc<Term> {
     pub fn as_quant_err(&self) -> Result<(Binder, &BindingList, &Rc<Term>), CheckerError> {
         self.as_quant()
             .ok_or_else(|| CheckerError::ExpectedQuantifierTerm(self.clone()))
+    }
+
+    /// Tries to unwrap a binder term, returning the `Binder`, the bindings and the inner term.
+    /// Returns a `CheckerError` if the term is not a binder term.
+    pub fn as_binder_err(&self) -> Result<(Binder, &BindingList, &Rc<Term>), CheckerError> {
+        self.as_binder()
+            .ok_or_else(|| CheckerError::ExpectedBinderTerm(self.clone()))
     }
 
     /// Tries to unwrap a `let` term, returning the bindings and the inner
