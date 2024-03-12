@@ -727,20 +727,26 @@ impl<'a, R: BufRead> Parser<'a, R> {
                         let cached = HashCache::new(name);
                         let func_sort = self.state.symbol_table.get(&cached).unwrap();
                         let name = cached.unwrap();
-                        let args = func_def
-                            .params
-                            .iter()
-                            .map(|var| self.pool.add(var.clone().into()))
-                            .collect();
                         let func_term = self.pool.add((name, func_sort.clone()).into());
-                        self.pool.add(Term::App(func_term, args))
+                        if func_def.params.is_empty() {
+                            func_term
+                        } else {
+                            let args = func_def
+                                .params
+                                .iter()
+                                .map(|var| self.pool.add(var.clone().into()))
+                                .collect();
+                            self.pool.add(Term::App(func_term, args))
+                        }
                     };
                     let equality_term = build_term!(self.pool, (= {application} {func_def.body}));
-                    let premise = self.pool.add(Term::Binder(
-                        Binder::Forall,
-                        BindingList(func_def.params),
-                        equality_term,
-                    ));
+                    let premise = if func_def.params.is_empty() {
+                        equality_term
+                    } else {
+                        let bindings = BindingList(func_def.params);
+                        self.pool
+                            .add(Term::Binder(Binder::Forall, bindings, equality_term))
+                    };
                     self.premises().insert(premise);
                 }
                 Token::ReservedWord(Reserved::DefineSort) => {
