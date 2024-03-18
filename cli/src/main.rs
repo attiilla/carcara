@@ -451,14 +451,14 @@ fn elaborate_command(options: ElaborateCommandOptions) -> CliResult<()> {
 }
 
 fn compress_command(options: CompressOptions) -> CliResult<()>{
-    println!("Tá lento mas tá indo");
+    //println!("Tá lento mas tá indo");
     let (problem, proof) = get_instance(&options.input)?;
-    println!("Tá mesmo?");
+    //println!("Tá mesmo?");
     let compressed = compress_proof(
         problem, 
         proof, 
         build_carcara_options(options.parsing, options.checking, options.stats))?;
-    println!("Tá sim");
+    //println!("Tá sim");
     //print_proof(&compressed.commands,options.printing.use_sharing)?;
     Ok(())
 }

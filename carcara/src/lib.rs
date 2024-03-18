@@ -376,8 +376,9 @@ pub fn compress_proof<T: io::BufRead>(
     }
     */
     let mut comp: ProofCompressor = ProofCompressor::new(&proof);
-    comp.run_compressor(&mut pool);
+    //comp.run_compressor(&mut pool);
     //println!("Impressão:");
+    let a = comp.compress_parted(&mut pool);
     //comp.print();
     //println!("\n\nPlay:");
     //comp.play(&mut pool);
@@ -385,6 +386,24 @@ pub fn compress_proof<T: io::BufRead>(
     //comp.inspect_subproof(0);
     //comp.generic_compress(&mut pool);
     //comp.print();
-    println!("Passou aqui");
+    //println!("Passou aqui");
+    Ok(())
+}
+
+pub fn compress_pipe<T: io::BufRead>(
+    problem: T,
+    proof: T,
+    options: CarcaraOptions,
+) -> Result</*u8*/(),Error>{
+    // Parsing
+    //let total = Instant::now();
+    let config = parser::Config {
+        apply_function_defs: options.apply_function_defs,
+        expand_lets: options.expand_lets,
+        allow_int_real_subtyping: options.allow_int_real_subtyping,
+    };
+    let (prelude, proof, mut pool) = parser::parse_instance(problem, proof, config)?;
+    let mut comp: ProofCompressor = ProofCompressor::new(&proof);
+    comp.print();
     Ok(())
 }
