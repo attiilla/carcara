@@ -12,7 +12,6 @@ use crate::checker::error::CheckerError;
 //use std::time::Duration;
 //use std::sync::Arc;
 use std::env;
-use itertools::Itertools;
 
 mod error;
 use crate::compressor::error::{CompressionError, CollectionError};
