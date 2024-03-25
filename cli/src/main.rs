@@ -5,7 +5,7 @@ mod path_args;
 
 use carcara::{
     ast, benchmarking::OnlineBenchmarkResults, check, check_and_elaborate, check_parallel, parser,
-    CarcaraOptions, LiaGenericOptions,
+    CarcaraOptions, LiaGenericOptions, compress_proof,
 };
 use clap::{AppSettings, ArgEnum, Args, Parser, Subcommand};
 use const_format::{formatcp, str_index};
@@ -77,6 +77,9 @@ enum Command {
 
     /// Given a step, takes a slice of a proof consisting of all its transitive premises.
     Slice(SliceCommandOptions),
+
+    ///Compress a proof
+    Compress(CompressOptions),
 }
 
 #[derive(Args)]
@@ -307,6 +310,21 @@ struct SliceCommandOptions {
     lia_solver_args: Option<String>,
 }
 
+#[derive(Args)]
+struct CompressOptions {
+    #[clap(flatten)]
+    input: Input,
+    
+    #[clap(flatten)]
+    parsing: ParsingOptions,
+
+    #[clap(flatten)]
+    checking: CheckingOptions,
+
+    #[clap(flatten)]
+    stats: StatsOptions,
+}
+
 #[derive(ArgEnum, Clone)]
 enum LogLevel {
     Off,
@@ -373,6 +391,7 @@ fn main() {
             elaborate_command(options).and_then(|p| print_proof(p.commands))
         }
         Command::Bench(options) => bench_command(options),
+        Command::Compress(options) => compress_command(options),
         Command::Slice(options) => slice_command(options).and_then(print_proof),
     };
     if let Err(e) = result {
@@ -493,6 +512,15 @@ fn bench_command(options: BenchCommandOptions) -> CliResult<()> {
         println!("valid");
     }
     results.print(options.sort_by_total);
+    Ok(())
+}
+
+fn compress_command(options: CompressOptions) -> CliResult<()>{
+    let (problem, proof) = get_instance(&options.input)?;
+    let compressed = compress_proof(
+        problem, 
+        proof, 
+        build_carcara_options(options.parsing, options.checking, options.stats))?;
     Ok(())
 }
 

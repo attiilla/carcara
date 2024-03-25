@@ -41,10 +41,12 @@ pub mod benchmarking;
 pub mod checker;
 pub mod elaborator;
 pub mod parser;
+pub mod compressor;
 mod utils;
 
 use crate::benchmarking::{CollectResults, OnlineBenchmarkResults, RunMeasurement};
 use checker::{error::CheckerError, CheckerStatistics};
+use compressor::ProofCompressor;
 use parser::{ParserError, Position};
 use std::io;
 use std::time::{Duration, Instant};
@@ -341,4 +343,23 @@ pub fn check_and_elaborate<T: io::BufRead>(
     } else {
         checker.check_and_elaborate(proof)
     }
+}
+
+pub fn compress_proof<T: io::BufRead>(
+    problem: T,
+    proof: T,
+    options: CarcaraOptions,
+) -> /*Result<ast::Proof, Error>*/Result<(),Error> {
+    // Parsing
+    //let total = Instant::now();
+    let config = parser::Config {
+        apply_function_defs: options.apply_function_defs,
+        expand_lets: options.expand_lets,
+        allow_int_real_subtyping: options.allow_int_real_subtyping,
+        allow_unary_logical_ops: true
+    };
+    let (prelude, proof, mut pool) = parser::parse_instance(problem, proof, config)?;
+    let mut comp: ProofCompressor = ProofCompressor::new(&proof);
+    let a = comp.compress_parted(&mut pool);
+    Ok(())
 }
