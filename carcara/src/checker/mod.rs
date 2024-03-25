@@ -1,7 +1,7 @@
 pub mod error;
 mod lia_generic;
 mod parallel;
-mod rules;
+pub mod rules;
 
 use crate::{
     ast::*,

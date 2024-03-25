@@ -11,6 +11,7 @@ indexmap = "2.0.0"
 log = "0.4.20"
 rug = { version = "1.21.0", default-features = false, features = ["integer", "rational"] }
 thiserror = "1.0.47"
+multiset = "0.0.5"
 
 [dev-dependencies]
 test-generator = { path = "../test-generator" }
