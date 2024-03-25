@@ -1,0 +1,13 @@
+(assume a0 (! (not a) :named @p_0))
+(assume a1 (! (or a d) :named @p_1))
+(assume a2 (! (not b) :named @p_2))
+(assume a3 (! (or a b (! (not (! (or (! (or c d) :named @p_6) e f) :named @p_5)) :named @p_4)) :named @p_3))
+(step t0 (cl a b @p_4) :rule or :premises (a3))
+(step t1 (cl a d) :rule or :premises (a1))
+(step t2 (cl a @p_4) :rule resolution :premises (a2 t0) :args (b false))
+
+(step t3 (cl (! (not @p_6) :named @p_7)) :rule not_or :premises (t2) :args (1))
+
+(step t4 (cl (! (not d) :named @p_8)) :rule not_or :premises (t3) :args (1))
+(step t5 (cl a) :rule resolution :premises (t4 t1) :args (d false))
+(step t6 (cl) :rule resolution :premises (t5 a0) :args (a true))
