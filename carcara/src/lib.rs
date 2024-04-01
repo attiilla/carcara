@@ -360,6 +360,6 @@ pub fn compress_proof<T: io::BufRead>(
     };
     let (prelude, proof, mut pool) = parser::parse_instance(problem, proof, config)?;
     let mut comp: ProofCompressor = ProofCompressor::new(&proof);
-    let a = comp.compress_parted(&mut pool);
+    let a = comp.run_compressor(&mut pool);
     Ok(())
 }

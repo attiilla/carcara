@@ -9,7 +9,7 @@
 (step t2 (cl a (not b)) :rule or :premises (a3))
 (step t3 (cl b c d) :rule or :premises (a4))
 (step t4 (cl b (not (or c d))) :rule resolution :premises (a0 t0) :args (a false))
-(step t5 (cl a (not (or c d))) :rule resolution :premises (t4 t2) :args (b true))
+(step t5 (cl a (not (or c d))) :rule resolution :premises (t2 t4) :args (b false))
 (step t6 (cl (not (or c d))) :rule resolution :premises (t5 a0) :args (a true))
 (step t7 (cl (not c)) :rule not_or :premises (t6) :args(1))
 (step t8 (cl (not d)) :rule resolution :premises (a0 t1) :args (a false))
