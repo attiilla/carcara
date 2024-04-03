@@ -57,7 +57,7 @@ pub fn resolution(rule_args: RuleArgs) -> RuleResult {
     if !rule_args.args.is_empty() {
         // If the rule was given arguments, we redirect to the variant of "resolution" that takes
         // the pivots as arguments
-        return resolution_with_args(rule_args);
+        return strict_resolution(rule_args);
     }
     let RuleArgs { conclusion, premises, pool, .. } = rule_args;
 
@@ -287,26 +287,6 @@ fn rup_resolution(conclusion: &[Rc<Term>], premises: &[Premise]) -> bool {
             _ => return false,
         }
     }
-}
-
-pub fn resolution_with_args(
-    RuleArgs {
-        conclusion, premises, args, pool, ..
-    }: RuleArgs,
-) -> RuleResult {
-    let resolution_result = apply_generic_resolution::<IndexSet<_>>(premises, args, pool)?;
-
-    let conclusion: IndexSet<_> = conclusion.iter().map(Rc::remove_all_negations).collect();
-
-    if let Some(extra) = conclusion.difference(&resolution_result).next() {
-        let extra = unremove_all_negations(pool, *extra);
-        return Err(ResolutionError::ExtraTermInConclusion(extra).into());
-    }
-    if let Some(missing) = resolution_result.difference(&conclusion).next() {
-        let missing = unremove_all_negations(pool, *missing);
-        return Err(ResolutionError::MissingTermInConclusion(missing).into());
-    }
-    Ok(())
 }
 
 pub fn strict_resolution(
