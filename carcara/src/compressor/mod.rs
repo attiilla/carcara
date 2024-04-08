@@ -1,10 +1,11 @@
-//BUG: assume after steps
+
 //BUG: reinsert_units_parted assumes the unit isn't substituted
 //BUG: generalize function generic_get_args_parted to not expect ordered premises
 //BUG?: non-resolution chain will be handled by allowing clauses of a part to point to clauses in another part
 //OPT: Implement reinsert_units_parted with at maximum one resolution for each part
 //OPT: The PartTracker vectors can use less space if split in two variables
 //OPT: write lifetime anotations to make found_clauses use references as keys in rebuild_parted
+//WARN: assume after steps
 
 use crate::ast::*;
 use std::collections::{HashSet, HashMap};
@@ -133,7 +134,6 @@ impl<'a> ProofCompressor<'a>{
     fn substitute_node_by_parent_parted(
         ind: usize,
         unitary_parent_ind: usize,
-        part: &Vec<ClauseData>,
         substituted: &mut HashMap<usize,usize>
     ) -> (){
         let mut substitute = unitary_parent_ind;
@@ -208,7 +208,11 @@ impl<'a> ProofCompressor<'a>{
                 //println!("");
                 self.rebuild_parted(substituted_in_parts,parts);
                 let _ = print_proof(&self.proof.commands, true);
-            }
+            }/*
+            for i in 0..parts.len(){
+                parts[i].reverse();
+                self.local_premises_computation(i, &mut parts);
+            }*/
         };
         Ok(())
     }
@@ -336,10 +340,15 @@ impl<'a> ProofCompressor<'a>{
         parts: &mut Vec<Vec<ClauseData>>,
         proof_pool: &mut PrimitivePool 
     )->Result<Vec<HashMap<usize, usize>>,CompressionError>{
+        
         let mut substituted_in_parts: Vec<HashMap<usize, usize>> = vec![HashMap::new();parts.len()];
         for current_part_id in 0..part_deleted.len(){
             parts[current_part_id].reverse();
             self.local_premises_computation(current_part_id, parts);
+            /*for j in 0..parts[current_part_id].len(){
+                println!("{:?}-{:?}:  {:?}", current_part_id, j, &parts[current_part_id][j])
+            }*/
+            //println!("\n\n");
             if part_deleted[current_part_id].len()>0{
                 for cl_data_ind in 0..parts[current_part_id].len(){
                     let current_clause = &parts[current_part_id][cl_data_ind];
@@ -349,7 +358,7 @@ impl<'a> ProofCompressor<'a>{
                             let mut not_missing_index: Vec<(usize, usize)> = Vec::new();
                             let aux = &current_clause.local_premises;
                             for j in 0..aux.len(){
-                                let true_index = &(parts[current_part_id][aux[j]].index/*&aux[j].1*/ as usize);
+                                let true_index = &(parts[current_part_id][aux[j]].index as usize);
                                 if !part_deleted[current_part_id].contains(true_index){
                                     //println!("for {:?} pushed {:?}", &cl_data_ind, (&j,&aux[j]));
                                     not_missing_index.push((j,aux[j]));
@@ -359,16 +368,10 @@ impl<'a> ProofCompressor<'a>{
                                 Self::substitute_node_by_parent_parted(
                                     cl_data_ind,
                                     not_missing_index[0].1,
-                                    &parts[current_part_id],
                                     &mut substituted_in_parts[current_part_id]
                                 );
                             } else {
                                 if not_missing_index.len()!=current_clause.local_premises.len()  || not_missing_index.iter().any(|(_,key)| substituted_in_parts[current_part_id].contains_key(key)){
-                                    /*println!("Substituted: ");
-                                    //for z in 0..substituted_in_parts.len(){
-                                    let z = 1;
-                                    println!("{:?} - {:?}",z,&substituted_in_parts[z]);
-                                    //}*/
                                     self.generic_re_resolve_parted(
                                         current_part_id,
                                         cl_data_ind,
@@ -477,8 +480,17 @@ impl<'a> ProofCompressor<'a>{
         substituted_in_parts: Vec<HashMap<usize,usize>>, 
         parts: Vec<Vec<ClauseData>>
     ) -> (){
-        //println!("On rebuilding");
-        //print_part(&parts[2],Some(2));
+        /*for i in 0..parts.len(){
+            for j in 0..parts[i].len(){
+                println!("{:?}-{:?}:  {:?}", i, j, &parts[i][j])
+            }
+            let substitutedd = &substituted_in_parts[i];
+            println!("Subst {:?}",i);
+            for j in substitutedd{
+                println!("{:?}",j);
+            }
+            println!("\n\n");
+        }*/
         let mut new_commands: Vec<ProofCommand> = vec![];
         let mut assume_ind: usize = 0;
         let mut step_ind: usize = 0;
@@ -589,31 +601,72 @@ impl<'a> ProofCompressor<'a>{
         parts: &mut Vec<Vec<ClauseData>>
     )->(){
         let part = &parts[ind];
-        let mut table_prem: HashMap<usize, Vec<usize>> = HashMap::new();
+        /*if ind==2 || ind==1{
+            for i in 0..part.len(){
+                println!("{:?}-{:?}: {:?}",ind,i,part[i]);
+            }
+            println!("\n\n");
+        }*/
+
+        //map from the global index of a clause to the local index of every clause that uses it as a premise 
+        //the first element of the pair is the order in which the premise is used by the clause
+        let mut table_prem: HashMap<usize, Vec<(usize,usize)>> = HashMap::new();
+
+        //map from global index to local index
         let mut table_pos: HashMap<usize, usize> = HashMap::new();
+        
+        let mut prem_length: Vec<usize> = vec![];
         for i in 0..part.len(){
             let key = part[i].index as usize;
             table_pos.insert(key, i);
             
             match &part[i].data{
                 ProofCommand::Step(ps) => {
+                    let mut j = 0;
                     for (_,p) in &ps.premises{
-                        table_prem.entry(*p).or_insert_with(Vec::new).push(key);
+                        table_prem.entry(*p).or_insert_with(Vec::new).push((j,key));
+                        j+=1;
                     }
+                    if ps.rule!="resolution" && ps.rule!="th-resolution"{
+                        prem_length.push(0);
+                    } else{
+                        prem_length.push(ps.premises.len());
+                    }
+                    
                 }
-                _  => ()
+                _  => prem_length.push(0)
             }
-        }
+        }/*
+        if ind==2 || ind==1{        
+            println!("table_pos: {:?}",table_pos);
+            println!("table_prem: {:?}",table_prem);
+            println!("pl: {:?}",&prem_length);
+        }*/
+
+        
         let mut mut_part = &mut parts[ind];
         for i in 0..mut_part.len(){
+            mut_part[i].local_premises = vec![0;prem_length[i]];
+        }
+        for i in 0..mut_part.len(){
             let key = mut_part[i].index as usize;
+            
             if table_prem.contains_key(&key){
-                for &pr in table_prem.get(&key).unwrap(){
+                for &(ord,pr) in table_prem.get(&key).unwrap(){
+                //println!("{:?} to {:?}",pr,table_pos.get(&pr).unwrap());
                     let mut loc_prem = &mut mut_part[*table_pos.get(&pr).unwrap()].local_premises;
-                    loc_prem.push(i)
+                    loc_prem[ord] = i;
                 }
             }
         }     
+        /*if ind==2 || ind==1{
+            for i in 0..mut_part.len(){
+                println!("{:?}-{:?}: {:?}",ind,i,mut_part[i]);
+            }
+            println!("\n\n");
+        }*/
+        
+        
     }
 
     
@@ -815,6 +868,11 @@ impl<'a> ProofCompressor<'a>{
         ind: usize, 
         not_missing: &Vec<(usize,usize)>
     ) -> Option<Vec<ProofArg>>{
+        /*println!("ind {ind}");
+        println!("not mia: {:?}",not_missing);
+        for i in 0..part.len(){
+            println!("{:?} - {:?}",i,part[i]);
+        }*/
         if let ProofCommand::Step(ps) = &part[ind].data{
             let mut arg_vec: Vec<ProofArg> = Vec::new();
             //println!("Args: {:?}",&ps.args);
