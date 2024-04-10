@@ -354,7 +354,8 @@ fn main() {
 
     if let Command::Check(CheckCommandOptions { checking, .. })
     | Command::Elaborate(ElaborateCommandOptions { checking, .. })
-    | Command::Bench(BenchCommandOptions { checking, .. }) = &cli.command
+    | Command::Bench(BenchCommandOptions { checking, .. }) 
+    | Command::Compress(CompressOptions{checking,..})= &cli.command
     {
         if checking.skip_unknown_rules {
             log::warn!(
@@ -391,7 +392,9 @@ fn main() {
             elaborate_command(options).and_then(|p| print_proof(p.commands))
         }
         Command::Bench(options) => bench_command(options),
-        Command::Compress(options) => compress_command(options),
+        Command::Compress(options) => {
+            compress_command(options).and_then(|p| print_proof(p.commands))
+        }
         Command::Slice(options) => slice_command(options).and_then(print_proof),
     };
     if let Err(e) = result {
@@ -515,13 +518,13 @@ fn bench_command(options: BenchCommandOptions) -> CliResult<()> {
     Ok(())
 }
 
-fn compress_command(options: CompressOptions) -> CliResult<()>{
+fn compress_command(options: CompressOptions) -> CliResult<ast::Proof>{
     let (problem, proof) = get_instance(&options.input)?;
     let compressed = compress_proof(
         problem, 
         proof, 
         build_carcara_options(options.parsing, options.checking, options.stats))?;
-    Ok(())
+    Ok(compressed)
 }
 
 fn slice_command(options: SliceCommandOptions) -> CliResult<Vec<ast::ProofCommand>> {

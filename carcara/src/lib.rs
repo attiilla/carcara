@@ -349,7 +349,7 @@ pub fn compress_proof<T: io::BufRead>(
     problem: T,
     proof: T,
     options: CarcaraOptions,
-) -> /*Result<ast::Proof, Error>*/Result<(),Error> {
+) -> Result<ast::Proof, Error>/*Result<(),Error>*/ {
     // Parsing
     //let total = Instant::now();
     let config = parser::Config {
@@ -360,6 +360,7 @@ pub fn compress_proof<T: io::BufRead>(
     };
     let (prelude, proof, mut pool) = parser::parse_instance(problem, proof, config)?;
     let mut comp: ProofCompressor = ProofCompressor::new(&proof);
-    let a = comp.run_compressor(&mut pool);
-    Ok(())
+    let proof_compressed = comp.run_compressor(&mut pool);
+    
+    Ok(proof_compressed)
 }
