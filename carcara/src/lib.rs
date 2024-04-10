@@ -358,7 +358,7 @@ pub fn compress_proof<T: io::BufRead>(
         allow_int_real_subtyping: options.allow_int_real_subtyping,
         allow_unary_logical_ops: true
     };
-    let (prelude, proof, mut pool) = parser::parse_instance(problem, proof, config)?;
+    let (_prelude, proof, mut pool) = parser::parse_instance(problem, proof, config)?;
     let mut comp: ProofCompressor = ProofCompressor::new(&proof);
     let proof_compressed = comp.run_compressor(&mut pool);
     

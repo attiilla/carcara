@@ -126,7 +126,7 @@ impl ProofCompressor{
 
 
     pub fn run_compressor(&mut self, _pool: &mut PrimitivePool) -> Proof{
-        //env::set_var("RUST_BACKTRACE", "1");
+        env::set_var("RUST_BACKTRACE", "1");
         match self.compress_parted(_pool){
             Err(e) => {
                 println!("Error");
@@ -330,8 +330,7 @@ impl ProofCompressor{
     {
         for current_part in 0..parts.len(){
             if part_units_queue[current_part].len()>0{
-                //println!("current part {current_part}: Checked");
-                let mut part = &mut parts[current_part];
+                let part = &mut parts[current_part];
                 let mut current_root = part.len()-1;
                 let substituted = &substituted_in_parts[current_part];
                 if substituted.contains_key(&current_root){
@@ -344,7 +343,6 @@ impl ProofCompressor{
                     if substituted.contains_key(&unit){
                         unit = *substituted.get(&unit).unwrap();
                     }
-                    //println!("unit {unit} and root {current_root}");
                     match &self.proof.commands[unit]{
                         ProofCommand::Assume { term,.. } => {
                             let removed_negations = term.remove_all_negations_with_polarity();
@@ -365,9 +363,7 @@ impl ProofCompressor{
                     if args_op.len()!=0{
                         let mut unit_part_ind = *referenced_by_parts[unit].inv_index.get(&current_part).unwrap();
                         unit_part_ind = Self::mirror_inverse_index(unit_part_ind, part.len());
-                        //println!("unit_part_ind {unit_part_ind}; current_part {current_part}");
                         let premises = Self::generic_build_premises_parted(part, vec![(0,current_root),(0,unit_part_ind)]);
-                        //Self::build_premises(&self.proof.commands, current_root, unit);
                         let nc: Result<Vec<(u32, &Rc<Term>)>, CheckerError> = apply_generic_resolution(&premises, &args_op, proof_pool);
                         match nc{
                             Ok(c) => {
@@ -386,7 +382,6 @@ impl ProofCompressor{
                                     data: ProofCommand::Step(new_proof_step),
                                     local_premises: vec![current_root, unit_part_ind]
                                 });
-                                //println!("New node premises {:?}", vec![current_root, unit_part_ind]);
                                 current_root+=1;
                             },
                             Err(_e) => {
@@ -406,18 +401,7 @@ impl ProofCompressor{
         &mut self, 
         substituted_in_parts: Vec<HashMap<usize,usize>>, 
         parts: Vec<Vec<ClauseData>>
-    ) -> (){
-        /*for i in 0..parts.len(){
-            for j in 0..parts[i].len(){
-                println!("{:?}-{:?}:  {:?}", i, j, &parts[i][j])
-            }
-            let substitutedd = &substituted_in_parts[i];
-            println!("Subst {:?}",i);
-            for j in substitutedd{
-                println!("{:?}",j);
-            }
-            println!("\n\n");
-        }*/
+    ) -> () {
         let mut new_commands: Vec<ProofCommand> = vec![];
         let mut assume_ind: usize = 0;
         let mut step_ind: usize = 0;
@@ -443,23 +427,19 @@ impl ProofCompressor{
                             new_commands.push(ProofCommand::Assume{id: format!("a{assume_ind}"), term: term.clone()});
                             assume_ind += 1;
                             found_assertions.insert(term.clone(),new_commands.len()-1);
-                            //println!("{:?}/{:?}-Inserted A {:?}",part_ind,local_ind,&term);
                         }
                     }
                     ProofCommand::Step(ps) => {
-                        //println!("ps {:?},{:?}",&ps.clause,&ps.premises);
                         if !found_clauses.contains_key(&ps.clause) && !substituted.contains_key(&local_ind){
                             let mut formated_prem: Vec<(usize,usize)> = vec![];
                             if &part[local_ind].local_premises.len()>&0{
-                                //println!("Entrou em {local_ind}");
-                                //println!("{:?}",&part[local_ind].local_premises);
                                 for &premm in &part[local_ind].local_premises{
                                     let mut prem = premm;
                                     if substituted.contains_key(&prem){
                                         prem = *substituted.get(&prem).unwrap();
                                     }
                                     match &part[prem].data{
-                                        ProofCommand::Assume { id, term } => {
+                                        ProofCommand::Assume{term,..} => {
                                             formated_prem.push((0, *found_assertions.get(term).unwrap()));
                                         }
                                         ProofCommand::Step(pps) => {
@@ -474,7 +454,7 @@ impl ProofCompressor{
                                     let analogue = &pps.premises;
                                     for &(_, prem) in analogue{
                                         match &self.proof.commands[prem]{
-                                            ProofCommand::Assume { id, term } =>
+                                            ProofCommand::Assume{term,..} =>
                                                 formated_prem.push((0, *found_assertions.get(term).unwrap())),
                                             ProofCommand::Step(p3s) => 
                                                 formated_prem.push((0, *found_clauses.get(&p3s.clause.clone()).unwrap())),
@@ -494,7 +474,6 @@ impl ProofCompressor{
                             found_clauses.insert(formated_step.clause.clone(), new_commands.len());
                             new_commands.push(ProofCommand::Step(formated_step));
                             step_ind += 1;
-                            //println!("{:?}/{:?}-Inserted T {:?}",part_ind,local_ind,ps.clause.clone());
                         }
                     }
                     ProofCommand::Subproof(sp) => {
@@ -514,13 +493,6 @@ impl ProofCompressor{
         parts: &mut Vec<Vec<ClauseData>>
     )->(){
         let part = &parts[ind];
-        /*if ind==2 || ind==1{
-            for i in 0..part.len(){
-                println!("{:?}-{:?}: {:?}",ind,i,part[i]);
-            }
-            println!("\n\n");
-        }*/
-
         //map from the global index of a clause to the local index of every clause that uses it as a premise 
         //the first element of the pair is the order in which the premise is used by the clause
         let mut table_prem: HashMap<usize, Vec<(usize,usize)>> = HashMap::new();
@@ -549,15 +521,9 @@ impl ProofCompressor{
                 }
                 _  => prem_length.push(0)
             }
-        }/*
-        if ind==2 || ind==1{        
-            println!("table_pos: {:?}",table_pos);
-            println!("table_prem: {:?}",table_prem);
-            println!("pl: {:?}",&prem_length);
-        }*/
-
+        }
         
-        let mut mut_part = &mut parts[ind];
+        let mut_part = &mut parts[ind];
         for i in 0..mut_part.len(){
             mut_part[i].local_premises = vec![0;prem_length[i]];
         }
@@ -566,105 +532,11 @@ impl ProofCompressor{
             
             if table_prem.contains_key(&key){
                 for &(ord,pr) in table_prem.get(&key).unwrap(){
-                //println!("{:?} to {:?}",pr,table_pos.get(&pr).unwrap());
-                    let mut loc_prem = &mut mut_part[*table_pos.get(&pr).unwrap()].local_premises;
+                    let loc_prem = &mut mut_part[*table_pos.get(&pr).unwrap()].local_premises;
                     loc_prem[ord] = i;
                 }
             }
         }     
-        /*if ind==2 || ind==1{
-            for i in 0..mut_part.len(){
-                println!("{:?}-{:?}: {:?}",ind,i,mut_part[i]);
-            }
-            println!("\n\n");
-        }*/
-        
-        
-    }
-
-    fn extract_term(&self, p: &ProofCommand) -> Vec<Rc<Term>>{
-        let terms: Vec<Rc<Term>>;
-        terms = match p{
-            ProofCommand::Assume {term,.. } => vec![term.clone()],
-            ProofCommand::Step(ps) => ps.clause.clone(),
-            ProofCommand::Subproof(sp) => {
-                match sp.commands.iter().last(){
-                    Some(pc) => self.extract_term(pc),
-                    None => panic!("Empty subproof")
-                }
-            }
-        };
-        terms
-    }
-
-    pub fn find_args(&self,i: usize, j: usize, proof_pool: &mut PrimitivePool) -> Option<Vec<ProofArg>>{
-        fn compare_possible_pivot(p: (u32, &Rc<Term>), q: (u32, &Rc<Term>)) -> bool{
-            // check if the literals are distinct && compares how many not they have to see if they can  be used as pivot
-            if (p.1==q.1)&&(p.0%2!=q.0%2){
-                return true;
-            }
-            false
-        }
-        let terms_left: &Vec<Rc<Term>> = &self.extract_term(&self.proof.commands[i]);
-        let terms_right: &Vec<Rc<Term>> = &self.extract_term(&self.proof.commands[j]);
-        let non_negated_terms_left: Vec<(u32, &Rc<Term>)> = terms_left.iter().map(|term| term.remove_all_negations()).collect();
-        let non_negated_terms_right: Vec<(u32, &Rc<Term>)> = terms_right.iter().map(|term| term.remove_all_negations()).collect();
-        let aux_set: HashSet<(u32, &Rc<Term>)> = non_negated_terms_left.clone().into_iter().collect();
-        let pp = non_negated_terms_right.into_iter().find(|&x| 
-                                                    aux_set.iter().any(|&y| 
-                                                            compare_possible_pivot(x,y)));
-        match pp{
-            Some(parity_pivot) => {
-                let order_arg: bool = parity_pivot.0%2!=0;
-                let pivot = parity_pivot.1.clone();
-                let args = vec![ProofArg::Term(pivot), ProofArg::Term(proof_pool.bool_constant(order_arg))];
-                return Some(args)
-            }
-            None => return None
-        }
-    }
-
-    pub fn generic_get_args(&self, ind: usize, not_missing: &Vec<(usize,usize)>, proof_pool: &mut PrimitivePool) -> Option<Vec<ProofArg>>{
-        /*println!("ind: {:?}\nnot_missing: {:?}",ind,&not_missing);
-        println!("Command: {:?}",&self.proof.commands[ind]);
-        println!("Command1: {:?}",&self.proof.commands[not_missing[0].1]);
-        println!("Command2: {:?}",&self.proof.commands[not_missing[1].1]);*/
-        if let ProofCommand::Step(ps) = &self.proof.commands[ind]{
-            let mut arg_vec: Vec<ProofArg> = Vec::new();
-            //println!("Args: {:?}",&ps.args);
-            //println!("Non missing: {:?}",&not_missing);
-            let premise_number = &ps.args.len()/2;
-            let remaining_indexes: Vec<usize> = not_missing.iter().map(|(i,_)| *i).collect();
-            let remaining_set: HashSet<usize> = remaining_indexes.clone().into_iter().collect();
-            let range_set: HashSet<usize> = (0..premise_number).collect();
-            let missing_set: HashSet<usize> = range_set.difference(&remaining_set).cloned().collect();
-            //let missing_indexes: Vec<usize> = missing_set.into_iter().collect();
-            let mut flag_start: usize = 1;
-            //println!("checkpoint0");
-            //println!("args {:?}",ps.args);
-            if !missing_set.contains(&0) && !missing_set.contains(&1){
-                arg_vec.push(ps.args[0].clone());
-                arg_vec.push(ps.args[1].clone());
-                //println!("entrou");
-                flag_start = 2;
-            }
-            /*println!("Remaining: {:?}", &remaining_indexes);
-            println!("Missing: {:?}", &missing_set);
-            println!("checkpoint1");
-            println!("{:?}",flag_start..remaining_indexes.len());*/
-            for i in flag_start..remaining_indexes.len(){
-                //println!("checkpoint {:?}",i+2);
-                if !missing_set.contains(&remaining_indexes[i]){
-                //println!("Args to get: {:?}, {:?}", 2*remaining_indexes[i]-2, 2*remaining_indexes[i]-1);
-                    arg_vec.push(ps.args[2*remaining_indexes[i]-2].clone());
-                    arg_vec.push(ps.args[2*remaining_indexes[i]-1].clone());
-                }
-            }
-            //println!("Returning {:?}", &arg_vec);
-            return Some(arg_vec)
-        } else {
-            return None
-        }
     }
 
 
@@ -673,15 +545,8 @@ impl ProofCompressor{
         ind: usize, 
         not_missing: &Vec<(usize,usize)>
     ) -> Option<Vec<ProofArg>>{
-        /*println!("ind {ind}");
-        println!("not mia: {:?}",not_missing);
-        for i in 0..part.len(){
-            println!("{:?} - {:?}",i,part[i]);
-        }*/
         if let ProofCommand::Step(ps) = &part[ind].data{
             let mut arg_vec: Vec<ProofArg> = Vec::new();
-            //println!("Args: {:?}",&ps.args);
-            //println!("Non missing: {:?}",&not_missing);
             let premise_number = &ps.args.len()/2;
             let remaining_indexes: Vec<usize> = not_missing.iter().map(|(i,_)| *i).collect();
             let remaining_set: HashSet<usize> = remaining_indexes.clone().into_iter().collect();
@@ -715,10 +580,10 @@ impl ProofCompressor{
         parts: &mut Vec<Vec<ClauseData>>, 
         proof_pool: &mut PrimitivePool
     ) -> (){
-        let mut part = &mut parts[part_ind];
+        let part = &mut parts[part_ind];
         let substituted = &mut substituted_parts[part_ind];
         match &mut part[cl_data_ind].data{
-            ProofCommand::Step(ps) =>{
+            ProofCommand::Step(_) =>{
                 for i in 0..not_missing.len(){
                     if substituted.contains_key(&not_missing[i].1){
                         not_missing[i].1 = *substituted.get(&not_missing[i].1).unwrap();
@@ -755,54 +620,6 @@ impl ProofCompressor{
     }
 
 
-    fn generic_re_resolve(
-        &mut self, 
-        ind: usize, 
-        not_missing: &mut Vec<(usize,usize)>,
-        substituted: &HashMap<usize,usize>, 
-        proof_pool: &mut PrimitivePool
-    ) -> (){
-        match self.proof.commands[ind].clone(){
-            ProofCommand::Step(ps) =>{
-                for i in 0..not_missing.len(){
-                    if substituted.contains_key(&not_missing[i].1){
-                        not_missing[i].1 = *substituted.get(&not_missing[i].1).unwrap();
-                    } 
-                }
-                //println!("Subs {:?}", substituted);
-                let args_op = self.generic_get_args(ind, not_missing, proof_pool);
-                match args_op{
-                    Some(args)=>{
-                        let premises = Self::generic_build_premises(&self.proof.commands, not_missing.clone());
-                        let resolution: Result<Vec<(u32, &Rc<Term>)>, CheckerError> = apply_generic_resolution(&premises, &args, proof_pool);
-                        match resolution{
-                            Ok(r) => {
-                                let resolvent_set: HashSet<Rc<Term>> = r.into_iter().map(|x| unremove_all_negations(proof_pool,x)).collect();
-                                let resolvent: Vec<Rc<Term>> = resolvent_set.into_iter().collect();
-                                if let ProofCommand::Step(pps) = &mut self.proof.commands[ind]{
-                                    pps.args = args;
-                                    pps.clause = resolvent;
-                                }
-                            },
-                            _ => println!("Error: Clauses couldn't be resolved")
-                        }
-                    }
-                    None => println!("Error: arguments couldn't be found")
-                }
-            }
-            _ => ()
-        }
-    }
-
-
-    fn generic_build_premises(commands: &Vec<ProofCommand>, not_missing: Vec<(usize,usize)>)->Vec<Premise> {
-        let mut ans: Vec<Premise> = vec![];
-        for i in not_missing{
-            ans.push(Premise::new((0,i.1),&commands[i.1]));
-        }
-        ans
-    }
-
     fn generic_build_premises_parted(part: &Vec<ClauseData>, not_missing: Vec<(usize,usize)>)->Vec<Premise> {
         let mut ans: Vec<Premise> = vec![];
         for i in not_missing{
@@ -830,6 +647,7 @@ impl ProofCompressor{
         }
     }
 
+    #[warn(dead_code)]
     pub fn inspect_subproof(&self, i:usize) -> (){
         let mut ind: usize = 0;
         for j in self.proof.commands.iter(){
