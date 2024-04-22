@@ -15,6 +15,7 @@ use std::collections::{HashSet, HashMap};
 use crate::checker::rules::Premise;
 use crate::checker::rules::resolution::{apply_generic_resolution, unremove_all_negations};
 use crate::checker::error::CheckerError;
+use indexmap::IndexSet;
 use std::env;
 mod error;
 use crate::compressor::error::{CompressionError, CollectionError};
@@ -309,9 +310,9 @@ impl ProofCompressor{
         for current_part_id in 0..part_deleted.len(){
             parts[current_part_id].reverse();
             self.local_premises_computation(current_part_id, parts);
-            if current_part_id==1{
+            /*if current_part_id==1{
                 print_part(&parts[current_part_id], Some(current_part_id));
-            }
+            }*/
             //print_part(&parts[current_part_id], Some(current_part_id));
             if part_deleted[current_part_id].len()>0{
                 for cl_data_ind in 0..parts[current_part_id].len(){
@@ -336,24 +337,20 @@ impl ProofCompressor{
                                 );
                             } else {
                                 let current_index = parts[current_part_id][cl_data_ind].index as usize;
-                                if (
-                                    not_missing_index.len()!=current_clause.local_premises.len()  ||
-                                    not_missing_index.iter().any(|(_,key)| substituted_in_parts[current_part_id].contains_key(key))
-                                ) /*&& !part_deleted[current_part_id].contains(&current_index)*/
-                                {
+                                if current_clause.local_premises.len()>0{
                                     let mut args_input: Option<Vec<ProofArg>> = None;
                                     if let ProofCommand::Step(ps) = &self.proof.commands[current_index]{
                                         if not_missing_index.len()==ps.premises.len(){           //Heuristic, fix
                                             args_input = Some(args);
                                         }
                                     } 
-                                    if current_part_id==1{
+                                    /*if current_part_id==1{
                                         println!("Re-resolving {cl_data_ind}");
                                     }
-                                    if cl_data_ind==12{
+                                    if cl_data_ind==17{
                                         println!("Subs: {:?}", &substituted_in_parts[current_part_id]);
                                         println!("Args: {:?}",&args_input);
-                                    }
+                                    }*/
                                     self.generic_re_resolve_parted(
                                         current_part_id,
                                         cl_data_ind,
@@ -363,9 +360,9 @@ impl ProofCompressor{
                                         args_input,
                                         proof_pool
                                     );
-                                    if let ProofCommand::Step(ps) =  &parts[current_part_id][cl_data_ind].data{
+                                    /*if let ProofCommand::Step(ps) =  &parts[current_part_id][cl_data_ind].data{
                                         println!("Clause: {:?}",ps.clause.clone());
-                                    }
+                                    }*/
                                 }
                             }
                         }
@@ -445,7 +442,7 @@ impl ProofCompressor{
                     let args_op = self.args_new_clause(current_root, local_unit, part, proof_pool);
                     //println!("ARGS OPE: {:?}",&args_op);
                     let premises = Self::generic_build_premises_parted(part, vec![(0,current_root),(0,local_unit)]);
-                    let nc: Result<Vec<(u32, &Rc<Term>)>, CheckerError> = apply_generic_resolution(&premises, &args_op, proof_pool);
+                    let nc: Result<IndexSet<(u32, &Rc<Term>)>, CheckerError> = apply_generic_resolution::<IndexSet<_>>(&premises, &args_op, proof_pool);
                     match nc{
                         Ok(c) => {
                             let new_clause_set: HashSet<Rc<Term>> = c.into_iter().map(|x| unremove_all_negations(proof_pool,x)).collect();
@@ -684,9 +681,9 @@ impl ProofCompressor{
                         not_missing[i].1 = *substituted.get(&not_missing[i].1).unwrap();
                     } 
                 }
-                if cl_data_ind==12{
+                /*if cl_data_ind==17{
                     println!("Not missing: {:?}", &not_missing);
-                }
+                }*/
                 let mut args: Vec<ProofArg> = vec![];
                 let mut args_op: Option<Vec<ProofArg>> = None;
                 match args_input{
@@ -697,35 +694,26 @@ impl ProofCompressor{
                     Some(argss)=>{
                         let mut args = argss;
                         let mut premises = Self::generic_build_premises_parted(part, not_missing.clone());
-                        /*if premises.len()>2{
-                            /*args.reverse();
-                            for i in (0..args.len()).step_by(2) {
-                                if i + 1 < args.len() {
-                                    args.swap(i, i + 1);
-                                }
-                            }*/
-                            premises.reverse();
-                        }*/
                         
-                        if cl_data_ind==12{
+                        /*if cl_data_ind==17{
                             println!("Premises: {:?}",&premises);
                             println!("Args: {:?}", &args);
-                        }
+                        }*/
 
-                        let resolution: Result<Vec<(u32, &Rc<Term>)>, CheckerError> = apply_generic_resolution(&premises, &args, proof_pool);
+                        let resolution: Result<IndexSet<(u32, &Rc<Term>)>, CheckerError> = apply_generic_resolution::<IndexSet<_>>(&premises, &args, proof_pool);
                         match resolution{
                             Ok(r) => {
-                                if cl_data_ind==12{
+                                /*if cl_data_ind==17{
                                     println!("R {:?}",&r);
-                                }       
+                                }*/   
                                 let resolvent_set: HashSet<Rc<Term>> = r.into_iter().map(|x| unremove_all_negations(proof_pool,x)).collect();
-                                if cl_data_ind==12{
+                                /*if cl_data_ind==17{
                                     println!("Resolvent set {:?}",&resolvent_set);
-                                }       
+                                } */      
                                 let resolvent: Vec<Rc<Term>> = resolvent_set.into_iter().collect();
-                                if cl_data_ind==12{
+                                /*if cl_data_ind==17{
                                     println!("Resolvent {:?}",&resolvent);
-                                }       
+                                } */      
                                 if let ProofCommand::Step(pps) = &mut part[cl_data_ind].data{
                                     //println!("Changing");
                                     pps.args = args;
