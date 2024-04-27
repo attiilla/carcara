@@ -48,7 +48,7 @@ while IFS= read -r -d '' alethe_file; do
     if [ -f "$smt2_file" ]; then
         # Process the files and store the result
         result=$(process_file "$alethe_file" "$smt2_file")
-        
+        echo "$result"
         # Check the return value of the process_file function
         case $? in
             0)
