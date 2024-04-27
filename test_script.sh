@@ -47,10 +47,13 @@ while IFS= read -r -d '' alethe_file; do
     # Check if the paired .smt2 file exists
     if [ -f "$smt2_file" ]; then
         # Process the files and store the result
-        result=$(process_file "$alethe_file" "$smt2_file")
+        result=$(process_file "$alethe_file" "$smt2_file"; echo $?)
+        output="${result% *}"
+        return_value="$(echo "$result" | awk 'NR==2')"
+        result="$(echo "$result" | awk 'NR==1')"
         echo "$result"
         # Check the return value of the process_file function
-        case $? in
+        case $return_value in
             0)
                 ((worked++))
                 ;;
@@ -70,7 +73,7 @@ while IFS= read -r -d '' alethe_file; do
         echo "Error: Matching .smt2 file not found for $alethe_file"
     fi
 done < <(find ./sample/ -type f -name '*.alethe' -print0)
-
+echo ""
 echo "Worked on $worked examples out of $total"
 echo "$not_compressable are not compressable"
 echo "$compress_failed failed on compression"
