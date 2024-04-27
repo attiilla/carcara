@@ -17,6 +17,11 @@ process_file() {
         echo "Failed on compressing $alethe_file"
         return 1
     fi
+    local first_line=$(head -n 1 "${base_name}.calethe")
+    if [ "$first_line" == "There is no collectable clauses." ]; then
+        echo "There is no collectable clauses in $alethe_file"
+        return 2
+    fi
 
     # Run third command
     output=$(./target/debug/carcara check --ignore-unknown-rules "${base_name}.calethe" "$smt2_file" 2>/dev/null)
@@ -24,13 +29,16 @@ process_file() {
         echo "Worked on $alethe_file"
     else
         echo "Checker failed on $alethe_file"
-        return 2
+        return 3
     fi
     return 0
 }
 
 total=0
 worked=0
+not_compressable=0
+check_failed=0
+compress_failed=0
 # Find all .alethe files in the sample directory and its subdirectories
 while IFS= read -r -d '' alethe_file; do
     # Extract the corresponding .smt2 file
@@ -38,12 +46,25 @@ while IFS= read -r -d '' alethe_file; do
     
     # Check if the paired .smt2 file exists
     if [ -f "$smt2_file" ]; then
-        # Process the files
-        process_file "$alethe_file" "$smt2_file"
+        # Process the files and store the result
+        result=$(process_file "$alethe_file" "$smt2_file")
+        
         # Check the return value of the process_file function
-        if [ $? -eq 0 ]; then
-            ((worked++))
-        fi
+        case $? in
+            0)
+                ((worked++))
+                ;;
+            1)
+                ((compress_failed++))
+                ;;
+            2)
+                ((worked++))
+                ((not_compressable++))
+                ;;
+            *)
+                ((check_failed++))
+                ;;
+        esac
         ((total++))
     else
         echo "Error: Matching .smt2 file not found for $alethe_file"
@@ -51,4 +72,8 @@ while IFS= read -r -d '' alethe_file; do
 done < <(find ./sample/ -type f -name '*.alethe' -print0)
 
 echo "Worked on $worked examples out of $total"
+echo "$not_compressable are not compressable"
+echo "$compress_failed failed on compression"
+echo "$check_failed failed on checking"
+
 ./clear.sh

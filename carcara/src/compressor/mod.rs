@@ -133,7 +133,6 @@ impl ProofCompressor{
         env::set_var("RUST_BACKTRACE", "1");
         match self.compress(_pool){
             Err(e) => {
-                println!("Error");
                 match e{
                     CompressionError::Collection(_) => println!("There is no collectable clauses."),
                     CompressionError::SubproofNotImplementedYet => (),//println!("The logic to compress subproofs is yet to be implemented."),
