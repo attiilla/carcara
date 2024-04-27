@@ -291,7 +291,16 @@ impl ProofCompressor{
                 ProofCommand::Subproof(_) => (),
             }
         }
-        //println!("Queue: {:?}",&part_units_queue[1]);
+        let mut compressible_parts: usize = 0;
+        for p in &part_deleted{
+            if p.len()>0{
+                compressible_parts+=1;
+            }
+        }
+        
+        if compressible_parts==0{
+            return Err(CollectionError);
+        }
         Ok((parts, part_deleted, part_units_queue, referenced_by_parts))
     }
 
