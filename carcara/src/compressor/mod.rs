@@ -150,6 +150,7 @@ impl ProofCompressor{
     }
 
     pub fn compress(&mut self, _pool: &mut PrimitivePool) -> Result<(),CompressionError>{
+        //self.print();
         match self.collect_units(){
             Err(e) => return Err(CompressionError::Collection(e)),
             Ok((mut parts,
@@ -272,8 +273,11 @@ impl ProofCompressor{
                                 }
                             }
                         } else {
-                            let current_part = &referenced_by_parts[i];
+                            let current_part = &referenced_by_parts[i].clone();
                             for (k, _) in &current_part.data{
+                                for (_,j) in &ps.premises{
+                                    referenced_by_parts[*j].insert(*k);
+                                }
                                 parts[*k].push(ClauseData{
                                     index: i as i32,
                                     data: ProofCommand::Step(ps.clone()),
@@ -282,6 +286,7 @@ impl ProofCompressor{
                             }
                         }
                     }
+                    //println!("Referenced by parts[{:?}]: {:?}", i, &referenced_by_parts[i]);
                 }
                 ProofCommand::Subproof(_) => (),
             }
@@ -309,11 +314,13 @@ impl ProofCompressor{
         let mut substituted_in_parts: Vec<HashMap<usize, usize>> = vec![HashMap::new();parts.len()];
         for current_part_id in 0..part_deleted.len(){
             parts[current_part_id].reverse();
+            /*if current_part_id==1{
+                print_part(&parts[current_part_id],Some(2));
+            }*/
             self.local_premises_computation(current_part_id, parts);
             /*if current_part_id==1{
-                print_part(&parts[current_part_id], Some(current_part_id));
+                print_part(&parts[current_part_id],Some(current_part_id));
             }*/
-            //print_part(&parts[current_part_id], Some(current_part_id));
             if part_deleted[current_part_id].len()>0{
                 for cl_data_ind in 0..parts[current_part_id].len(){
                     let current_clause = &parts[current_part_id][cl_data_ind];
@@ -502,7 +509,9 @@ impl ProofCompressor{
         for part_ind in (1..parts.len()).rev(){
             let substituted = &substituted_in_parts[part_ind];
             let part = &parts[part_ind];
+            //print_part(&part, Some(part_ind));
             for local_ind in 0..parts[part_ind].len(){
+                //println!("Here {:?}",&part[local_ind].data);
                 match &part[local_ind].data{
                     ProofCommand::Assume { term,.. } =>{
                         if !found_assertions.contains_key(&term){
@@ -584,7 +593,7 @@ impl ProofCompressor{
         let mut table_pos: HashMap<usize, usize> = HashMap::new();
         
         let mut prem_length: Vec<usize> = vec![];
-        for i in 0..part.len(){
+        for i in 0..part.len(){   
             let key = part[i].index as usize;
             table_pos.insert(key, i);
             
@@ -595,21 +604,37 @@ impl ProofCompressor{
                         table_prem.entry(*p).or_insert_with(Vec::new).push((j,key));
                         j+=1;
                     }
-                    if ps.rule!="resolution" && ps.rule!="th-resolution"{
-                        prem_length.push(0);
+                    if ps.rule!="or"{
+                        let mut aux: usize = 0;
+                        for (_, p) in &ps.premises{
+                            if table_pos.contains_key(p){
+                                aux+=1;
+                            }
+                        }
+                        prem_length.push(aux);
+                        
                     } else{
-                        prem_length.push(ps.premises.len());
+                        prem_length.push(0);
+                        
                     }
-                    
                 }
-                _  => prem_length.push(0)
+                _  => prem_length.push(0),
             }
         }
+        /*if ind==1||ind==2{
+            println!("{ind}");
+            println!("prem_len: {:?}",&prem_length);
+            println!("Table Pos: {:?}",&table_pos);
+            println!("Table Prem {:?}",&table_prem);
+        }*/
         
         let mut_part = &mut parts[ind];
         for i in 0..mut_part.len(){
             mut_part[i].local_premises = vec![0;prem_length[i]];
         }
+        /*if ind==2{
+            print_part(&mut_part,Some(100));
+        }*/
         for i in 0..mut_part.len(){
             let key = mut_part[i].index as usize;
             
@@ -620,6 +645,7 @@ impl ProofCompressor{
                 }
             }
         }     
+        
     }
 
 
