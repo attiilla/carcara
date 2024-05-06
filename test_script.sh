@@ -27,15 +27,19 @@ process_file() {
     output=$(./target/debug/carcara check --ignore-unknown-rules "${base_name}.calethe" "$smt2_file" 2>/dev/null)
     if [ "$output" == "valid" ]; then
         echo "Worked on $alethe_file"
+    elif [ "$output" == "holey" ]; then
+        echo "Holey on $alethe_file"
+        return 3 
     else
         echo "Checker failed on $alethe_file"
-        return 3
+        return 4
     fi
     return 0
 }
 
 total=0
 worked=0
+holey=0
 not_compressable=0
 check_failed=0
 compress_failed=0
@@ -48,7 +52,6 @@ while IFS= read -r -d '' alethe_file; do
     if [ -f "$smt2_file" ]; then
         # Process the files and store the result
         result=$(process_file "$alethe_file" "$smt2_file"; echo $?)
-        output="${result% *}"
         return_value="$(echo "$result" | awk 'NR==2')"
         result="$(echo "$result" | awk 'NR==1')"
         echo "$result"
@@ -64,6 +67,9 @@ while IFS= read -r -d '' alethe_file; do
                 ((worked++))
                 ((not_compressable++))
                 ;;
+            3)
+                ((holey++))
+                ;;
             *)
                 ((check_failed++))
                 ;;
@@ -75,8 +81,8 @@ while IFS= read -r -d '' alethe_file; do
 done < <(find ./sample/ -type f -name '*.alethe' -print0)
 echo ""
 echo "Worked on $worked examples out of $total"
+echo "Couldn't check the validity of the proof in $holey cases"
 echo "$not_compressable are not compressable"
 echo "$compress_failed failed on compression"
 echo "$check_failed failed on checking"
-
 ./clear.sh
