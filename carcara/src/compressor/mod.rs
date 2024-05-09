@@ -1,10 +1,6 @@
 //Task: write general version of lower units in Latex using an abstraction level of the same level as the original article.
 //Important: Never modify a proof more than needed
 
-//BUG: reinsert_units_parted assumes the unit isn't substituted
-//BUG: generalize function generic_get_args_parted to not expect ordered premises (Solved when order of arguments started to be enforced)
-//BUG?: non-resolution chain will be handled by allowing clauses of a part to point to clauses in another part
-
 //OPT: Implement reinsert_units_parted with at maximum one resolution for each part
 //OPT: The PartTracker vectors can use less space if split in two variables
 //OPT: write lifetime anotations to make found_clauses use references as keys in rebuild_parted
@@ -106,10 +102,52 @@ pub fn print_part(part: &Vec<ClauseData>, part_n: Option<usize>)->(){
     }
 }
 
+pub fn print_part_ids(part: &Vec<ClauseData>, part_n: Option<usize>)->(){
+    match part_n{
+        Some(j) => println!("Parte {j}"),
+        None => ()
+    }
+    for i in 0..part.len(){
+        match &part[i].data{
+            ProofCommand::Assume { id,.. } => println!("{:?} - {:?}",i,id),
+            ProofCommand::Step(ps) => {
+                println!("{:?} - {:?}", i, &ps.id);
+            },
+            _ => ()
+        }
+    }
+}
+
+
 impl ProofCompressor{
     pub fn new(p: &Proof)->ProofCompressor{
         ProofCompressor{
             proof: p.clone()
+        }
+    }
+
+    pub fn print_part_ids_prems(&self, part: &Vec<ClauseData>, part_n: Option<usize>)->(){
+        match part_n{
+            Some(j) => println!("Parte {j}"),
+            None => ()
+        }
+        for i in 0..part.len(){
+            match &part[i].data{
+                ProofCommand::Assume { id,.. } => println!("{:?} - {:?}",i,id),
+                ProofCommand::Step(ps) => {
+                    let mut prem: Vec<String> = vec![];
+                    for &(_,p) in &ps.premises{
+                        match &self.proof.commands[p]{
+                            ProofCommand::Assume {id, term} => prem.push(id.clone()),
+                            ProofCommand::Step(pps) => prem.push(pps.id.clone()),
+                            _ => ()
+                        }
+                    }
+                    let indexes: Vec<_> = ps.premises.iter().map(|(_,x)| *x).collect();
+                    println!("{:?}/{:?} - {:?}, premises: {:?}, indexes: {:?}", i, &part[i].index, &ps.id, prem, indexes);
+                },
+                _ => ()
+            }
         }
     }
 
@@ -188,9 +226,6 @@ impl ProofCompressor{
                 part_deleted,
                 part_units_queue,
                 referenced_by_parts)) => {
-                /*for i in 0..parts.len(){
-                    print_part(&parts[i], Some(i))
-                }*/
                 //println!("queues: {:?}",&part_units_queue);
                 let substituted_in_parts = self.fix_broken_proof(
                     part_deleted,
@@ -363,9 +398,8 @@ impl ProofCompressor{
         let mut substituted_in_parts: Vec<HashMap<usize, usize>> = vec![HashMap::new();parts.len()];
         for current_part_id in 0..part_deleted.len(){
             parts[current_part_id].reverse();
-            /*if current_part_id==1{
-                println!("fixing");
-            }*/
+            //self.print_part_ids_prems(&parts[current_part_id], Some(current_part_id));
+            //println!("");
             self.local_premises_computation(current_part_id, parts);
             /*if current_part_id==1{
                 print_part(&parts[current_part_id],Some(current_part_id));
@@ -648,8 +682,10 @@ impl ProofCompressor{
         let mut prem_length: Vec<usize> = vec![];
         for i in 0..part.len(){   
             let key = part[i].index as usize;
-            table_pos.insert(key, i);
-            
+            table_pos.insert(key, i);    
+            /*if ind==2 && i==4{
+                println!("match:\n{:?}",&part[i].data);
+            }*/
             match &part[i].data{
                 ProofCommand::Step(ps) => {
                     let mut j = 0;
@@ -657,7 +693,18 @@ impl ProofCompressor{
                         table_prem.entry(*p).or_insert_with(Vec::new).push((j,key));
                         j+=1;
                     }
-                    if ps.rule!="or"{
+                    /*if ind==2 && i==4{
+                        println!("indo pro if ps.rule!=\"or\"");
+                        println!("{:?}",&ps.rule);
+                    }*/
+                    if ps.rule=="or" && self.proof.commands[ps.premises[0].1].is_assume(){
+                        prem_length.push(0);
+                    }else{
+                           /*if ind==2 && i==4{
+                            println!("o problemático entrou no if ps.rule!=\"or\"");
+                            println!("table_pos: {:?}",&table_pos);
+                            println!("premises: {:?}",&ps.premises);
+                        }*/
                         let mut aux: usize = 0;
                         for (_, p) in &ps.premises{
                             if table_pos.contains_key(p){
@@ -665,22 +712,20 @@ impl ProofCompressor{
                             }
                         }
                         prem_length.push(aux);
-                        
-                    } else{
-                        prem_length.push(0);
-                        
                     }
                 }
                 _  => prem_length.push(0),
             }
         }
-        /*if ind==1||ind==2{
-            println!("{ind}");
-            println!("prem_len: {:?}",&prem_length);
-            println!("Table Pos: {:?}",&table_pos);
-            println!("Table Prem {:?}",&table_prem);
+        /*if ind==2{
+            //print_part(&parts[2], Some(2));
+            println!("local premises space: {:?}", &prem_length);
+            println!("table of premises:\n{:?}",&table_prem);
+            println!("table of positions:\n{:?}",&table_pos);
+            //println!("{:?}",prem_length.len());
+            //println!("{:?}",prem_length[4]);
+            //prem_length[4] = 1; 
         }*/
-        
         let mut_part = &mut parts[ind];
         for i in 0..mut_part.len(){
             mut_part[i].local_premises = vec![0;prem_length[i]];
