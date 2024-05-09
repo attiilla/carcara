@@ -7,10 +7,10 @@ process_file() {
     local base_name="${alethe_file%.*}"  # Remove the extension to get the base name
     
     # Run the first command
-    ./target/debug/carcara elaborate --ignore-unknown-rules --no-print-with-sharing "$alethe_file" "$smt2_file" >> "${base_name}.ealethe" 2>/dev/null
+    ./target/debug/carcara elaborate -i --allow-int-real-subtyping --expand-let-bindings "$alethe_file" "$smt2_file" >> "${base_name}.ealethe" 2>/dev/null
 
     # Run the second command
-    ./target/debug/carcara compress --ignore-unknown-rules --no-print-with-sharing "${base_name}.ealethe" "$smt2_file" >> "${base_name}.calethe" 2>/dev/null
+    ./target/debug/carcara compress -i --allow-int-real-subtyping "${base_name}.ealethe" "$smt2_file" >> "${base_name}.calethe" 2>/dev/null
     
     # Check the return value of the second command
     if [ $? -ne 0 ]; then
@@ -24,7 +24,7 @@ process_file() {
     fi
 
     # Run third command
-    output=$(./target/debug/carcara check --ignore-unknown-rules "${base_name}.calethe" "$smt2_file" 2>/dev/null)
+    output=$(./target/debug/carcara check -i --allow-int-real-subtyping --expand-let-bindings "${base_name}.calethe" "$smt2_file" 2>/dev/null)
     if [ "$output" == "valid" ]; then
         echo "Worked on $alethe_file"
     elif [ "$output" == "holey" ]; then
@@ -81,8 +81,7 @@ while IFS= read -r -d '' alethe_file; do
 done < <(find ./sample/ -type f -name '*.alethe' -print0)
 echo ""
 echo "Worked on $worked examples out of $total"
-echo "Couldn't check the validity of the proof in $holey cases"
-echo "$not_compressable are not compressable"
+echo "$holey cases are holey"
+echo "$not_compressable are not compressible"
 echo "$compress_failed failed on compression"
 echo "$check_failed failed on checking"
-./clear.sh
