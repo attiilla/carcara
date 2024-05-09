@@ -286,3 +286,72 @@ fn insert_solver_proof(
         discharge: Vec::new(),
     });
 }
+
+pub fn sat_external_prove_lemmas(RuleArgs { conclusion, pool, args, .. }: RuleArgs) -> RuleResult {
+    // TODO check first two args are String terms
+    // TODO check third arg is a Bool term
+
+    // {:#} never would use sharing
+
+    let t = args[2].as_term().unwrap();
+
+    // transform each AND arg into a string (as below) and build a
+    // string "(and ...)" so that each lemma is individually shared
+    let and_args = match_term_err!((and ...) = t)?;
+
+    use std::fmt::Write;
+    let mut term_str = String::new();
+    write!(&mut term_str, "(and").unwrap();
+
+    let mut i = 0;
+    while i < and_args.len() {
+        if i < and_args.len() - 1 {
+            write!(&mut term_str, " {}", and_args[i]).unwrap();
+        }
+        else {
+            write!(&mut term_str, "{}", and_args[i]).unwrap();
+        }
+        i += 1;
+    }
+    write!(&mut term_str, ")").unwrap();
+    print!("{}\n", term_str);
+
+    let string = format!("(\n{}\n{}\n{}\n)",
+                         args[0].as_term().unwrap(), args[1].as_term().unwrap(), t);
+
+    // this will make it expect this script from where you are running Carcara
+    let mut process = Command::new("./sat-lemmas-prove.sh")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(LiaGenericError::FailedSpawnSolver)?;
+
+    process
+        .stdin
+        .take()
+        .expect("failed to open solver stdin")
+        .write_all(string.as_bytes())
+        .map_err(LiaGenericError::FailedWriteToSolverStdin)?;
+
+    let output = process
+        .wait_with_output()
+        .map_err(LiaGenericError::FailedWaitForSolver)?;
+
+    if !output.status.success() {
+        if let Ok(s) = std::str::from_utf8(&output.stderr) {
+            if s.contains("interrupted by timeout.") {
+                return Err(CheckerError::Unspecified);
+            }
+        }
+        return Err(CheckerError::Unspecified);
+    }
+    let res = output.stdout.as_slice();
+
+    print!("{}", std::str::from_utf8(res).unwrap());
+
+    if res == b"true\n" {
+        return Ok(());
+    }
+    return Err(CheckerError::Unspecified);
+}

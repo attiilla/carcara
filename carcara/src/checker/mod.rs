@@ -454,6 +454,7 @@ impl<'c> ProofChecker<'c> {
         use rules::*;
 
         Some(match rule_name {
+            "sat_external_prove_lemmas" => lia_generic::sat_external_prove_lemmas,
             "true" => tautology::r#true,
             "false" => tautology::r#false,
             "not_not" => tautology::not_not,
