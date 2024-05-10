@@ -441,6 +441,9 @@ pub enum ParamOperator {
     RePower,
     ReLoop,
 
+    // Datatypes,
+    Tester,
+
     // Qualified operators
     ArrayConst,
 }
@@ -459,6 +462,8 @@ impl_str_conversion_traits!(ParamOperator {
 
     RePower: "re.^",
     ReLoop: "re.loop",
+
+    Tester: "is",
 
     ArrayConst: "const",
 });
@@ -562,6 +567,8 @@ impl_str_conversion_traits!(Operator {
     Bv2Nat: "bv2nat",
     BvBbTerm: "bbT",
 
+    Tester: "is",
+
     RareList: "rare-list",
 });
 
@@ -606,6 +613,9 @@ pub enum Sort {
     ///
     /// The associated term is the BV width of this sort.
     BitVec(Integer),
+
+    /// A datatype sort only has its name and its type parameters
+    Datatype(String, Vec<Rc<Term>>),
 
     /// The sort of RARE lists.
     RareList,
@@ -704,6 +714,9 @@ pub enum Term {
 
     /// A `let` binder term.
     Let(BindingList, Rc<Term>),
+
+    /// A datatype definition is a set of constructors, selectors, and testers
+    DatatypeDef(Vec<Rc<Term>>, Vec<Rc<Term>>, Vec<Rc<Term>>),
 
     /// A parameterized operation term, that is, an operation term whose operator receives extra
     /// parameters.

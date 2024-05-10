@@ -65,6 +65,10 @@ pub enum ParserError {
     #[error("expected bitvector sort, got '{0}'")]
     ExpectedBvSort(Sort),
 
+    /// Expected DatatypeSort
+    #[error("expected datatype sort, got '{0}'")]
+    ExpectedDTSort(Sort),
+
     // Expected Constant::Integer, got other Term
     #[error("expected integer constant, got '{0}'")]
     ExpectedIntegerConstant(Rc<Term>),

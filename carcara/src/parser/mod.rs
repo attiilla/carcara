@@ -1088,6 +1088,36 @@ impl<'a, R: BufRead> Parser<'a, R> {
         Ok((name, params, return_sort))
     }
 
+    // parses (<symbol> (<sorted var>*)) where the symbol is the
+    // constructor and the sorted vars are the selectors. Also build a
+    // tester for the constructor: (_ is <symbol>)
+    fn parse_constructor(&mut self, dt_sort: &Rc<Term>) -> CarcaraResult<(Rc<Term>, Vec<Rc<Term>, Rc<Term>)> {
+        // parse selectors as sorted vars, but note that the sort can
+        // be parametric, which probably make_sort needs to be
+        // extended to handle?
+        self.expect_token(Token::OpenParen)?;
+        let cons = self.expect_symbol()?;
+        let sels = self.parse_sequence(Self::parse_sorted_var, false)?;
+
+        let mut param_sorts: Vec<_> = sels.iter().map(|(_, sort)| sort.clone()).collect();
+        param_sorts.push(dt_sort.clone());
+        let cons_sort = Sort::Function(param_sorts);
+        // add constructor to symbol table
+        self.insert_sorted_var((cons.clone(), cons_sort.clone()));
+
+        let mut sels_terms: Vec<_> = sels.iter()
+            .map(|(sel, sort)| {
+                // add selector to symbol table
+                self.insert_sorted_var((sel.clone(), sort.clone()));
+                self.pool.add(Term::Var(sel, sort))
+            }).collect();
+
+        // TODO create the tester. Check self.make_indexed_op(op, op_args, Vec::new())
+        let tester ...
+
+        Ok((self.pool.add(Term::Var(cons, cons_sort)), sels_terms, tester))
+    }
+
     /// Parses a datatype declaration, of the form `(<symbol> <numeral>)`. If the
     /// parameter `consume_parens` is `false`, the opening and closing parentheses are not consumed
     fn parse_datatype_dec(
@@ -1116,36 +1146,43 @@ impl<'a, R: BufRead> Parser<'a, R> {
             unreachable!();
         };
 
+        // create the sorts that will be used when building the definitions
         for (name, arity) in &declarations {
-            let sort = if params.is_empty() {
-                return_sort.as_sort().unwrap().clone()
-            } else {
-                let mut param_sorts: Vec<_> = params.iter().map(|(_, sort)| sort.clone()).collect();
-                param_sorts.push(return_sort.clone());
-                Sort::Function(param_sorts)
-            };
-            let sort = self.pool.add(Term::Sort(sort));
+            // for now we only support non-parametric datatypes
+            if arity > 0 {
+                unreachable!();
+            }
+            let sort = self.pool.add(Sort::Datatype(name, Vec::new()));
             self.insert_sorted_var((name.clone(), sort));
         }
-
-        if is_multiple {
+        // now read in the definitions. TODO note this will have to be
+        // different when considering the non-multiple case
+        self.expect_token(Token::OpenParen)?;
+        for (name, arity) in declarations {
             self.expect_token(Token::OpenParen)?;
-        }
-        for (name, params, return_sort) in declarations {
-            self.state.symbol_table.push_scope();
-            for var in &params {
-                self.insert_sorted_var(var.clone());
+            let dt_sort = self.pool.add(Sort::Datatype(name, Vec::new()));
+            // TODO when arity > 0 we need to parse the parameters
+            // read the constructors and selectors
+            let defs = self.parse_sequence(|p| p.parse_constructor(&dt_sort), true)?;
+            let mut conss = Vec::new();
+            let mut sels = Vec::new();
+            let mut testers = Vec::new();
+            for (cons, cons_sels, tester) in defs {
+                // TODO
             }
-            let body = self.parse_term_expecting_sort(return_sort.as_sort().unwrap())?;
+
             self.state.symbol_table.pop_scope();
 
-            self.add_define_fun_rec_premise(name, params, body);
-        }
-        if is_multiple {
+
+            let dt_def = self.pool.add(DatatypeDef(conss, sels, testers));
+
+            self.pool.add_dt_def(dt_sort, dt_def);
+
             self.expect_token(Token::CloseParen)?;
         }
         self.expect_token(Token::CloseParen)?;
 
+        // TODO add to the prelude
         Ok(())
     }
 

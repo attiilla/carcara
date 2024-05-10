@@ -45,6 +45,20 @@ pub trait TermPool {
     /// This method uses a cache, so there is no additional cost to computing the free variables of
     /// a term multiple times.
     fn free_vars(&mut self, term: &Rc<Term>) -> IndexSet<Rc<Term>>;
+
+    fn add_dt_def(&mut self, sort: &Rc<Term>, def: &Rc<Term>) {
+        if !matches!(sort, Sort::Datatype(_,_)) {
+            return Err(ParserError::ExpectedDTSort(sort.clone()));
+        }
+        self.dt_defs.insert(sort.clone(), def.clone());
+    }
+
+    fn dt_def(&self, sort: &Rc<Term>) -> Rc<Term> {
+        if !matches!(sort, Sort::Datatype(_,_)) {
+            return Err(ParserError::ExpectedDTSort(sort.clone()));
+        }
+        self.dt_defs[sort].clone()
+    }
 }
 
 /// A structure to store and manage all allocated terms.
@@ -61,6 +75,7 @@ pub struct PrimitivePool {
     pub(crate) storage: Storage,
     pub(crate) free_vars_cache: IndexMap<Rc<Term>, IndexSet<Rc<Term>>>,
     pub(crate) sorts_cache: IndexMap<Rc<Term>, Rc<Term>>,
+    pub(crate) dt_defs: IndexMap<Rc<Term>, Rc<Term>>,
 }
 
 impl PrimitivePool {
@@ -218,6 +233,12 @@ impl PrimitivePool {
                 Sort::Function(result)
             }
             Term::Let(_, inner) => self.compute_sort(inner).as_sort().unwrap().clone(),
+            Term::DatatypeDef(conss, _,_) => {
+                match self.compute_sort(&conss[0]).as_sort().unwrap() {
+                    Sort::Function(sorts) => sorts.last().unwrap().as_sort().unwrap().clone(),
+                    _ => unreachable!(),
+                }
+            },
             Term::ParamOp { op, op_args, args } => {
                 let sort = match op {
                     ParamOperator::BvExtract => {
