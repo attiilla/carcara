@@ -1088,6 +1088,67 @@ impl<'a, R: BufRead> Parser<'a, R> {
         Ok((name, params, return_sort))
     }
 
+    /// Parses a datatype declaration, of the form `(<symbol> <numeral>)`. If the
+    /// parameter `consume_parens` is `false`, the opening and closing parentheses are not consumed
+    fn parse_datatype_dec(
+        &mut self,
+        consume_parens: bool,
+    ) -> CarcaraResult<(String, Rc<Term>)> {
+        if consume_parens {
+            self.expect_token(Token::OpenParen)?;
+        }
+        let name = self.expect_symbol()?;
+        let arity = self.parse_constant()?;
+        if consume_parens {
+            self.expect_token(Token::CloseParen)?;
+        }
+        Ok((name, arity))
+    }
+
+    /// Parses a `declare-datatype`/`declare-datatypes` command. Inserts the constructor names into
+    /// the symbol table. This method assumes the `(` and `declare-datatype`/`declare-datatypes`
+    /// tokens were already consumed.
+    fn parse_declare_datatype(&mut self, is_multiple: bool) -> CarcaraResult<()> {
+        let declarations = if is_multiple {
+            self.expect_token(Token::OpenParen)?;
+            self.parse_sequence(|p| p.parse_datatype_dec(true), true)?
+        } else {
+            unreachable!();
+        };
+
+        for (name, arity) in &declarations {
+            let sort = if params.is_empty() {
+                return_sort.as_sort().unwrap().clone()
+            } else {
+                let mut param_sorts: Vec<_> = params.iter().map(|(_, sort)| sort.clone()).collect();
+                param_sorts.push(return_sort.clone());
+                Sort::Function(param_sorts)
+            };
+            let sort = self.pool.add(Term::Sort(sort));
+            self.insert_sorted_var((name.clone(), sort));
+        }
+
+        if is_multiple {
+            self.expect_token(Token::OpenParen)?;
+        }
+        for (name, params, return_sort) in declarations {
+            self.state.symbol_table.push_scope();
+            for var in &params {
+                self.insert_sorted_var(var.clone());
+            }
+            let body = self.parse_term_expecting_sort(return_sort.as_sort().unwrap())?;
+            self.state.symbol_table.pop_scope();
+
+            self.add_define_fun_rec_premise(name, params, body);
+        }
+        if is_multiple {
+            self.expect_token(Token::CloseParen)?;
+        }
+        self.expect_token(Token::CloseParen)?;
+
+        Ok(())
+    }
+
     /// Parses a `define-fun` proof command. Returns the function name and its definition. This
     /// method assumes that the `(` and `define-fun` tokens were already consumed.
     fn parse_define_fun(&mut self) -> CarcaraResult<(String, FunctionDef)> {
