@@ -1091,19 +1091,20 @@ impl<'a, R: BufRead> Parser<'a, R> {
     // parses (<symbol> (<sorted var>*)) where the symbol is the
     // constructor and the sorted vars are the selectors. Also build a
     // tester for the constructor: (_ is <symbol>)
-    fn parse_constructor(&mut self, dt_sort: &Rc<Term>) -> CarcaraResult<(Rc<Term>, Vec<Rc<Term>, Rc<Term>)> {
+    fn parse_constructor(&mut self, dt_sort: &Rc<Term>) -> CarcaraResult<(Rc<Term>, Vec<Rc<Term>>, Rc<Term>)> {
         // parse selectors as sorted vars, but note that the sort can
         // be parametric, which probably make_sort needs to be
         // extended to handle?
         self.expect_token(Token::OpenParen)?;
-        let cons = self.expect_symbol()?;
+        let cons_name = self.expect_symbol()?;
         let sels = self.parse_sequence(Self::parse_sorted_var, false)?;
 
         let mut param_sorts: Vec<_> = sels.iter().map(|(_, sort)| sort.clone()).collect();
         param_sorts.push(dt_sort.clone());
         let cons_sort = Sort::Function(param_sorts);
         // add constructor to symbol table
-        self.insert_sorted_var((cons.clone(), cons_sort.clone()));
+        self.insert_sorted_var((cons_name.clone(), cons_sort.clone()));
+        let cons = self.pool.add(Term::Var(cons_name, cons_sort));
 
         let mut sels_terms: Vec<_> = sels.iter()
             .map(|(sel, sort)| {
@@ -1112,10 +1113,12 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 self.pool.add(Term::Var(sel, sort))
             }).collect();
 
-        // TODO create the tester. Check self.make_indexed_op(op, op_args, Vec::new())
-        let tester ...
+        let op_args = Vec::new();
+        let args = vec![cons];
+        let op = ParamOperator::Tester;
+        let tester = self.pool.add(Term::ParamOp { op, op_args, args });
 
-        Ok((self.pool.add(Term::Var(cons, cons_sort)), sels_terms, tester))
+        Ok((cons, sels_terms, tester))
     }
 
     /// Parses a datatype declaration, of the form `(<symbol> <numeral>)`. If the
@@ -1164,17 +1167,14 @@ impl<'a, R: BufRead> Parser<'a, R> {
             // TODO when arity > 0 we need to parse the parameters
             // read the constructors and selectors
             let defs = self.parse_sequence(|p| p.parse_constructor(&dt_sort), true)?;
-            let mut conss = Vec::new();
-            let mut sels = Vec::new();
-            let mut testers = Vec::new();
+            let mut consMap = IndexMap::new();
             for (cons, cons_sels, tester) in defs {
-                // TODO
+                consMap.insert((cons, (cons_sels, tester)));
             }
 
             self.state.symbol_table.pop_scope();
 
-
-            let dt_def = self.pool.add(DatatypeDef(conss, sels, testers));
+            let dt_def = self.pool.add(Term::DatatypeDef(consMap));
 
             self.pool.add_dt_def(dt_sort, dt_def);
 

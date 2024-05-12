@@ -25,7 +25,7 @@ pub use substitution::{Substitution, SubstitutionError};
 pub(crate) use polyeq::{Polyeq, PolyeqComparator};
 
 use crate::checker::error::CheckerError;
-use indexmap::IndexSet;
+use indexmap::{IndexMap, IndexSet};
 use rug::Integer;
 use rug::Rational;
 use std::{hash::Hash, ops::Deref};
@@ -716,7 +716,7 @@ pub enum Term {
     Let(BindingList, Rc<Term>),
 
     /// A datatype definition is a set of constructors, selectors, and testers
-    DatatypeDef(Vec<Rc<Term>>, Vec<Rc<Term>>, Vec<Rc<Term>>),
+    DatatypeDef(IndexMap<Rc<Term>, (Vec<Rc<Term>>, Rc<Term>)>),
 
     /// A parameterized operation term, that is, an operation term whose operator receives extra
     /// parameters.
@@ -908,6 +908,11 @@ impl Term {
     /// Returns `true` if the term is a user defined sort with arity zero, or a sort variable.
     pub fn is_sort_var(&self) -> bool {
         matches!(self, Term::Sort(Sort::Atom(_, args)) if args.is_empty())
+    }
+
+    /// Returns `true` if the term is a user defined sort with arity zero, or a sort variable.
+    pub fn is_sort_dt(&self) -> bool {
+        matches!(self, Term::Sort(Sort::Datatype(_, _)))
     }
 
     /// Tries to unwrap an operation term, returning the `Operator` and the arguments. Returns
