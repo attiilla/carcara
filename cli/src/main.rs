@@ -392,9 +392,7 @@ fn main() {
             elaborate_command(options).and_then(|p| print_proof(p.commands))
         }
         Command::Bench(options) => bench_command(options),
-        Command::Compress(options) => {
-            compress_command(options).and_then(|p| print_proof(p.commands))
-        }
+        Command::Compress(options) => compress_command(options).and_then(|p| print_proof(p.commands)),
         Command::Slice(options) => slice_command(options).and_then(print_proof),
     };
     if let Err(e) = result {
