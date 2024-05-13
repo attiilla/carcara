@@ -130,6 +130,7 @@ struct ParserState {
     symbol_table: HashMapStack<HashCache<String>, Rc<Term>>,
     function_defs: IndexMap<String, FunctionDef>,
     sort_declarations: HashMapStack<String, usize>,
+    dtsort_declarations: HashMapStack<String, usize>,
     sort_defs: IndexMap<String, SortDef>,
     step_ids: HashMapStack<HashCache<String>, usize>,
 }
@@ -685,6 +686,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
                     // argument which is a string terminal representing the sort name.
                     self.state.sort_declarations.insert(name, arity);
                 }
+                Token::ReservedWord(Reserved::DeclareDatatypes) => self.parse_declare_datatype(true)?,
                 Token::ReservedWord(Reserved::DefineFun) => {
                     let (name, func_def) = self.parse_define_fun()?;
 
@@ -1162,9 +1164,11 @@ impl<'a, R: BufRead> Parser<'a, R> {
         // now read in the definitions. TODO note this will have to be
         // different when considering the non-multiple case
         self.expect_token(Token::OpenParen)?;
-        for (name, _arity) in declarations {
+        for (name, arity) in declarations {
             self.expect_token(Token::OpenParen)?;
             let dt_sort = self.pool.add(Term::Sort(Sort::Datatype(name.clone(), Vec::new())));
+            self.state.dtsort_declarations.insert(name.clone(), arity.as_integer().unwrap().to_usize().unwrap());
+            // TODO add to the prelude
             // TODO when arity > 0 we need to parse the parameters
             // read the constructors and selectors
             let defs = self.parse_sequence(|p| p.parse_constructor(&dt_sort), true)?;
@@ -1173,10 +1177,8 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 cons_map.insert(cons, (cons_sels, tester));
             }
 
-            self.state.symbol_table.pop_scope();
-
             let dt_def = DatatypeDef {
-                name : name,
+                name : name.clone(),
                 cons_map : cons_map,
             };
 
@@ -1186,7 +1188,6 @@ impl<'a, R: BufRead> Parser<'a, R> {
         }
         self.expect_token(Token::CloseParen)?;
 
-        // TODO add to the prelude
         Ok(())
     }
 
@@ -1813,11 +1814,19 @@ impl<'a, R: BufRead> Parser<'a, R> {
                     Ok(result)
                 };
             }
-            _ => match self.state.sort_declarations.get(&name) {
-                Some(arity) if *arity == args.len() => Ok(Sort::Atom(name, args)),
-                Some(arity) => Err(ParserError::WrongNumberOfArgs((*arity).into(), args.len())),
-                None => Err(ParserError::UndefinedSort(name)),
-            },
+            _ => {
+                if let Some(arity) = self.state.dtsort_declarations.get(&name) {
+                    if *arity == args.len() { Ok(Sort::Datatype(name, args)) }
+                    else { Err(ParserError::WrongNumberOfArgs((*arity).into(), args.len())) }
+                }
+                else {
+                    match self.state.sort_declarations.get(&name) {
+                        Some(arity) if *arity == args.len() => Ok(Sort::Atom(name, args)),
+                        Some(arity) => Err(ParserError::WrongNumberOfArgs((*arity).into(), args.len())),
+                        None => Err(ParserError::UndefinedSort(name)),
+                    }
+                }
+            }
         }?;
         Ok(self.pool.add(Term::Sort(sort)))
     }
