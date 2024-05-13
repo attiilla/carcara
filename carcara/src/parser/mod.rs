@@ -1514,7 +1514,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
         Ok(inner)
     }
 
-    fn parse_indexed_operator(&mut self) -> CarcaraResult<(ParamOperator, Vec<Constant>)> {
+    fn parse_indexed_operator(&mut self) -> CarcaraResult<(ParamOperator, Vec<Rc<Term>>)> {
         let op_symbol = self.expect_symbol()?;
 
         if let Some(value) = op_symbol.strip_prefix("bv") {
@@ -1523,7 +1523,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
             let mut constant_args = Vec::new();
             for arg in args {
                 if let Some(i) = arg.as_signed_integer() {
-                    constant_args.push(Constant::Integer(i));
+                    constant_args.push(self.pool.add(Term::Const(Constant::Integer(i))));
                 } else {
                     return Err(Error::Parser(
                         ParserError::ExpectedIntegerConstant(arg.clone()),
@@ -1531,7 +1531,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
                     ));
                 }
             }
-            constant_args.insert(0, Constant::Integer(parsed_value));
+            constant_args.insert(0, self.pool.add(Term::Const(Constant::Integer(parsed_value))));
             return Ok((ParamOperator::BvConst, constant_args));
         }
 
@@ -1541,11 +1541,17 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 self.current_position,
             )
         })?;
+        if op == ParamOperator::Tester {
+            let cons = self.parse_term()?;
+            self.expect_token(Token::CloseParen)?;
+            let args = vec![cons.clone()];
+            return Ok((op, args));
+        }
         let args = self.parse_sequence(Self::parse_term, true)?;
         let mut constant_args = Vec::new();
         for arg in args {
             if let Some(i) = arg.as_signed_integer() {
-                constant_args.push(Constant::Integer(i));
+                constant_args.push(self.pool.add(Term::Const(Constant::Integer(i))));
             } else {
                 return Err(Error::Parser(
                     ParserError::ExpectedIntegerConstant(arg.clone()),
@@ -1573,7 +1579,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
     fn make_indexed_op(
         &mut self,
         op: ParamOperator,
-        op_args: Vec<Constant>,
+        op_args: Vec<Rc<Term>>,
         args: Vec<Rc<Term>>,
     ) -> Result<Rc<Term>, ParserError> {
         let sorts: Vec<_> = args.iter().map(|t| self.pool.sort(t)).collect();
@@ -1603,7 +1609,12 @@ impl<'a, R: BufRead> Parser<'a, R> {
                     return Err(ParserError::ExpectedBvSort(sorts[0].clone()));
                 }
                 for arg in &op_args {
-                    SortError::assert_eq(&Sort::Int, &arg.sort())?;
+                    if let Term::Const(c) = arg.as_ref() {
+                        SortError::assert_eq(&Sort::Int, &c.sort())?;
+                    }
+                    else {
+                        return Err(ParserError::ExpectedIntegerConstant(arg.clone()));
+                    }
                 }
                 assert_indexed_op_args_value(&op_args, 0..)?;
                 let i = op_args[0].as_integer().unwrap();
@@ -1622,7 +1633,12 @@ impl<'a, R: BufRead> Parser<'a, R> {
             ParamOperator::Int2BV => {
                 assert_num_args(&op_args, 1)?;
                 assert_num_args(&args, 1)?;
-                SortError::assert_eq(&Sort::Int, &op_args[0].sort())?;
+                if let Term::Const(c) = op_args[0].as_ref() {
+                    SortError::assert_eq(&Sort::Int, &c.sort())?;
+                }
+                else {
+                    return Err(ParserError::ExpectedIntegerConstant(op_args[0].clone()));
+                }
                 SortError::assert_eq(&Sort::Int, &sorts[0])?;
             }
             ParamOperator::BvBitOf
@@ -1633,7 +1649,12 @@ impl<'a, R: BufRead> Parser<'a, R> {
             | ParamOperator::Repeat => {
                 assert_num_args(&op_args, 1)?;
                 assert_num_args(&args, 1)?;
-                SortError::assert_eq(&Sort::Int, &op_args[0].sort())?;
+                if let Term::Const(c) = op_args[0].as_ref() {
+                    SortError::assert_eq(&Sort::Int, &c.sort())?;
+                }
+                else {
+                    return Err(ParserError::ExpectedIntegerConstant(op_args[0].clone()));
+                }
                 if !matches!(sorts[0], Sort::BitVec(_)) {
                     return Err(ParserError::ExpectedBvSort(sorts[0].clone()));
                 }
@@ -1642,7 +1663,12 @@ impl<'a, R: BufRead> Parser<'a, R> {
             ParamOperator::RePower => {
                 assert_num_args(&op_args, 1)?;
                 assert_num_args(&args, 1)?;
-                SortError::assert_eq(&Sort::Int, &op_args[0].sort())?;
+                if let Term::Const(c) = op_args[0].as_ref() {
+                    SortError::assert_eq(&Sort::Int, &c.sort())?;
+                }
+                else {
+                    return Err(ParserError::ExpectedIntegerConstant(op_args[0].clone()));
+                }
                 SortError::assert_eq(&Sort::RegLan, sorts[0])?;
                 assert_indexed_op_args_value(&op_args, 0..)?;
             }
@@ -1650,7 +1676,12 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 assert_num_args(&op_args, 2)?;
                 assert_num_args(&args, 1)?;
                 for arg in &op_args {
-                    SortError::assert_eq(&Sort::Int, &arg.sort())?;
+                    if let Term::Const(c) = arg.as_ref() {
+                        SortError::assert_eq(&Sort::Int, &c.sort())?;
+                    }
+                    else {
+                        return Err(ParserError::ExpectedIntegerConstant(arg.clone()));
+                    }
                 }
                 SortError::assert_eq(&Sort::RegLan, sorts[0])?;
                 assert_indexed_op_args_value(&op_args, 0..)?;
@@ -1658,10 +1689,6 @@ impl<'a, R: BufRead> Parser<'a, R> {
             ParamOperator::Tester => {}
             ParamOperator::ArrayConst => return Err(ParserError::InvalidIndexedOp(op.to_string())),
         }
-        let op_args = op_args
-            .into_iter()
-            .map(|c| self.pool.add(Term::Const(c)))
-            .collect();
         Ok(self.pool.add(Term::ParamOp { op, op_args, args }))
     }
 
