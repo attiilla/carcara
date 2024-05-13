@@ -1101,16 +1101,16 @@ impl<'a, R: BufRead> Parser<'a, R> {
 
         let mut param_sorts: Vec<_> = sels.iter().map(|(_, sort)| sort.clone()).collect();
         param_sorts.push(dt_sort.clone());
-        let cons_sort = Sort::Function(param_sorts);
+        let cons_sort = self.pool.add(Term::Sort(Sort::Function(param_sorts)));
         // add constructor to symbol table
         self.insert_sorted_var((cons_name.clone(), cons_sort.clone()));
-        let cons = self.pool.add(Term::Var(cons_name, cons_sort));
+        let cons = self.pool.add(Term::new_var(cons_name, cons_sort));
 
         let mut sels_terms: Vec<_> = sels.iter()
             .map(|(sel, sort)| {
                 // add selector to symbol table
                 self.insert_sorted_var((sel.clone(), sort.clone()));
-                self.pool.add(Term::Var(sel, sort))
+                self.pool.add(Term::new_var(sel, sort.clone()))
             }).collect();
 
         let op_args = Vec::new();
@@ -1126,7 +1126,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
     fn parse_datatype_dec(
         &mut self,
         consume_parens: bool,
-    ) -> CarcaraResult<(String, Rc<Term>)> {
+    ) -> CarcaraResult<(String, Constant)> {
         if consume_parens {
             self.expect_token(Token::OpenParen)?;
         }
@@ -1152,10 +1152,10 @@ impl<'a, R: BufRead> Parser<'a, R> {
         // create the sorts that will be used when building the definitions
         for (name, arity) in &declarations {
             // for now we only support non-parametric datatypes
-            if arity > 0 {
+            if arity.as_integer().unwrap() > 0 {
                 unreachable!();
             }
-            let sort = self.pool.add(Sort::Datatype(name, Vec::new()));
+            let sort = self.pool.add(Term::Sort(Sort::Datatype(name.to_string(), Vec::new())));
             self.insert_sorted_var((name.clone(), sort));
         }
         // now read in the definitions. TODO note this will have to be
@@ -1163,20 +1163,20 @@ impl<'a, R: BufRead> Parser<'a, R> {
         self.expect_token(Token::OpenParen)?;
         for (name, arity) in declarations {
             self.expect_token(Token::OpenParen)?;
-            let dt_sort = self.pool.add(Sort::Datatype(name, Vec::new()));
+            let dt_sort = self.pool.add(Term::Sort(Sort::Datatype(name, Vec::new())));
             // TODO when arity > 0 we need to parse the parameters
             // read the constructors and selectors
             let defs = self.parse_sequence(|p| p.parse_constructor(&dt_sort), true)?;
-            let mut consMap = IndexMap::new();
+            let mut conss = Vec::new();
             for (cons, cons_sels, tester) in defs {
-                consMap.insert((cons, (cons_sels, tester)));
+                conss.push((cons, cons_sels, tester));
             }
 
             self.state.symbol_table.pop_scope();
 
-            let dt_def = self.pool.add(Term::DatatypeDef(consMap));
+            let dt_def = self.pool.add(Term::DatatypeDef(conss));
 
-            self.pool.add_dt_def(dt_sort, dt_def);
+            self.pool.add_dt_def(&dt_sort, &dt_def);
 
             self.expect_token(Token::CloseParen)?;
         }

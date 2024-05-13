@@ -25,7 +25,7 @@ pub use substitution::{Substitution, SubstitutionError};
 pub(crate) use polyeq::{Polyeq, PolyeqComparator};
 
 use crate::checker::error::CheckerError;
-use indexmap::{IndexMap, IndexSet};
+use indexmap::IndexSet;
 use rug::Integer;
 use rug::Rational;
 use std::{hash::Hash, ops::Deref};
@@ -567,8 +567,6 @@ impl_str_conversion_traits!(Operator {
     Bv2Nat: "bv2nat",
     BvBbTerm: "bbT",
 
-    Tester: "is",
-
     RareList: "rare-list",
 });
 
@@ -716,7 +714,7 @@ pub enum Term {
     Let(BindingList, Rc<Term>),
 
     /// A datatype definition is a set of constructors, selectors, and testers
-    DatatypeDef(IndexMap<Rc<Term>, (Vec<Rc<Term>>, Rc<Term>)>),
+    DatatypeDef(Vec<(Rc<Term>, Vec<Rc<Term>>, Rc<Term>)>),
 
     /// A parameterized operation term, that is, an operation term whose operator receives extra
     /// parameters.
