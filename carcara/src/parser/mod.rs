@@ -1103,8 +1103,10 @@ impl<'a, R: BufRead> Parser<'a, R> {
         let sels = self.parse_sequence(Self::parse_sorted_var, false)?;
 
         let mut param_sorts: Vec<_> = sels.iter().map(|(_, sort)| sort.clone()).collect();
-        param_sorts.push(dt_sort.clone());
-        let cons_sort = self.pool.add(Term::Sort(Sort::Function(param_sorts)));
+        let cons_sort = if param_sorts.is_empty() { dt_sort.clone() } else {
+            param_sorts.push(dt_sort.clone());
+            self.pool.add(Term::Sort(Sort::Function(param_sorts)))
+        };
         // add constructor to symbol table
         self.insert_sorted_var((cons_name.clone(), cons_sort.clone()));
         let cons = self.pool.add(Term::new_var(cons_name, cons_sort));
