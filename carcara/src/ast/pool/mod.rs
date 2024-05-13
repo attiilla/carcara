@@ -9,6 +9,15 @@ use indexmap::{IndexMap, IndexSet};
 use rug::Integer;
 use storage::Storage;
 
+/// A `step` command.
+#[derive(Debug, Clone)]
+pub struct DatatypeDef {
+    /// The datatype name
+    pub name: String,
+    // For each constructor, its selectors and tester
+    pub cons_map: IndexMap<Rc<Term>, (Vec<Rc<Term>>, Rc<Term>)>
+}
+
 pub trait TermPool {
     /// Returns the term corresponding to the boolean constant `true`.
     fn bool_true(&mut self) -> Rc<Term> {
@@ -46,9 +55,9 @@ pub trait TermPool {
     /// a term multiple times.
     fn free_vars(&mut self, term: &Rc<Term>) -> IndexSet<Rc<Term>>;
 
-    fn add_dt_def(&mut self, sort: &Rc<Term>, def: &Rc<Term>);
+    fn add_dt_def(&mut self, sort: &Rc<Term>, def: &DatatypeDef);
 
-    fn dt_def(&self, sort: &Rc<Term>) -> Rc<Term>;
+    fn dt_def(&self, sort: &Rc<Term>) -> &DatatypeDef;
 }
 
 /// A structure to store and manage all allocated terms.
@@ -65,7 +74,7 @@ pub struct PrimitivePool {
     pub(crate) storage: Storage,
     pub(crate) free_vars_cache: IndexMap<Rc<Term>, IndexSet<Rc<Term>>>,
     pub(crate) sorts_cache: IndexMap<Rc<Term>, Rc<Term>>,
-    pub(crate) dt_defs: IndexMap<Rc<Term>, Rc<Term>>,
+    pub(crate) dt_defs: IndexMap<Rc<Term>, DatatypeDef>,
 }
 
 impl PrimitivePool {
@@ -223,16 +232,6 @@ impl PrimitivePool {
                 Sort::Function(result)
             }
             Term::Let(_, inner) => self.compute_sort(inner).as_sort().unwrap().clone(),
-            Term::DatatypeDef(conss) => {
-                conss.iter().map(|(cons, _, _)| {
-                    match self.compute_sort(&cons).as_sort().unwrap() {
-                        Sort::Function(sorts) =>
-                            return sorts.last().unwrap().as_sort().unwrap().clone(),
-                        _ => unreachable!(),
-                    }
-                });
-                unreachable!()
-            },
             Term::ParamOp { op, op_args, args } => {
                 let sort = match op {
                     ParamOperator::BvExtract => {
@@ -392,7 +391,7 @@ impl TermPool for PrimitivePool {
         self.free_vars_with_priorities(term, [])
     }
 
-    fn add_dt_def(&mut self, sort: &Rc<Term>, def: &Rc<Term>) {
+    fn add_dt_def(&mut self, sort: &Rc<Term>, def: &DatatypeDef) {
         if !sort.is_sort_dt() {
             // return Err(ParserError::ExpectedDTSort(sort.clone()));
             unreachable!();
@@ -400,11 +399,11 @@ impl TermPool for PrimitivePool {
         self.dt_defs.insert(sort.clone(), def.clone());
     }
 
-    fn dt_def(&self, sort: &Rc<Term>) -> Rc<Term> {
+    fn dt_def(&self, sort: &Rc<Term>) -> &DatatypeDef {
         if !sort.is_sort_dt() {
             // return Err(ParserError::ExpectedDTSort(sort.clone()));
             unreachable!();
         }
-        self.dt_defs[sort].clone()
+        &self.dt_defs[sort]
     }
 }

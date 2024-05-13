@@ -6,6 +6,7 @@ pub(crate) mod tests;
 
 pub use error::{ParserError, SortError};
 pub use lexer::{Lexer, Position, Reserved, Token};
+pub use pool::{DatatypeDef};
 
 use crate::{
     ast::*,
@@ -1106,7 +1107,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
         self.insert_sorted_var((cons_name.clone(), cons_sort.clone()));
         let cons = self.pool.add(Term::new_var(cons_name, cons_sort));
 
-        let mut sels_terms: Vec<_> = sels.iter()
+        let sels_terms: Vec<_> = sels.iter()
             .map(|(sel, sort)| {
                 // add selector to symbol table
                 self.insert_sorted_var((sel.clone(), sort.clone()));
@@ -1114,11 +1115,11 @@ impl<'a, R: BufRead> Parser<'a, R> {
             }).collect();
 
         let op_args = Vec::new();
-        let args = vec![cons];
+        let args = vec![cons.clone()];
         let op = ParamOperator::Tester;
         let tester = self.pool.add(Term::ParamOp { op, op_args, args });
 
-        Ok((cons, sels_terms, tester))
+        Ok((cons.clone(), sels_terms, tester))
     }
 
     /// Parses a datatype declaration, of the form `(<symbol> <numeral>)`. If the
@@ -1161,20 +1162,23 @@ impl<'a, R: BufRead> Parser<'a, R> {
         // now read in the definitions. TODO note this will have to be
         // different when considering the non-multiple case
         self.expect_token(Token::OpenParen)?;
-        for (name, arity) in declarations {
+        for (name, _arity) in declarations {
             self.expect_token(Token::OpenParen)?;
-            let dt_sort = self.pool.add(Term::Sort(Sort::Datatype(name, Vec::new())));
+            let dt_sort = self.pool.add(Term::Sort(Sort::Datatype(name.clone(), Vec::new())));
             // TODO when arity > 0 we need to parse the parameters
             // read the constructors and selectors
             let defs = self.parse_sequence(|p| p.parse_constructor(&dt_sort), true)?;
-            let mut conss = Vec::new();
+            let mut cons_map = IndexMap::new();
             for (cons, cons_sels, tester) in defs {
-                conss.push((cons, cons_sels, tester));
+                cons_map.insert(cons, (cons_sels, tester));
             }
 
             self.state.symbol_table.pop_scope();
 
-            let dt_def = self.pool.add(Term::DatatypeDef(conss));
+            let dt_def = DatatypeDef {
+                name : name,
+                cons_map : cons_map,
+            };
 
             self.pool.add_dt_def(&dt_sort, &dt_def);
 
@@ -1650,6 +1654,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 SortError::assert_eq(&Sort::RegLan, sorts[0])?;
                 assert_indexed_op_args_value(&op_args, 0..)?;
             }
+            ParamOperator::Tester => {}
             ParamOperator::ArrayConst => return Err(ParserError::InvalidIndexedOp(op.to_string())),
         }
         let op_args = op_args

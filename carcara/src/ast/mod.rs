@@ -713,9 +713,6 @@ pub enum Term {
     /// A `let` binder term.
     Let(BindingList, Rc<Term>),
 
-    /// A datatype definition is a set of constructors, selectors, and testers
-    DatatypeDef(Vec<(Rc<Term>, Vec<Rc<Term>>, Rc<Term>)>),
-
     /// A parameterized operation term, that is, an operation term whose operator receives extra
     /// parameters.
     ///
