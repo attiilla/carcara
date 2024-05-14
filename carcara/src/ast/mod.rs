@@ -751,8 +751,7 @@ impl Term {
     }
 
     /// Constructs a new bv term.
-    pub fn new_bv(value: impl Into<Integer>, width: impl Into<Integer>) -> Self
-    {
+    pub fn new_bv(value: impl Into<Integer>, width: impl Into<Integer>) -> Self {
         Term::Const(Constant::BitVec(value.into(), width.into()))
     }
 
