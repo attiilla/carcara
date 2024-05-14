@@ -156,7 +156,7 @@ pub struct Subproof {
     pub commands: Vec<ProofCommand>,
 
     /// The "assignment" style arguments of the subproof, of the form `(:= <symbol> <term>)`.
-    pub assignment_args: Vec<(String, Rc<Term>)>,
+    pub assignment_args: Vec<(SortedVar, Rc<Term>)>,
 
     /// The "variable" style arguments of the subproof, of the form `(<symbol> <sort>)`.
     pub variable_args: Vec<SortedVar>,
@@ -769,6 +769,14 @@ impl Term {
         pool.sort(&added).as_sort().unwrap().clone()
     }
 
+    /// Returns `true` if the term is the empty String.
+    pub fn is_empty_string(&self) -> bool {
+        match self {
+            Term::Const(Constant::String(s)) => s.is_empty(),
+            _ => false,
+        }
+    }
+
     /// Returns `true` if the term is an integer or real constant.
     pub fn is_number(&self) -> bool {
         matches!(self, Term::Const(Constant::Real(_) | Constant::Integer(_)))
@@ -987,6 +995,12 @@ impl Rc<Term> {
     pub fn as_number_err(&self) -> Result<Rational, CheckerError> {
         self.as_number()
             .ok_or_else(|| CheckerError::ExpectedAnyNumber(self.clone()))
+    }
+
+    /// Similar to `Term::as_integer`, but returns a `CheckerError` on failure.
+    pub fn as_integer_err(&self) -> Result<Integer, CheckerError> {
+        self.as_integer()
+            .ok_or_else(|| CheckerError::ExpectedAnyInteger(self.clone()))
     }
 
     /// Similar to `Term::as_signed_number`, but returns a `CheckerError` on failure.

@@ -109,7 +109,7 @@ struct SortDef {
 /// the final AST.
 struct AnchorCommand {
     end_step_id: String,
-    assignment_args: Vec<(String, Rc<Term>)>,
+    assignment_args: Vec<(SortedVar, Rc<Term>)>,
     variable_args: Vec<SortedVar>,
 }
 
@@ -1002,7 +1002,9 @@ impl<'a, R: BufRead> Parser<'a, R> {
             let args = self.parse_sequence(Parser::parse_anchor_argument, true)?;
             for a in args {
                 match a {
-                    AnchorArg::Assign(var, value) => assignment_args.push((var.clone(), value)),
+                    AnchorArg::Assign(var, value) => {
+                        assignment_args.push(((var.clone(), self.pool.sort(&value)), value));
+                    }
                     AnchorArg::Variable(var) => variable_args.push(var.clone()),
                 }
             }
@@ -1023,7 +1025,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
         Ok(if self.current_token == Token::Keyword("=".into()) {
             self.next_token()?;
             let (var, sort) = self.parse_sorted_var()?;
-            let value = self.parse_term()?;
+            let value = self.parse_term_expecting_sort(sort.as_sort().unwrap())?;
             self.insert_sorted_var((var.clone(), sort));
             self.expect_token(Token::CloseParen)?;
             AnchorArg::Assign(var, value)

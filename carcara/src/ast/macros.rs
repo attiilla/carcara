@@ -74,6 +74,14 @@ macro_rules! match_term {
     (false = $var:expr $(, $flag:ident)?) => {
         if $var.is_bool_false() { Some(()) } else { None }
     };
+    (0 = $var:expr $(, $flag:ident)?) => {
+        if let Some(i) = $var.as_integer() {
+            if i == 0 { Some(()) } else { None }
+        } else { None }
+    };
+    ("" = $var:expr $(, $flag:ident)?) => {
+        if $var.is_empty_string() { Some(()) } else { None }
+    };
     ((forall ... $args:tt) = $var:expr) => {
         if let $crate::ast::Term::Binder($crate::ast::Binder::Forall, bindings, inner) =
             &$var as &$crate::ast::Term
@@ -188,7 +196,8 @@ macro_rules! match_term {
     (@GET_VARIANT repeat) => { $crate::ast::ParamOperator::Repeat };
 
     (@GET_VARIANT strconcat) => { $crate::ast::Operator::StrConcat };
-    (@GET_VARIANT strlen) => { $crate::ast::Operator::StrLen };
+    (@GET_VARIANT strsubstr) => { $crate::ast::Operator::Substring };
+    (@GET_VARIANT strlen)    => { $crate::ast::Operator::StrLen };
 }
 
 /// A variant of `match_term` that returns a `Result<_, CheckerError>` instead of an `Option`.
