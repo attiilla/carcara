@@ -6,7 +6,6 @@
 /home/hbarbosa/cvc5/wt-proofnew/test/regress/cli/regress0/datatypes/typed_v3l20092.cvc.smt2
 /home/hbarbosa/cvc5/wt-proofnew/test/regress/cli/regress0/datatypes/mutually-recursive.cvc.smt2
 /home/hbarbosa/cvc5/wt-proofnew/test/regress/cli/regress0/datatypes/datatype2.cvc.smt2
-/home/hbarbosa/cvc5/wt-proofnew/test/regress/cli/regress0/datatypes/par-updater-type-rule.smt2
 /home/hbarbosa/cvc5/wt-proofnew/test/regress/cli/regress0/datatypes/typed_v1l80005.cvc.smt2
 /home/hbarbosa/cvc5/wt-proofnew/test/regress/cli/regress0/datatypes/datatype0.cvc.smt2
 /home/hbarbosa/cvc5/wt-proofnew/test/regress/cli/regress0/datatypes/v10l40099.cvc.smt2

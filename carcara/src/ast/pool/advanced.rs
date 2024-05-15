@@ -66,10 +66,6 @@ impl TermPool for ContextPool {
             .free_vars_with_priorities(term, [&self.global_pool])
     }
 
-    fn add_dt_def(&mut self, _sort: &Rc<Term>, _def: &DatatypeDef) {
-        unreachable!();
-    }
-
     fn dt_def(&self, sort: &Rc<Term>) -> &DatatypeDef {
         self.global_pool.dt_def(sort)
     }
@@ -141,10 +137,6 @@ impl TermPool for LocalPool {
                 &self.ctx_pool.inner.read().unwrap(),
             ],
         )
-    }
-
-    fn add_dt_def(&mut self, _sort: &Rc<Term>, _def: &DatatypeDef) {
-        unreachable!();
     }
 
     fn dt_def(&self, sort: &Rc<Term>) -> &DatatypeDef {
