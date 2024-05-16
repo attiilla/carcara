@@ -446,9 +446,6 @@ pub enum ParamOperator {
 
     // Qualified operators
     ArrayConst,
-
-    // Parametric variables
-    Var,
 }
 
 impl_str_conversion_traits!(ParamOperator {
@@ -618,6 +615,9 @@ pub enum Sort {
     /// A datatype sort only has its name and its type parameters
     Datatype(String, Vec<Rc<Term>>),
 
+    /// A parametric sort, with a set of sort variables that can appear in the second argument.
+    ParamSort(Vec<Rc<Term>>, Rc<Term>),
+
     /// The sort of RARE lists.
     RareList,
 
@@ -725,10 +725,6 @@ pub enum Term {
     /// - A `qualified` operation term, that uses a qualified operator denoted by the `(as ...)`
     ///   syntax. In this case, the single operator parameter must be a sort.
     /// - A `tester` of a datatype constructor `C`, denoted by `(_ is C)`.
-    /// - A parametric constructor or selector of a parametric datatype. In `op_args` will be the
-    ///   sort variables and in `args` the sort of the operator, which will include the sort
-    ///   variables. Sort variables are variables of sort Type. The value of `ParamOperator` should
-    ///   be Var
     ParamOp {
         op: ParamOperator,
         op_args: Vec<Rc<Term>>,
@@ -1069,6 +1065,7 @@ pub enum Constant {
     /// A string literal term.
     String(String),
 
+    /// A bitvector literal term.
     BitVec(Integer, Integer),
 }
 

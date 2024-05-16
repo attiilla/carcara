@@ -1094,38 +1094,48 @@ impl<'a, R: BufRead> Parser<'a, R> {
     // parses (<symbol> (<sorted var>*)) where the symbol is the
     // constructor and the sorted vars are the selectors. Also build a
     // tester for the constructor: (_ is <symbol>)
-    fn parse_constructor(&mut self, dt_sort: &Rc<Term>) -> CarcaraResult<(Rc<Term>, Vec<Rc<Term>>, Rc<Term>)> {
-        // parse selectors as sorted vars, but note that the sort can
-        // be parametric, which probably make_sort needs to be
-        // extended to handle?
+    fn parse_constructor(&mut self, dt_sort: &Rc<Term>, sort_vars: &Vec<Rc<Term>>) -> CarcaraResult<(Rc<Term>, Vec<Rc<Term>>, Rc<Term>)> {
         self.expect_token(Token::OpenParen)?;
         let cons_name = self.expect_symbol()?;
         let sels = self.parse_sequence(|p| p.parse_selector(dt_sort), false)?;
 
-        let mut param_sorts: Vec<_> = sels.iter()
+        let mut cons_args_sorts: Vec<_> = sels.iter()
             .map(|(_, sort)| {
-                if let Sort::Function(sel_sorts) = sort.as_sort().unwrap() {
-                    sel_sorts.last().unwrap().clone()
-                }
-                else {
-                    unreachable!();
+                match sort {
+                    Sort::ParamSort(_, param_sort) => {
+                        let function_sort = param_sort.as_sort().unwrap();
+                        if let Sort::Function(sel_sorts) = function_sort {
+                            sel_sorts.last().unwrap().clone()
+                        }
+                        else {
+                            unreachable!()
+                        }
+                    },
+                    Sort::Function(sel_sorts) => sel_sorts.last().unwrap().clone(),
+                    _ => unreachable!()
                 }
             }
             ).collect();
-        let cons_sort = if param_sorts.is_empty() { dt_sort.clone() } else {
-            param_sorts.push(dt_sort.clone());
-            self.pool.add(Term::Sort(Sort::Function(param_sorts)))
+        let cons_sort = if cons_args_sorts.is_empty() { dt_sort.clone() } else {
+            cons_args_sorts.push(dt_sort.clone());
+            let f_sort = Sort::Function(cons_args_sorts);
+            let f_sort_t = self.pool.add(Term::Sort(f_sort));
+            if sort_vars.is_empty() {
+                f_sort_t
+            }
+            else {
+                let param_sort = Sort::ParamSort(sort_vars.to_vec(), f_sort_t);
+                self.pool.add(Term::Sort(param_sort))
+            }
         };
         // println!("Parsed cons: {} / {}", cons_name, cons_sort);
-        // add constructor to symbol table
-        self.insert_sorted_var((cons_name.clone(), cons_sort.clone()));
-        let cons = self.pool.add(Term::new_var(cons_name, cons_sort));
 
+        let cons = self.pool.add(Term::new_var(cons_name, cons_sort));
         let sels_terms: Vec<_> = sels.iter()
             .map(|(sel, sort)| {
-                // add selector to symbol table
-                self.insert_sorted_var((sel.clone(), sort.clone()));
-                self.pool.add(Term::new_var(sel, sort.clone()))
+                let sort_sort = Term::Sort(sort.clone());
+                let sort_t = self.pool.add(sort_sort.clone());
+                self.pool.add(Term::new_var(sel, sort_t.clone()))
             }).collect();
 
         let op_args = Vec::new();
@@ -1153,8 +1163,13 @@ impl<'a, R: BufRead> Parser<'a, R> {
         Ok((name, arity))
     }
 
-    // fn parse_datatype_parameters(&mut self) -> CarcaraResult<Vec<Rc<Term>>> {
-    // }
+    fn parse_parameter(&mut self) -> CarcaraResult<Rc<Term>> {
+        let name = self.expect_symbol()?;
+        let sort = self.pool.add(Term::Sort(Sort::Type));
+        let sort_var = self.pool.add(Term::new_var(name.clone(), sort));
+        self.insert_sorted_var((name.clone(), sort_var.clone()));
+        Ok(sort_var)
+    }
 
     /// Parses a `declare-datatype`/`declare-datatypes` command. Inserts the constructor names into
     /// the symbol table. This method assumes the `(` and `declare-datatype`/`declare-datatypes`
@@ -1166,32 +1181,46 @@ impl<'a, R: BufRead> Parser<'a, R> {
         } else {
             unreachable!();
         };
-
         // create the sorts that will be used when building the definitions
         for (name, arity) in &declarations {
-            // parse parameter sorts
-            if arity.as_integer().unwrap() > 0 {
-                // let param_sorts = self.parse_datatype_parameters()?;
-                unreachable!();
-            }
-            let sort = self.pool.add(Term::Sort(Sort::Datatype(name.to_string(), Vec::new())));
             self.state.dtsort_declarations.insert(name.clone(), arity.as_integer().unwrap().to_usize().unwrap());
-            self.insert_sorted_var((name.clone(), sort));
         }
         // now read in the definitions. TODO note this will have to be
         // different when considering the non-multiple case
         self.expect_token(Token::OpenParen)?;
-        for (name, _arity) in declarations {
+        for (name, arity) in declarations {
+            let is_parametric = arity.as_integer().unwrap() > 0;
+            // parse parameter sorts
+            let sort_vars = if is_parametric {
+                self.state.symbol_table.push_scope();
+                self.expect_token(Token::OpenParen)?;
+                self.expect_token(Token::ReservedWord(Reserved::Par))?;
+                self.expect_token(Token::OpenParen)?;
+                self.parse_sequence(Self::parse_parameter, true)?
+            } else {
+                Vec::new()
+            };
             self.expect_token(Token::OpenParen)?;
-            let dt_sort = self.pool.add(Term::Sort(Sort::Datatype(name.clone(), Vec::new())));
+            let dt_sort = self.pool.add(Term::Sort(Sort::Datatype(name.clone(), sort_vars.clone())));
             // TODO add to the prelude
-            // TODO when arity > 0 we need to parse the parameters
             // read the constructors and selectors
-            let defs = self.parse_sequence(|p| p.parse_constructor(&dt_sort), true)?;
+            let defs = self.parse_sequence(|p| p.parse_constructor(&dt_sort, &sort_vars), true)?;
+            if is_parametric {
+                self.state.symbol_table.pop_scope();
+                self.expect_token(Token::CloseParen)?;
+            }
             let mut conss = Vec::new();
             let mut cons_map = IndexMap::new();
             for (cons, cons_sels, tester) in defs {
-                cons_map.insert(cons.clone(), (cons_sels, tester));
+                // add constructor to symbol table
+                let cons_name = cons.as_var().unwrap();
+                self.insert_sorted_var((cons_name.to_string(), self.pool.sort(&cons).clone()));
+                // add selector to symbol table
+                for sel in &cons_sels {
+                    let sel_name = sel.as_var().unwrap();
+                    self.insert_sorted_var((sel_name.to_string(), self.pool.sort(&sel).clone()));
+                }
+                cons_map.insert(cons.clone(), (cons_sels.clone(), tester));
                 conss.push(cons.clone());
             }
 
@@ -1364,13 +1393,12 @@ impl<'a, R: BufRead> Parser<'a, R> {
     }
 
     /// Parses a sorted variable of the form `(<symbol> <sort>)`.
-    fn parse_selector(&mut self, dt_sort: &Rc<Term>) -> CarcaraResult<SortedVar> {
+    fn parse_selector(&mut self, dt_sort: &Rc<Term>) -> CarcaraResult<(String, Sort)> {
         self.expect_token(Token::OpenParen)?;
         let symbol = self.expect_symbol()?;
         let ret_sort = self.parse_sort()?;
-        let sort = self.pool.add(Term::Sort(Sort::Function(vec![dt_sort.clone(), ret_sort])));
+        let sort = Sort::Function(vec![dt_sort.clone(), ret_sort]);
         self.expect_token(Token::CloseParen)?;
-        // println!("\tParsed sel: {} / {}", symbol, sort);
         Ok((symbol, sort))
     }
 
