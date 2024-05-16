@@ -1153,6 +1153,9 @@ impl<'a, R: BufRead> Parser<'a, R> {
         Ok((name, arity))
     }
 
+    fn parse_datatype_parameters(&mut self) -> CarcaraResult<Vec<Rc<Term>>> {
+    }
+
     /// Parses a `declare-datatype`/`declare-datatypes` command. Inserts the constructor names into
     /// the symbol table. This method assumes the `(` and `declare-datatype`/`declare-datatypes`
     /// tokens were already consumed.
@@ -1166,8 +1169,9 @@ impl<'a, R: BufRead> Parser<'a, R> {
 
         // create the sorts that will be used when building the definitions
         for (name, arity) in &declarations {
-            // for now we only support non-parametric datatypes
+            // parse parameter sorts
             if arity.as_integer().unwrap() > 0 {
+                let param_sorts = self.parse_datatype_parameters()?;
                 unreachable!();
             }
             let sort = self.pool.add(Term::Sort(Sort::Datatype(name.to_string(), Vec::new())));
