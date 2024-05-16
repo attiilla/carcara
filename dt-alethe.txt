@@ -16,3 +16,4 @@
 /home/hbarbosa/cvc5/wt-proofnew/test/regress/cli/regress0/datatypes/list-bool.smt2
 /home/hbarbosa/cvc5/wt-proofnew/test/regress/cli/regress0/datatypes/rec4.cvc.smt2
 /home/hbarbosa/cvc5/wt-proofnew/test/regress/cli/regress0/datatypes/typed_v5l30069.cvc.smt2
+/home/hbarbosa/cvc5/wt-proofnew/test/regress/cli/regress1/quantifiers/parametric-lists.smt2

@@ -446,6 +446,9 @@ pub enum ParamOperator {
 
     // Qualified operators
     ArrayConst,
+
+    // Parametric variables
+    Var,
 }
 
 impl_str_conversion_traits!(ParamOperator {
@@ -721,6 +724,11 @@ pub enum Term {
     ///   syntax. In this case, the operator parameters must be constants.
     /// - A `qualified` operation term, that uses a qualified operator denoted by the `(as ...)`
     ///   syntax. In this case, the single operator parameter must be a sort.
+    /// - A `tester` of a datatype constructor `C`, denoted by `(_ is C)`.
+    /// - A parametric constructor or selector of a parametric datatype. In `op_args` will be the
+    ///   sort variables and in `args` the sort of the operator, which will include the sort
+    ///   variables. Sort variables are variables of sort Type. The value of `ParamOperator` should
+    ///   be Var
     ParamOp {
         op: ParamOperator,
         op_args: Vec<Rc<Term>>,
