@@ -25,7 +25,7 @@ pub use substitution::{Substitution, SubstitutionError};
 pub(crate) use polyeq::{Polyeq, PolyeqComparator};
 
 use crate::checker::error::CheckerError;
-use indexmap::IndexSet;
+use indexmap::{IndexSet, IndexMap};
 use rug::Integer;
 use rug::Rational;
 use std::{hash::Hash, ops::Deref};
@@ -588,6 +588,9 @@ pub enum Sort {
     /// this sort.
     Atom(String, Vec<Rc<Term>>),
 
+    // A sort variable
+    Var(String),
+
     /// The `Bool` primitive sort.
     Bool,
 
@@ -735,6 +738,57 @@ pub enum Term {
 impl From<SortedVar> for Term {
     fn from(var: SortedVar) -> Self {
         Term::Var(var.0, var.1)
+    }
+}
+
+impl Sort {
+    // Whether this sort can be unified with another. The map argument
+    // will be a substitution of sort variables to sorts
+    pub fn unify(&self, target : &Sort, map: &IndexMap<String, Sort>) -> bool {
+        match (self, target) {
+            (Sort::Var(a), Sort::Atom(_,_)) => {
+                // TODO check that target is compatible with value associated to a, if any
+                map.insert(a, target);
+                true
+            }
+            (Sort::Atom(a, sorts_a), Sort::Atom(b, sorts_b)) => {
+                if a != b { false } else {
+                    let matching = sorts_a.iter().zip(&sorts_b)
+                        .filter(|&(t_a, t_b)| {
+                            let s_a = t_a.as_sort().unwrap();
+                            let s_b = t_b.as_sort().unwrap();
+                            s_a.unify(s_b, map)
+                        })
+                        .count();
+                    matching == a.len() && matching == b.len()
+                }
+            }
+            (Sort::Function(sorts_a), Sort::Function(sorts_b)) => {
+                for (a_t, b_t) in sorts_a.iter().zip(sorts_b.iter()) {
+                    let a_s = a_t.as_sort().unwrap();
+                    let b_s = b_t.as_sort().unwrap();
+                    if !a_s.unify(b_s, map, p) { return false; }
+                }
+                true
+            }
+            (Sort::Datatype(a,_), Datatype(b,_)) => a == b,
+            (Sort::Bool, Sort::Bool)
+                | (Sort::Int, Sort::Int)
+                | (Sort::Real, Sort::Real)
+                | (Sort::String, Sort::String)
+                | (Sort::RegLan, Sort::RegLan)
+                | (Sort::RareList, Sort::RareList)
+                | (Sort::Type, Sort::Type) => true,
+            (Sort::Array(x_a, y_a), Sort::Array(x_b, y_b)) => {
+                let s_x_a = x_a.as_sort().unwrap();
+                let s_y_a = y_a.as_sort().unwrap();
+                let s_x_b = x_b.as_sort().unwrap();
+                let s_y_b = y_b.as_sort().unwrap();
+                s_x_a.unify(s_x_b, map) && s_x_b.unify(s_x_b, map)
+            }
+            (Sort::BitVec(a), Sort::BitVec(b)) => a == b,
+            _ => false,
+        }
     }
 }
 

@@ -217,6 +217,15 @@ impl PrimitivePool {
             Term::App(f, _) => {
                 match self.compute_sort(f).as_sort().unwrap() {
                     Sort::Function(sorts) => sorts.last().unwrap().as_sort().unwrap().clone(),
+                    Sort::ParamSort(_, p_sort) => {
+                        let p_function_sort = p_sort.as_sort().unwrap();
+                        if let Sort::Function(sorts) = p_function_sort {
+                            sorts.last().unwrap().as_sort().unwrap().clone()
+                        }
+                        else {
+                            unreachable!()
+                        }
+                    },
                     _ => unreachable!(), // We assume that the function is correctly sorted
                 }
             }

@@ -425,8 +425,12 @@ impl fmt::Display for Sort {
             Sort::Real => write!(f, "Real"),
             Sort::String => write!(f, "String"),
             Sort::RegLan => write!(f, "RegLan"),
-            Sort::Datatype(n, _) => write!(f, "{}", n),
-            Sort::ParamSort(_, n) => write!(f, "{}", n),
+            Sort::Datatype(name, args) => write_s_expr(f, quote_symbol(name), args),
+            Sort::Var(name) => write!(f, "{}", name),
+            Sort::ParamSort(args, s) => {
+                let par = format!("(par {:?} {})", args, s);
+                write!(f, "{}", par)
+            },
             Sort::Array(x, y) => write_s_expr(f, "Array", &[x, y]),
             Sort::BitVec(w) => write!(f, "(_ BitVec {})", w),
             Sort::RareList => unreachable!("RARE list sort should never be displayed"),
