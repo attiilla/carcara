@@ -1167,7 +1167,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
         let name = self.expect_symbol()?;
         let sort = self.pool.add(Term::Sort(Sort::Type));
         let sort_var = self.pool.add(Term::new_var(name.clone(), sort));
-        self.insert_sorted_var((name.clone(), sort_var.clone()));
+        self.state.sort_declarations.insert(name, 0);
         Ok(sort_var)
     }
 
@@ -1787,9 +1787,32 @@ impl<'a, R: BufRead> Parser<'a, R> {
                             .map_err(|err| Error::Parser(err, head_pos))
                     }
                     Reserved::As => {
-                        let (op, sort) = self.parse_qualified_operator()?;
-                        self.make_qualified_op(op, sort, Vec::new())
-                            .map_err(|err| Error::Parser(err, head_pos))
+                        let op_symbol = self.expect_symbol()?;
+                        if let Ok(op) = ParamOperator::from_str(op_symbol.as_str()) {
+                            let sort = self.parse_sort()?;
+                            self.expect_token(Token::CloseParen)?;
+                            self.make_qualified_op(op, sort, Vec::new())
+                                .map_err(|err| Error::Parser(err, head_pos))
+                        }
+                        else {
+                            let var = self.make_var(op_symbol.clone())
+                                .map_err(|err| Error::Parser(err, self.current_position))?;
+                            let var_sort = self.pool.sort(&var);
+                            // println!("Var: {}", var);
+                            // println!("Sort: {}", var_sort);
+                            if var_sort.is_sort_parametric() {
+                                let sort = self.parse_sort()?;
+                                self.expect_token(Token::CloseParen)?;
+                                // TODO test unification
+                                // if types are unifiable, create variable with sort
+                                Ok(self.pool.add(Term::new_var(op_symbol, sort)))
+                            } else {
+                                Err(Error::Parser(
+                                    ParserError::InvalidQualifiedOp(op_symbol),
+                                    self.current_position,
+                                ))
+                            }
+                        }
                     }
                     Reserved::Exists => self.parse_binder(Binder::Exists),
                     Reserved::Forall => self.parse_binder(Binder::Forall),
@@ -1837,6 +1860,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
                     }
                     Token::ReservedWord(Reserved::As) => {
                         self.next_token()?;
+                        println!("here");
                         let (op, op_sort) = self.parse_qualified_operator()?;
                         let args = self.parse_sequence(Self::parse_term, true)?;
                         self.make_qualified_op(op, op_sort, args)

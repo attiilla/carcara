@@ -909,6 +909,16 @@ impl Term {
         matches!(self, Term::Sort(Sort::Atom(_, args)) if args.is_empty())
     }
 
+    /// Returns `true` if the term is a user defined parametric sort
+    pub fn is_sort_parametric(&self) -> bool {
+        match self {
+            Term::Sort(Sort::ParamSort(_, _)) => true,
+            Term::Sort(Sort::Datatype(_, args)) if !args.is_empty() => true,
+            _ => false
+        }
+        // matches!(self, Term::Sort(Sort::ParamSort(_, _)))
+    }
+
     /// Returns `true` if the term is a user defined sort with arity zero, or a sort variable.
     pub fn is_sort_dt(&self) -> bool {
         matches!(self, Term::Sort(Sort::Datatype(_, _)))
