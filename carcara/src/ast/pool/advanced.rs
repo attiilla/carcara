@@ -1,5 +1,5 @@
 use super::super::{Rc, Term};
-use super::{PrimitivePool, TermPool, DatatypeDef};
+use super::{DatatypeDef, PrimitivePool, TermPool};
 use indexmap::IndexSet;
 use std::sync::{Arc, RwLock};
 
@@ -69,7 +69,6 @@ impl TermPool for ContextPool {
     fn dt_def(&self, sort: &Rc<Term>) -> &DatatypeDef {
         self.global_pool.dt_def(sort)
     }
-
 }
 
 // =========================================================================

@@ -25,7 +25,7 @@ pub use substitution::{Substitution, SubstitutionError};
 pub(crate) use polyeq::{Polyeq, PolyeqComparator};
 
 use crate::checker::error::CheckerError;
-use indexmap::{IndexSet, IndexMap};
+use indexmap::{map::Entry, IndexMap, IndexSet};
 use rug::Integer;
 use rug::Rational;
 use std::{hash::Hash, ops::Deref};
@@ -744,47 +744,75 @@ impl From<SortedVar> for Term {
 impl Sort {
     // Whether this sort can be unified with another. The map argument
     // will be a substitution of sort variables to sorts
-    pub fn unify(&self, target : &Sort, map: &IndexMap<String, Sort>) -> bool {
+    pub fn match_with(&self, target: &Sort, map: &mut IndexMap<String, Sort>) -> bool {
         match (self, target) {
-            (Sort::Var(a), Sort::Atom(_,_)) => {
+            (Sort::Var(a), _) => {
                 // TODO check that target is compatible with value associated to a, if any
-                map.insert(a, target);
+                match map.entry(a.to_string()) {
+                    Entry::Vacant(e) => {
+                        e.insert(target.clone());
+                    }
+                    Entry::Occupied(e) => {
+                        return e.get() == target;
+                    }
+                }
                 true
             }
             (Sort::Atom(a, sorts_a), Sort::Atom(b, sorts_b)) => {
-                if a != b { false } else {
-                    let matching = sorts_a.iter().zip(&sorts_b)
+                if a != b {
+                    false
+                } else {
+                    let matching = sorts_a
+                        .iter()
+                        .zip(sorts_b.iter())
                         .filter(|&(t_a, t_b)| {
                             let s_a = t_a.as_sort().unwrap();
                             let s_b = t_b.as_sort().unwrap();
-                            s_a.unify(s_b, map)
+                            s_a.match_with(s_b, map)
                         })
                         .count();
-                    matching == a.len() && matching == b.len()
+                    matching == sorts_a.len() && matching == sorts_b.len()
                 }
             }
             (Sort::Function(sorts_a), Sort::Function(sorts_b)) => {
                 for (a_t, b_t) in sorts_a.iter().zip(sorts_b.iter()) {
                     let a_s = a_t.as_sort().unwrap();
                     let b_s = b_t.as_sort().unwrap();
-                    if !a_s.unify(b_s, map, p) { return false; }
+                    if !a_s.match_with(b_s, map) {
+                        return false;
+                    }
                 }
                 true
             }
-            (Sort::Datatype(a,_), Datatype(b,_)) => a == b,
+            (Sort::Datatype(a, sorts_a), Sort::Datatype(b, sorts_b)) => {
+                if a != b {
+                    false
+                } else {
+                    let matching = sorts_a
+                        .iter()
+                        .zip(sorts_b.iter())
+                        .filter(|&(t_a, t_b)| {
+                            let s_a = t_a.as_sort().unwrap();
+                            let s_b = t_b.as_sort().unwrap();
+                            s_a.match_with(s_b, map)
+                        })
+                        .count();
+                    matching == sorts_a.len() && matching == sorts_b.len()
+                }
+            }
             (Sort::Bool, Sort::Bool)
-                | (Sort::Int, Sort::Int)
-                | (Sort::Real, Sort::Real)
-                | (Sort::String, Sort::String)
-                | (Sort::RegLan, Sort::RegLan)
-                | (Sort::RareList, Sort::RareList)
-                | (Sort::Type, Sort::Type) => true,
+            | (Sort::Int, Sort::Int)
+            | (Sort::Real, Sort::Real)
+            | (Sort::String, Sort::String)
+            | (Sort::RegLan, Sort::RegLan)
+            | (Sort::RareList, Sort::RareList)
+            | (Sort::Type, Sort::Type) => true,
             (Sort::Array(x_a, y_a), Sort::Array(x_b, y_b)) => {
                 let s_x_a = x_a.as_sort().unwrap();
                 let s_y_a = y_a.as_sort().unwrap();
                 let s_x_b = x_b.as_sort().unwrap();
                 let s_y_b = y_b.as_sort().unwrap();
-                s_x_a.unify(s_x_b, map) && s_x_b.unify(s_x_b, map)
+                s_x_a.match_with(s_x_b, map) && s_y_a.match_with(s_y_b, map)
             }
             (Sort::BitVec(a), Sort::BitVec(b)) => a == b,
             _ => false,
@@ -817,8 +845,7 @@ impl Term {
     }
 
     /// Constructs a new bv term.
-    pub fn new_bv(value: impl Into<Integer>, width: impl Into<Integer>) -> Self
-    {
+    pub fn new_bv(value: impl Into<Integer>, width: impl Into<Integer>) -> Self {
         Term::Const(Constant::BitVec(value.into(), width.into()))
     }
 
@@ -961,6 +988,7 @@ impl Term {
     /// Returns `true` if the term is a user defined sort with arity zero, or a sort variable.
     pub fn is_sort_var(&self) -> bool {
         matches!(self, Term::Sort(Sort::Atom(_, args)) if args.is_empty())
+            || matches!(self, Term::Sort(Sort::Var(_)))
     }
 
     /// Returns `true` if the term is a user defined parametric sort
@@ -968,7 +996,7 @@ impl Term {
         match self {
             Term::Sort(Sort::ParamSort(_, _)) => true,
             Term::Sort(Sort::Datatype(_, args)) if !args.is_empty() => true,
-            _ => false
+            _ => false,
         }
         // matches!(self, Term::Sort(Sort::ParamSort(_, _)))
     }

@@ -288,13 +288,28 @@ fn insert_solver_proof(
 }
 
 pub fn sat_external_prove_lemmas(RuleArgs { pool, args, .. }: RuleArgs) -> RuleResult {
-    let Sort::String = pool.sort(&args[0].as_term().unwrap()).as_sort().cloned().unwrap() else {
+    let Sort::String = pool
+        .sort(&args[0].as_term().unwrap())
+        .as_sort()
+        .cloned()
+        .unwrap()
+    else {
         unreachable!();
     };
-    let Sort::String = pool.sort(&args[1].as_term().unwrap()).as_sort().cloned().unwrap() else {
+    let Sort::String = pool
+        .sort(&args[1].as_term().unwrap())
+        .as_sort()
+        .cloned()
+        .unwrap()
+    else {
         unreachable!();
     };
-    let Sort::Bool = pool.sort(&args[2].as_term().unwrap()).as_sort().cloned().unwrap() else {
+    let Sort::Bool = pool
+        .sort(&args[2].as_term().unwrap())
+        .as_sort()
+        .cloned()
+        .unwrap()
+    else {
         unreachable!();
     };
 
@@ -310,8 +325,7 @@ pub fn sat_external_prove_lemmas(RuleArgs { pool, args, .. }: RuleArgs) -> RuleR
         while j < and_args.len() {
             if j < and_args.len() - 1 {
                 write!(&mut term_str2, " {}", and_args[j]).unwrap();
-            }
-            else {
+            } else {
                 write!(&mut term_str2, "{}", and_args[j]).unwrap();
             }
             j += 1;
@@ -322,8 +336,12 @@ pub fn sat_external_prove_lemmas(RuleArgs { pool, args, .. }: RuleArgs) -> RuleR
         format!("{}", lemmas)
     };
 
-    let string = format!("(\n{}\n{}\n{}\n)",
-                         args[0].as_term().unwrap(), args[1].as_term().unwrap(), term_str);
+    let string = format!(
+        "(\n{}\n{}\n{}\n)",
+        args[0].as_term().unwrap(),
+        args[1].as_term().unwrap(),
+        term_str
+    );
 
     // this will make it expect this script from where you are running Carcara
     let mut process = Command::new("./sat-lemmas-prove.sh")
