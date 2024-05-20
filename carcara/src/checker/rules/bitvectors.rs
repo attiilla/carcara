@@ -532,9 +532,9 @@ pub fn neg(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult {
     let res_args: Vec<_> = (0..size)
         .map(|i| {
             build_term!(
-          pool,
-          (xor (xor (not {x[i].clone()}) false) {carries[i].clone()})
-        )
+              pool,
+              (xor (xor (not {x[i].clone()}) false) {carries[i].clone()})
+            )
         })
         .collect();
 

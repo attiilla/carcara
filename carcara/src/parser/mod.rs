@@ -709,6 +709,9 @@ impl<'a, R: BufRead> Parser<'a, R> {
                     // argument which is a string terminal representing the sort name.
                     self.state.sort_declarations.insert(name, arity);
                 }
+                Token::ReservedWord(Reserved::DeclareDatatype) => {
+                    self.parse_declare_datatype(false)?
+                }
                 Token::ReservedWord(Reserved::DeclareDatatypes) => {
                     self.parse_declare_datatype(true)?
                 }
@@ -1178,15 +1181,11 @@ impl<'a, R: BufRead> Parser<'a, R> {
 
     /// Parses a datatype declaration, of the form `(<symbol> <numeral>)`. If the
     /// parameter `consume_parens` is `false`, the opening and closing parentheses are not consumed
-    fn parse_datatype_dec(&mut self, consume_parens: bool) -> CarcaraResult<(String, Constant)> {
-        if consume_parens {
-            self.expect_token(Token::OpenParen)?;
-        }
+    fn parse_datatype_dec(&mut self) -> CarcaraResult<(String, Constant)> {
+        self.expect_token(Token::OpenParen)?;
         let name = self.expect_symbol()?;
         let arity = self.parse_constant()?;
-        if consume_parens {
-            self.expect_token(Token::CloseParen)?;
-        }
+        self.expect_token(Token::CloseParen)?;
         Ok((name, arity))
     }
 
@@ -1203,9 +1202,13 @@ impl<'a, R: BufRead> Parser<'a, R> {
     fn parse_declare_datatype(&mut self, is_multiple: bool) -> CarcaraResult<()> {
         let declarations = if is_multiple {
             self.expect_token(Token::OpenParen)?;
-            self.parse_sequence(|p| p.parse_datatype_dec(true), true)?
+            self.parse_sequence(Self::parse_datatype_dec, true)?
         } else {
-            unreachable!();
+            // in the singleton case the declaration is just the name
+            // of the datatype, and the arity is always zero
+            let name = self.expect_symbol()?;
+            let arity = Constant::Integer(0.into());
+            vec![(name, arity)]
         };
         // create the sorts that will be used when building the definitions
         for (name, arity) in &declarations {
@@ -1229,13 +1232,17 @@ impl<'a, R: BufRead> Parser<'a, R> {
             } else {
                 Vec::new()
             };
-            self.expect_token(Token::OpenParen)?;
             let dt_sort = self
                 .pool
                 .add(Term::Sort(Sort::Datatype(name.clone(), sort_vars.clone())));
             // TODO add to the prelude
             // read the constructors and selectors
-            let defs = self.parse_sequence(|p| p.parse_constructor(&dt_sort, &sort_vars), true)?;
+            let defs = if is_multiple {
+                self.expect_token(Token::OpenParen)?;
+                self.parse_sequence(|p| p.parse_constructor(&dt_sort, &sort_vars), true)?
+            } else {
+                vec![self.parse_constructor(&dt_sort, &sort_vars)?]
+            };
             if is_parametric {
                 self.state.symbol_table.pop_scope();
                 self.expect_token(Token::CloseParen)?;
