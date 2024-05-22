@@ -1228,8 +1228,10 @@ impl<'a, R: BufRead> Parser<'a, R> {
     }
 
     fn parse_pattern(&mut self) -> CarcaraResult<(Rc<Term>, Rc<Term>)> {
+        self.expect_token(Token::OpenParen)?;
         let pattern = self.parse_term()?;
         let result = self.parse_term()?;
+        self.expect_token(Token::CloseParen)?;
         Ok((pattern, result))
     }
 
@@ -1886,7 +1888,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
                             self.expect_token(Token::OpenParen)?;
                             let patterns = self.parse_sequence(|p| p.parse_pattern(), true)?;
                             println!("Patterns: {:?}", patterns);
-                            return Ok(term);
+                            return Ok(patterns.last().unwrap().1.clone());
                         }
                         return Err(Error::Parser(ParserError::ExpectedDTSort(dt_sort.clone()), head_pos));
                     },
