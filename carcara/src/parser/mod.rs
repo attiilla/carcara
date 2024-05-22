@@ -710,10 +710,10 @@ impl<'a, R: BufRead> Parser<'a, R> {
                     self.state.sort_declarations.insert(name, arity);
                 }
                 Token::ReservedWord(Reserved::DeclareDatatype) => {
-                    self.parse_declare_datatype(false)?
+                    self.parse_declare_datatype()?
                 }
                 Token::ReservedWord(Reserved::DeclareDatatypes) => {
-                    self.parse_declare_datatype(true)?
+                    self.parse_declare_datatypes()?
                 }
                 Token::ReservedWord(Reserved::DefineFun) => {
                     let (name, func_def) = self.parse_define_fun()?;
@@ -1196,20 +1196,78 @@ impl<'a, R: BufRead> Parser<'a, R> {
         Ok(sort)
     }
 
-    /// Parses a `declare-datatype`/`declare-datatypes` command. Inserts the constructor names into
-    /// the symbol table. This method assumes the `(` and `declare-datatype`/`declare-datatypes`
-    /// tokens were already consumed.
-    fn parse_declare_datatype(&mut self, is_multiple: bool) -> CarcaraResult<()> {
-        let declarations = if is_multiple {
-            self.expect_token(Token::OpenParen)?;
-            self.parse_sequence(Self::parse_datatype_dec, true)?
-        } else {
-            // in the singleton case the declaration is just the name
-            // of the datatype, and the arity is always zero
-            let name = self.expect_symbol()?;
-            let arity = Constant::Integer(0.into());
-            vec![(name, arity)]
+    fn parse_parameters(&mut self) -> CarcaraResult<Vec<Rc<Term>>> {
+        self.expect_token(Token::ReservedWord(Reserved::Par))?;
+        self.expect_token(Token::OpenParen)?;
+        let res = self.parse_sequence(Self::parse_parameter, true)?;
+        self.expect_token(Token::OpenParen)?;
+        Ok(res)
+    }
+
+    fn process_dt_definition(&mut self, name: String, dt_sort : &Rc<Term>, defs : &Vec<(Rc<Term>, Vec<Rc<Term>>, Rc<Term>)>) {
+        let mut conss = Vec::new();
+        let mut cons_map = IndexMap::new();
+        for (cons, cons_sels, tester) in defs.to_vec() {
+            // add constructor to symbol table
+            let cons_name = cons.as_var().unwrap();
+            self.insert_sorted_var((cons_name.to_string(), self.pool.sort(&cons).clone()));
+            // add selector to symbol table
+            for sel in &cons_sels {
+                let sel_name = sel.as_var().unwrap();
+                self.insert_sorted_var((sel_name.to_string(), self.pool.sort(&sel).clone()));
+            }
+            cons_map.insert(cons.clone(), (cons_sels.clone(), tester));
+            conss.push(cons.clone());
+        }
+
+        let dt_def = DatatypeDef {
+            name: name.clone(),
+            cons_map: cons_map,
         };
+        self.pool.add_dt_def(&dt_sort, &dt_def);
+    }
+
+    /// Parses a `declare-datatype` command. Inserts the constructor
+    /// name into the symbol table. This method assumes the `(` and
+    /// `declare-datatype` tokens were already consumed.
+    fn parse_declare_datatype(&mut self) -> CarcaraResult<()> {
+        // in the singleton case the declaration is just the name
+        // of the datatype. Whether it is parametric depends if we
+        // have a "par" afterwards.
+        let name = self.expect_symbol()?;
+        self.expect_token(Token::OpenParen)?;
+        let is_parametric = self.current_token == Token::ReservedWord(Reserved::Par);
+        let sort_vars = if is_parametric {
+            self.state.symbol_table.push_scope();
+            self.parse_parameters()?
+        }
+        else { Vec::new() };
+        let arity = Constant::Integer(sort_vars.len().into());
+        // add declaration
+        self.state.dtsort_declarations.insert(
+            name.clone(),
+            arity.as_integer().unwrap().to_usize().unwrap(),
+        );
+        let dt_sort = self
+            .pool
+            .add(Term::Sort(Sort::Datatype(name.clone(), sort_vars.clone())));
+        // TODO add to the prelude
+        // read the constructors and selectors
+        let defs = self.parse_sequence(|p| p.parse_constructor(&dt_sort, &sort_vars), true)?;
+        // TODO check well-foundedness
+        if is_parametric {
+            self.state.symbol_table.pop_scope();
+            self.expect_token(Token::CloseParen)?;
+        }
+        self.process_dt_definition(name, &dt_sort, &defs);
+        // consume parenthesis to close the definitions and also the declare-datatypes command
+        self.expect_token(Token::CloseParen)?;
+        Ok(())
+    }
+
+    fn parse_declare_datatypes(&mut self) -> CarcaraResult<()> {
+        self.expect_token(Token::OpenParen)?;
+        let declarations = self.parse_sequence(Self::parse_datatype_dec, true)?;
         // create the sorts that will be used when building the definitions
         for (name, arity) in &declarations {
             self.state.dtsort_declarations.insert(
@@ -1218,20 +1276,14 @@ impl<'a, R: BufRead> Parser<'a, R> {
             );
         }
         // now read in the definitions.
-        if is_multiple {
-            self.expect_token(Token::OpenParen)?;
-        }
+        self.expect_token(Token::OpenParen)?;
         for (name, arity) in declarations {
             self.expect_token(Token::OpenParen)?;
             let is_parametric = arity.as_integer().unwrap() > 0;
             // parse parameter sorts
             let sort_vars = if is_parametric {
                 self.state.symbol_table.push_scope();
-                self.expect_token(Token::ReservedWord(Reserved::Par))?;
-                self.expect_token(Token::OpenParen)?;
-                let res = self.parse_sequence(Self::parse_parameter, true)?;
-                self.expect_token(Token::OpenParen)?;
-                res
+                self.parse_parameters()?
             } else {
                 Vec::new()
             };
@@ -1241,37 +1293,16 @@ impl<'a, R: BufRead> Parser<'a, R> {
             // TODO add to the prelude
             // read the constructors and selectors
             let defs = self.parse_sequence(|p| p.parse_constructor(&dt_sort, &sort_vars), true)?;
+            // TODO check well-foundedness
             if is_parametric {
                 self.state.symbol_table.pop_scope();
                 self.expect_token(Token::CloseParen)?;
             }
-            let mut conss = Vec::new();
-            let mut cons_map = IndexMap::new();
-            for (cons, cons_sels, tester) in defs {
-                // add constructor to symbol table
-                let cons_name = cons.as_var().unwrap();
-                self.insert_sorted_var((cons_name.to_string(), self.pool.sort(&cons).clone()));
-                // add selector to symbol table
-                for sel in &cons_sels {
-                    let sel_name = sel.as_var().unwrap();
-                    self.insert_sorted_var((sel_name.to_string(), self.pool.sort(&sel).clone()));
-                }
-                cons_map.insert(cons.clone(), (cons_sels.clone(), tester));
-                conss.push(cons.clone());
-            }
-
-            let dt_def = DatatypeDef {
-                name: name.clone(),
-                cons_map: cons_map,
-            };
-            self.pool.add_dt_def(&dt_sort, &dt_def);
+            self.process_dt_definition(name, &dt_sort, &defs);
         }
         // consume parenthesis to close the definitions and also the declare-datatypes command
         self.expect_token(Token::CloseParen)?;
-        if is_multiple {
-            self.expect_token(Token::CloseParen)?;
-        }
-
+        self.expect_token(Token::CloseParen)?;
         Ok(())
     }
 
