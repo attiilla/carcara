@@ -1227,6 +1227,12 @@ impl<'a, R: BufRead> Parser<'a, R> {
         self.pool.add_dt_def(&dt_sort, &dt_def);
     }
 
+    fn parse_pattern(&mut self) -> CarcaraResult<(Rc<Term>, Rc<Term>)> {
+        let pattern = self.parse_term()?;
+        let result = self.parse_term()?;
+        Ok((pattern, result))
+    }
+
     /// Parses a `declare-datatype` command. Inserts the constructor
     /// name into the symbol table. This method assumes the `(` and
     /// `declare-datatype` tokens were already consumed.
@@ -1868,6 +1874,22 @@ impl<'a, R: BufRead> Parser<'a, R> {
                             }
                         }
                     }
+                    Reserved::Match => {
+                        let term = self.parse_term()?;
+                        let sort = self.pool.sort(&term);
+                        let dt_sort = sort.as_sort().unwrap();
+                        if let Sort::Datatype(_,_) = dt_sort {
+                            let dt_def = self.pool.dt_def(&sort);
+                            let mut has_pattern_var = false;
+                            let mut pattern_conss = IndexSet::<String>::new();
+                            // parse patterns
+                            self.expect_token(Token::OpenParen)?;
+                            let patterns = self.parse_sequence(|p| p.parse_pattern(), true)?;
+                            println!("Patterns: {:?}", patterns);
+                            return Ok(term);
+                        }
+                        return Err(Error::Parser(ParserError::ExpectedDTSort(dt_sort.clone()), head_pos));
+                    },
                     Reserved::Exists => self.parse_binder(Binder::Exists),
                     Reserved::Forall => self.parse_binder(Binder::Forall),
                     Reserved::Choice => self.parse_binder(Binder::Choice),
