@@ -618,6 +618,7 @@ pub enum Sort {
     /// A datatype sort only has its name and its type parameters
     Datatype(String, Vec<Rc<Term>>),
 
+    // TODO delete this and incorporate it to function sort?
     /// A parametric sort, with a set of sort variables that can appear in the second argument.
     ParamSort(Vec<Rc<Term>>, Rc<Term>),
 
@@ -998,7 +999,6 @@ impl Term {
             Term::Sort(Sort::Datatype(_, args)) if !args.is_empty() => true,
             _ => false,
         }
-        // matches!(self, Term::Sort(Sort::ParamSort(_, _)))
     }
 
     /// Returns `true` if the term is a user defined sort with arity zero, or a sort variable.

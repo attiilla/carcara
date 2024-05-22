@@ -1217,18 +1217,21 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 arity.as_integer().unwrap().to_usize().unwrap(),
             );
         }
-        // now read in the definitions. TODO note this will have to be
-        // different when considering the non-multiple case
-        self.expect_token(Token::OpenParen)?;
+        // now read in the definitions.
+        if is_multiple {
+            self.expect_token(Token::OpenParen)?;
+        }
         for (name, arity) in declarations {
+            self.expect_token(Token::OpenParen)?;
             let is_parametric = arity.as_integer().unwrap() > 0;
             // parse parameter sorts
             let sort_vars = if is_parametric {
                 self.state.symbol_table.push_scope();
-                self.expect_token(Token::OpenParen)?;
                 self.expect_token(Token::ReservedWord(Reserved::Par))?;
                 self.expect_token(Token::OpenParen)?;
-                self.parse_sequence(Self::parse_parameter, true)?
+                let res = self.parse_sequence(Self::parse_parameter, true)?;
+                self.expect_token(Token::OpenParen)?;
+                res
             } else {
                 Vec::new()
             };
@@ -1237,12 +1240,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 .add(Term::Sort(Sort::Datatype(name.clone(), sort_vars.clone())));
             // TODO add to the prelude
             // read the constructors and selectors
-            let defs = if is_multiple {
-                self.expect_token(Token::OpenParen)?;
-                self.parse_sequence(|p| p.parse_constructor(&dt_sort, &sort_vars), true)?
-            } else {
-                vec![self.parse_constructor(&dt_sort, &sort_vars)?]
-            };
+            let defs = self.parse_sequence(|p| p.parse_constructor(&dt_sort, &sort_vars), true)?;
             if is_parametric {
                 self.state.symbol_table.pop_scope();
                 self.expect_token(Token::CloseParen)?;
@@ -1270,7 +1268,9 @@ impl<'a, R: BufRead> Parser<'a, R> {
         }
         // consume parenthesis to close the definitions and also the declare-datatypes command
         self.expect_token(Token::CloseParen)?;
-        self.expect_token(Token::CloseParen)?;
+        if is_multiple {
+            self.expect_token(Token::CloseParen)?;
+        }
 
         Ok(())
     }
