@@ -14,10 +14,7 @@ test/regress/cli/regress1/quantifiers/bug_743.smt2
 test/regress/cli/regress1/quantifiers/issue993.smt2
 test/regress/cli/regress1/quantifiers/issue3481.smt2
 test/regress/cli/regress1/quantifiers/issue9989-syqi-nwf.smt2
-test/regress/cli/regress1/quantifiers/ddatv-delta2.smt2
 test/regress/cli/regress1/quantifiers/min-ppgt-em-incomplete2.smt2
-test/regress/cli/regress1/quantifiers/cee-npnt-dd.smt2
-test/regress/cli/regress1/quantifiers/dd.binary_trees.adb_1105_16_loop_invariant_init_1.smt2
 test/regress/cli/regress1/quantifiers/parametric-lists.smt2
 test/regress/cli/regress1/quantifiers/f993-loss-easy.smt2
 test/regress/cli/regress1/quantifiers/isaplanner-goal20.smt2
