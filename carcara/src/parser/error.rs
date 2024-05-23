@@ -73,6 +73,10 @@ pub enum ParserError {
     #[error("expected integer constant, got '{0}'")]
     ExpectedIntegerConstant(Rc<Term>),
 
+    /// Expected DatatypeSort
+    #[error("invalid pattern '{0}'")]
+    InvalidPattern(Rc<Term>),
+
     /// A term that is not a function was used as a function.
     #[error("'{0}' is not a function sort")]
     NotAFunction(Sort), // TODO: This should also carry the actual function term

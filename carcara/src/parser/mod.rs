@@ -1227,10 +1227,28 @@ impl<'a, R: BufRead> Parser<'a, R> {
         self.pool.add_dt_def(&dt_sort, &dt_def);
     }
 
-    fn parse_pattern(&mut self) -> CarcaraResult<(Rc<Term>, Rc<Term>)> {
+    fn parse_pattern(&mut self, conss : &IndexSet<Rc<Term>>) -> CarcaraResult<(Rc<Term>, Rc<Term>)> {
         self.expect_token(Token::OpenParen)?;
+        // TODO I have to account for this being a free variable... in which case parsing would break
         let pattern = self.parse_term()?;
+        println!("\tPattern: {}", pattern);
+        // if pattern is not a variable, it must be a constructor of this datatype and it must be
+        // applied to distinct variables
+        let pattern_vars = match pattern.as_ref() {
+            Term::App(cons,args) => {
+                if !conss.contains(cons) { return Err(Error::Parser(ParserError::InvalidPattern(pattern), self.current_position)) };
+                for arg in args {
+                    if !arg.is_var() { return Err(Error::Parser(ParserError::InvalidPattern(pattern), self.current_position)); }
+                }
+                args.clone()
+            },
+            Term::Var(_,_) => vec![pattern.clone()],
+            _ => return Err(Error::Parser(ParserError::InvalidPattern(pattern), self.current_position))
+        };
+        self.state.symbol_table.push_scope();
+        let _ = pattern_vars.iter().map(|v| self.insert_sorted_var((v.as_var().unwrap().to_string(), self.pool.sort(&v).clone())));
         let result = self.parse_term()?;
+        self.state.symbol_table.pop_scope();
         self.expect_token(Token::CloseParen)?;
         Ok((pattern, result))
     }
@@ -1882,12 +1900,16 @@ impl<'a, R: BufRead> Parser<'a, R> {
                         let dt_sort = sort.as_sort().unwrap();
                         if let Sort::Datatype(_,_) = dt_sort {
                             let dt_def = self.pool.dt_def(&sort);
+                            let conss = dt_def.cons_map.iter().map(|(cons, _)| cons.clone()).collect();
+                            println!("Conss: {:?}", conss);
                             let mut has_pattern_var = false;
-                            let mut pattern_conss = IndexSet::<String>::new();
                             // parse patterns
                             self.expect_token(Token::OpenParen)?;
-                            let patterns = self.parse_sequence(|p| p.parse_pattern(), true)?;
+                            let patterns = self.parse_sequence(|p| p.parse_pattern(&conss), true)?;
+                            // TODO check that all results have the same type
+                            // TODO check that at least one pattern is a variable, otherwise that all constructors are covered
                             println!("Patterns: {:?}", patterns);
+
                             return Ok(patterns.last().unwrap().1.clone());
                         }
                         return Err(Error::Parser(ParserError::ExpectedDTSort(dt_sort.clone()), head_pos));
