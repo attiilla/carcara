@@ -73,9 +73,13 @@ pub enum ParserError {
     #[error("expected integer constant, got '{0}'")]
     ExpectedIntegerConstant(Rc<Term>),
 
-    /// Expected DatatypeSort
+    /// Pattern in match is not valid
     #[error("invalid pattern '{0}'")]
     InvalidPattern(Rc<Term>),
+
+    /// Results in match do not have the same type
+    #[error("invalid match results (different types) '{0} and {1}'")]
+    InvalidMatchResults(Rc<Term>, Rc<Term>),
 
     /// A term that is not a function was used as a function.
     #[error("'{0}' is not a function sort")]
