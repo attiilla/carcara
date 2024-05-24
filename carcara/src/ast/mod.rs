@@ -418,6 +418,8 @@ pub enum Operator {
 
     BvBbTerm,
 
+    Match,
+
     // Misc.
     /// The `rare-list` operator, used to represent RARE lists.
     RareList,

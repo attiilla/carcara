@@ -98,6 +98,7 @@ impl PrimitivePool {
             },
             Term::Var(_, sort) => sort.as_sort().unwrap().clone(),
             Term::Op(op, args) => match op {
+                Operator::Match => self.compute_sort(args.last().unwrap()).as_sort().unwrap().clone(),
                 Operator::True
                 | Operator::False
                 | Operator::Not
