@@ -709,9 +709,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
                     // argument which is a string terminal representing the sort name.
                     self.state.sort_declarations.insert(name, arity);
                 }
-                Token::ReservedWord(Reserved::DeclareDatatype) => {
-                    self.parse_declare_datatype()?
-                }
+                Token::ReservedWord(Reserved::DeclareDatatype) => self.parse_declare_datatype()?,
                 Token::ReservedWord(Reserved::DeclareDatatypes) => {
                     self.parse_declare_datatypes()?
                 }
@@ -1204,7 +1202,12 @@ impl<'a, R: BufRead> Parser<'a, R> {
         Ok(res)
     }
 
-    fn process_dt_definition(&mut self, name: String, dt_sort : &Rc<Term>, defs : &Vec<(Rc<Term>, Vec<Rc<Term>>, Rc<Term>)>) {
+    fn process_dt_definition(
+        &mut self,
+        name: String,
+        dt_sort: &Rc<Term>,
+        defs: &Vec<(Rc<Term>, Vec<Rc<Term>>, Rc<Term>)>,
+    ) {
         let mut conss = Vec::new();
         let mut cons_map = IndexMap::new();
         for (cons, cons_sels, tester) in defs.to_vec() {
@@ -1227,37 +1230,75 @@ impl<'a, R: BufRead> Parser<'a, R> {
         self.pool.add_dt_def(&dt_sort, &dt_def);
     }
 
-    fn parse_pattern(&mut self, conss : &IndexSet<Rc<Term>>, dt_sort : &Rc<Term>) -> CarcaraResult<(Rc<Term>, Rc<Term>)> {
+    fn parse_pattern(
+        &mut self,
+        cons_map: &IndexMap<Rc<Term>, (Vec<Rc<Term>>, Rc<Term>)>,
+        dt_sort: &Rc<Term>,
+    ) -> CarcaraResult<(Rc<Term>, Rc<Term>)> {
         self.expect_token(Token::OpenParen)?;
         // if the current token is a symbol, it is either one of the
         // constructors in the DT or a pattern variable
+        self.state.symbol_table.push_scope();
         let pattern = if self.current_token != Token::OpenParen {
             let s = self.expect_symbol()?;
-            if conss.iter().any(|cons| s == cons.as_var().unwrap().to_string()) {
-                let cons = self.make_var(s).map_err(|err| Error::Parser(err, self.current_position))?;
-                if !conss.contains(&cons) { return Err(Error::Parser(ParserError::InvalidPattern(cons.clone()), self.current_position)) };
-                cons
+            if cons_map
+                .iter()
+                .any(|(cons, _)| s == cons.as_var().unwrap().to_string())
+            {
+                self.make_var(s)
+                    .map_err(|err| Error::Parser(err, self.current_position))?
             } else {
                 // create a new variable with dt_sort, regardless of what symbol this is
-                self.pool.add(Term::new_var(s, dt_sort.clone()))
+                let var = self.pool.add(Term::new_var(s.clone(), dt_sort.clone()));
+                self.insert_sorted_var((s, dt_sort.clone()));
+                var
             }
-        } else { self.parse_term()? };
-        println!("\tPattern: {}", pattern);
-        // if pattern is not a variable, it must be a constructor of this datatype and it must be
-        // applied to distinct variables
-        let pattern_vars = match pattern.as_ref() {
-            Term::App(cons,args) => {
-                if !conss.contains(cons) { return Err(Error::Parser(ParserError::InvalidPattern(pattern), self.current_position)) };
-                for arg in args {
-                    if !arg.is_var() { return Err(Error::Parser(ParserError::InvalidPattern(pattern), self.current_position)); }
-                }
-                args.clone()
-            },
-            Term::Var(_,_) => vec![pattern.clone()],
-            _ => return Err(Error::Parser(ParserError::InvalidPattern(pattern), self.current_position))
+        } else {
+            self.expect_token(Token::OpenParen)?;
+            let cons = self.parse_term()?;
+            if !cons_map.contains_key(&cons) {
+                return Err(Error::Parser(
+                    ParserError::InvalidPattern(cons.clone()),
+                    self.current_position,
+                ));
+            }
+            // parse variables, and each will have the sort of the selector of this cons
+            let (sels, _) = cons_map.get(&cons).unwrap();
+            let mut i = 0;
+            let mut vars = Vec::new();
+            while self.current_token != Token::CloseParen {
+                let var_name = self.expect_symbol()?;
+                let sort = sels[i].as_sort().unwrap();
+                let var_sort = if let Sort::Function(sorts) = sort {
+                    sorts.last().unwrap()
+                } else if let Sort::ParamSort(_, p_sort) = sort {
+                    let p_function_sort = p_sort.as_sort().unwrap();
+                    if let Sort::Function(sorts) = p_function_sort {
+                        sorts.last().unwrap()
+                    } else {
+                        // Parametric function does not have function sort
+                        return Err(Error::Parser(
+                            ParserError::NotAFunction(p_function_sort.clone()),
+                            self.current_position,
+                        ));
+                    }
+                } else {
+                    return Err(Error::Parser(
+                        ParserError::NotAFunction(sort.clone()),
+                        self.current_position,
+                    ));
+                };
+                let var = self
+                    .pool
+                    .add(Term::new_var(var_name.clone(), var_sort.clone()));
+                self.insert_sorted_var((var_name, var_sort.clone()));
+                vars.push(var);
+                i += 1;
+            }
+            self.make_app(cons, vars)
+                .map_err(|err| Error::Parser(err, self.current_position))?
         };
-        self.state.symbol_table.push_scope();
-        let _ = pattern_vars.iter().map(|v| self.insert_sorted_var((v.as_var().unwrap().to_string(), self.pool.sort(&v).clone())));
+        println!("\tPattern: {}", pattern);
         let result = self.parse_term()?;
         self.state.symbol_table.pop_scope();
         self.expect_token(Token::CloseParen)?;
@@ -1277,8 +1318,9 @@ impl<'a, R: BufRead> Parser<'a, R> {
         let sort_vars = if is_parametric {
             self.state.symbol_table.push_scope();
             self.parse_parameters()?
-        }
-        else { Vec::new() };
+        } else {
+            Vec::new()
+        };
         let arity = Constant::Integer(sort_vars.len().into());
         // add declaration
         self.state.dtsort_declarations.insert(
@@ -1909,13 +1951,14 @@ impl<'a, R: BufRead> Parser<'a, R> {
                         let term = self.parse_term()?;
                         let sort = self.pool.sort(&term);
                         let dt_sort = sort.as_sort().unwrap();
-                        if let Sort::Datatype(_,_) = dt_sort {
-                            let dt_def = self.pool.dt_def(&sort);
-                            let conss = dt_def.cons_map.iter().map(|(cons, _)| cons.clone()).collect();
-                            println!("Conss: {:?}", conss);
+                        if let Sort::Datatype(_, _) = dt_sort {
+                            let dt_def = self.pool.dt_def(&sort).clone();
                             // parse patterns
                             self.expect_token(Token::OpenParen)?;
-                            let patterns = self.parse_sequence(|p| p.parse_pattern(&conss, &sort), true)?;
+                            let patterns = self.parse_sequence(
+                                |p| p.parse_pattern(&dt_def.cons_map, &sort),
+                                true,
+                            )?;
                             // check that all results have the same
                             // type, and that at least one pattern is
                             // a variable, otherwise that all
@@ -1927,13 +1970,24 @@ impl<'a, R: BufRead> Parser<'a, R> {
                                 let (pattern, res) = patterns[i].clone();
                                 has_pattern_var = has_pattern_var || pattern.is_var();
                                 patterns_conss.insert(
-                                    if let Term::App(cons,_) = pattern.as_ref() { cons.clone() } else { pattern.clone() }
+                                    if let Term::App(cons, _) = pattern.as_ref() {
+                                        cons.clone()
+                                    } else {
+                                        pattern.clone()
+                                    },
                                 );
                                 if i < patterns.len() - 1 {
-                                    if self.pool.sort(&res).as_sort().unwrap() !=
-                                        self.pool.sort(&patterns[i+1].1).as_sort().unwrap() {
-                                            return Err(Error::Parser(ParserError::InvalidMatchResults(res.clone(), patterns[i+1].1.clone()), head_pos));
-                                        }
+                                    if self.pool.sort(&res).as_sort().unwrap()
+                                        != self.pool.sort(&patterns[i + 1].1).as_sort().unwrap()
+                                    {
+                                        return Err(Error::Parser(
+                                            ParserError::InvalidMatchResults(
+                                                res.clone(),
+                                                patterns[i + 1].1.clone(),
+                                            ),
+                                            head_pos,
+                                        ));
+                                    }
                                 }
                                 i += 1;
                             }
@@ -1941,8 +1995,11 @@ impl<'a, R: BufRead> Parser<'a, R> {
 
                             return Ok(patterns.last().unwrap().1.clone());
                         }
-                        return Err(Error::Parser(ParserError::ExpectedDTSort(dt_sort.clone()), head_pos));
-                    },
+                        return Err(Error::Parser(
+                            ParserError::ExpectedDTSort(dt_sort.clone()),
+                            head_pos,
+                        ));
+                    }
                     Reserved::Exists => self.parse_binder(Binder::Exists),
                     Reserved::Forall => self.parse_binder(Binder::Forall),
                     Reserved::Choice => self.parse_binder(Binder::Choice),
