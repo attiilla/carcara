@@ -220,6 +220,13 @@ impl<'a> AlethePrinter<'a> {
                 term.print_with_sharing(self)?;
                 write!(self.inner, ")")
             }
+            Term::Match(term, patterns) => {
+                write!(self.inner, "(match {} (", term)?;
+                for (_, pattern, res) in patterns {
+                    write!(self.inner, "({} {})", pattern, res)?;
+                }
+                write!(self.inner, ")")
+            }
             Term::ParamOp { op, op_args, args } => {
                 if !args.is_empty() {
                     write!(self.inner, "(")?;

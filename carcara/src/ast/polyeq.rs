@@ -620,7 +620,6 @@ fn nary_case(op: Operator) -> Option<NaryCase> {
         | Operator::BvSGe
         | Operator::Bv2Nat
         | Operator::BvBbTerm
-        | Operator::Match
         | Operator::RareList => None,
     }
 }

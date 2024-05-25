@@ -98,7 +98,6 @@ impl PrimitivePool {
             },
             Term::Var(_, sort) => sort.as_sort().unwrap().clone(),
             Term::Op(op, args) => match op {
-                Operator::Match => self.compute_sort(args.last().unwrap()).as_sort().unwrap().clone(),
                 Operator::True
                 | Operator::False
                 | Operator::Not
@@ -263,6 +262,7 @@ impl PrimitivePool {
                 Sort::Function(result)
             }
             Term::Let(_, inner) => self.compute_sort(inner).as_sort().unwrap().clone(),
+            Term::Match(_, patterns) => self.compute_sort(&patterns.last().unwrap().2).as_sort().unwrap().clone(),
             Term::ParamOp { op, op_args, args } => {
                 let sort = match op {
                     ParamOperator::BvExtract => {
@@ -383,6 +383,18 @@ impl PrimitivePool {
                     let sort = self.sort_with_priorities(value, prior_pools);
                     let term = self.add_with_priorities((var.clone(), sort).into(), prior_pools);
                     vars.remove(&term);
+                }
+                vars
+            }
+            Term::Match(term, patterns) => {
+                let mut vars = self.free_vars_with_priorities(term, prior_pools);
+                for (bindings, _, res) in patterns {
+                    let mut res_vars = self.free_vars_with_priorities(res, prior_pools);
+                    for bound_var in bindings {
+                        let term = self.add_with_priorities(bound_var.clone().into(), prior_pools);
+                        res_vars.remove(&term);
+                    }
+                    vars.extend(res_vars.into_iter());
                 }
                 vars
             }

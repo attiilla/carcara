@@ -418,8 +418,6 @@ pub enum Operator {
 
     BvBbTerm,
 
-    Match,
-
     // Misc.
     /// The `rare-list` operator, used to represent RARE lists.
     RareList,
@@ -721,6 +719,8 @@ pub enum Term {
 
     /// A `let` binder term.
     Let(BindingList, Rc<Term>),
+
+    Match(Rc<Term>, Vec<(BindingList, Rc<Term>, Rc<Term>)>),
 
     /// A parameterized operation term, that is, an operation term whose operator receives extra
     /// parameters.

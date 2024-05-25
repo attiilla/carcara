@@ -1964,13 +1964,18 @@ impl<'a, R: BufRead> Parser<'a, R> {
                             // a variable, otherwise that all
                             // constructors are covered
                             let mut has_pattern_var = false;
+                            let mut vars = Vec::new();
                             let mut patterns_conss = IndexSet::<Rc<Term>>::new();
                             let mut i = 0;
                             while i < patterns.len() {
                                 let (pattern, res) = patterns[i].clone();
-                                has_pattern_var = has_pattern_var || pattern.is_var();
+                                if pattern.is_var() {
+                                    vars.push(pattern.clone());
+                                    has_pattern_var = true;
+                                }
                                 patterns_conss.insert(
-                                    if let Term::App(cons, _) = pattern.as_ref() {
+                                    if let Term::App(cons, args) = pattern.as_ref() {
+                                        args.iter().for_each(|a| vars.push(a.clone()));
                                         cons.clone()
                                     } else {
                                         pattern.clone()
@@ -1991,8 +1996,15 @@ impl<'a, R: BufRead> Parser<'a, R> {
                                 }
                                 i += 1;
                             }
+                            // if !has_pattern_var && patterns_cons.len() < cons_map.len() {
+                            //     return Err(Error::Parser(
+                            //                 ParserError::InvalidPatterns(),
+                            //                 head_pos,
+                            //             ));
+                            // }
                             println!("Patterns: {:?}", patterns);
 
+                            // Ok(self.pool.add(Term::Match(term, )))
                             return Ok(patterns.last().unwrap().1.clone());
                         }
                         return Err(Error::Parser(
