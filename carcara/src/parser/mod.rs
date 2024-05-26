@@ -508,7 +508,6 @@ impl<'a, R: BufRead> Parser<'a, R> {
     ) -> Result<Rc<Term>, ParserError> {
         let sort = self.pool.sort(&function);
         let mut param_function = false;
-        // println!("Function: {} : {} @ {:?}", function, sort, args);
         let sorts = {
             let function_sort = sort.as_sort().unwrap();
             if let Sort::Function(sorts) = function_sort {
@@ -1151,7 +1150,6 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 self.pool.add(Term::Sort(param_sort))
             }
         };
-        // println!("Parsed cons: {} / {}", cons_name, cons_sort);
 
         let cons = self.pool.add(Term::new_var(cons_name, cons_sort));
         let sels_terms: Vec<_> = sels
@@ -1234,7 +1232,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
         &mut self,
         cons_map: &IndexMap<Rc<Term>, (Vec<Rc<Term>>, Rc<Term>)>,
         dt_sort: &Rc<Term>,
-    ) -> CarcaraResult<(bool, Rc<Term>, Vec<SortedVar>, Rc<Term>)> {
+    ) -> CarcaraResult<(bool, Vec<SortedVar>, Rc<Term>, Rc<Term>)> {
         self.expect_token(Token::OpenParen)?;
         // if the current token is a symbol, it is either one of the
         // constructors in the DT or a pattern variable
@@ -1254,7 +1252,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 // create a new variable with dt_sort, regardless of what symbol this is
                 let var = self.pool.add(Term::new_var(s.clone(), dt_sort.clone()));
                 let sorted_var = (s, dt_sort.clone());
-                vars.push(sorted_var);
+                vars.push(sorted_var.clone());
                 self.insert_sorted_var(sorted_var);
                 var
             }
@@ -1297,7 +1295,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
                     .pool
                     .add(Term::new_var(var_name.clone(), var_sort.clone()));
                 let sorted_var = (var_name, var_sort.clone());
-                vars.push(sorted_var);
+                vars.push(sorted_var.clone());
                 self.insert_sorted_var(sorted_var);
                 cons_vars.push(var);
                 i += 1;
@@ -1305,11 +1303,10 @@ impl<'a, R: BufRead> Parser<'a, R> {
             self.make_app(cons, cons_vars)
                 .map_err(|err| Error::Parser(err, self.current_position))?
         };
-        println!("\tPattern: {}", pattern);
         let result = self.parse_term()?;
         self.state.symbol_table.pop_scope();
         self.expect_token(Token::CloseParen)?;
-        Ok((pattern_is_var, pattern, vars, result))
+        Ok((pattern_is_var, vars, pattern, result))
     }
 
     /// Parses a `declare-datatype` command. Inserts the constructor
@@ -1938,8 +1935,6 @@ impl<'a, R: BufRead> Parser<'a, R> {
                                 .make_var(op_symbol.clone())
                                 .map_err(|err| Error::Parser(err, self.current_position))?;
                             let var_sort = self.pool.sort(&var);
-                            // println!("Var: {}", var);
-                            // println!("Sort: {}", var_sort);
                             if var_sort.is_sort_parametric() {
                                 let sort = self.parse_sort()?;
                                 self.expect_token(Token::CloseParen)?;
@@ -1975,7 +1970,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
                             let mut i = 0;
                             let mut match_patterns = Vec::new();
                             while i < patterns.len() {
-                                let (is_var, pattern, vars, res) = patterns[i].clone();
+                                let (is_var, vars, pattern, res) = patterns[i].clone();
                                 if is_var {
                                     has_pattern_var = true;
                                 }
@@ -1991,18 +1986,18 @@ impl<'a, R: BufRead> Parser<'a, R> {
                                 }
                                 if i < patterns.len() - 1 {
                                     if self.pool.sort(&res).as_sort().unwrap()
-                                        != self.pool.sort(&patterns[i + 1].1).as_sort().unwrap()
+                                        != self.pool.sort(&patterns[i + 1].3).as_sort().unwrap()
                                     {
                                         return Err(Error::Parser(
                                             ParserError::InvalidMatchResults(
                                                 res.clone(),
-                                                patterns[i + 1].1.clone(),
+                                                patterns[i + 1].3.clone(),
                                             ),
                                             head_pos,
                                         ));
                                     }
                                 }
-                                match_patterns.push((vars,pattern,res));
+                                match_patterns.push((BindingList(vars),pattern,res));
                                 i += 1;
                             }
                             if !has_pattern_var && patterns_conss.len() < dt_def.cons_map.len() {
@@ -2011,7 +2006,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
                                             head_pos,
                                         ));
                             }
-                            println!("Patterns: {:?}", patterns);
+                            self.expect_token(Token::CloseParen)?;
                             return Ok(self.pool.add(Term::Match(term, match_patterns)));
                         }
                         return Err(Error::Parser(
@@ -2077,17 +2072,11 @@ impl<'a, R: BufRead> Parser<'a, R> {
                                 .make_var(op_symbol.clone())
                                 .map_err(|err| Error::Parser(err, self.current_position))?;
                             let var_sort = self.pool.sort(&var);
-                            // println!("Var: {}", var);
-                            // println!("Sort: {}", var_sort);
                             if var_sort.is_sort_parametric() {
                                 if let Sort::ParamSort(_, f_sort) = var_sort.as_sort().unwrap() {
                                     if let Sort::Function(sorts) = f_sort.as_sort().unwrap() {
                                         let sort = self.parse_sort()?;
                                         self.expect_token(Token::CloseParen)?;
-                                        // println!(
-                                        //     "qualify {} : {} with ret type {}",
-                                        //     var, var_sort, sort
-                                        // );
                                         // unify return sort with as_sort
                                         let ret_sort_term = sorts.last().unwrap();
                                         let ret_sort = ret_sort_term.as_sort().unwrap();
@@ -2102,8 +2091,6 @@ impl<'a, R: BufRead> Parser<'a, R> {
                                                 self.current_position,
                                             ));
                                         }
-                                        // println!("Unify: <{}, {}>: {}", ret_sort, as_sort, );
-                                        // println!("\t{:?}", map);
                                         let substitution: IndexMap<_, _> = map
                                             .into_iter()
                                             .map(|(var_name, sort)| {
@@ -2112,13 +2099,11 @@ impl<'a, R: BufRead> Parser<'a, R> {
                                                 (self.pool.add(var), self.pool.add(sort_t))
                                             })
                                             .collect();
-                                        // println!("\t{:?}", substitution);
                                         // if types are unifiable, create variable with sort after applying the substitution
                                         let result = Substitution::new(self.pool, substitution)
                                             .unwrap()
                                             .apply(self.pool, &var_sort);
                                         let func = self.pool.add(Term::new_var(op_symbol, result));
-                                        // println!("func is {} : {}", func, self.pool.sort(&func));
                                         // now apply it to args
                                         let args = self.parse_sequence(Self::parse_term, true)?;
                                         return self
