@@ -1234,11 +1234,13 @@ impl<'a, R: BufRead> Parser<'a, R> {
         &mut self,
         cons_map: &IndexMap<Rc<Term>, (Vec<Rc<Term>>, Rc<Term>)>,
         dt_sort: &Rc<Term>,
-    ) -> CarcaraResult<(Rc<Term>, Rc<Term>)> {
+    ) -> CarcaraResult<(bool, Rc<Term>, Vec<SortedVar>, Rc<Term>)> {
         self.expect_token(Token::OpenParen)?;
         // if the current token is a symbol, it is either one of the
         // constructors in the DT or a pattern variable
         self.state.symbol_table.push_scope();
+        let mut pattern_is_var = false;
+        let mut vars = Vec::new();
         let pattern = if self.current_token != Token::OpenParen {
             let s = self.expect_symbol()?;
             if cons_map
@@ -1248,9 +1250,12 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 self.make_var(s)
                     .map_err(|err| Error::Parser(err, self.current_position))?
             } else {
+                pattern_is_var = true;
                 // create a new variable with dt_sort, regardless of what symbol this is
                 let var = self.pool.add(Term::new_var(s.clone(), dt_sort.clone()));
-                self.insert_sorted_var((s, dt_sort.clone()));
+                let sorted_var = (s, dt_sort.clone());
+                vars.push(sorted_var);
+                self.insert_sorted_var(sorted_var);
                 var
             }
         } else {
@@ -1265,7 +1270,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
             // parse variables, and each will have the sort of the selector of this cons
             let (sels, _) = cons_map.get(&cons).unwrap();
             let mut i = 0;
-            let mut vars = Vec::new();
+            let mut cons_vars = Vec::new();
             while self.current_token != Token::CloseParen {
                 let var_name = self.expect_symbol()?;
                 let sort = sels[i].as_sort().unwrap();
@@ -1291,18 +1296,20 @@ impl<'a, R: BufRead> Parser<'a, R> {
                 let var = self
                     .pool
                     .add(Term::new_var(var_name.clone(), var_sort.clone()));
-                self.insert_sorted_var((var_name, var_sort.clone()));
-                vars.push(var);
+                let sorted_var = (var_name, var_sort.clone());
+                vars.push(sorted_var);
+                self.insert_sorted_var(sorted_var);
+                cons_vars.push(var);
                 i += 1;
             }
-            self.make_app(cons, vars)
+            self.make_app(cons, cons_vars)
                 .map_err(|err| Error::Parser(err, self.current_position))?
         };
         println!("\tPattern: {}", pattern);
         let result = self.parse_term()?;
         self.state.symbol_table.pop_scope();
         self.expect_token(Token::CloseParen)?;
-        Ok((pattern, result))
+        Ok((pattern_is_var, pattern, vars, result))
     }
 
     /// Parses a `declare-datatype` command. Inserts the constructor
@@ -1964,23 +1971,24 @@ impl<'a, R: BufRead> Parser<'a, R> {
                             // a variable, otherwise that all
                             // constructors are covered
                             let mut has_pattern_var = false;
-                            let mut vars = Vec::new();
                             let mut patterns_conss = IndexSet::<Rc<Term>>::new();
                             let mut i = 0;
+                            let mut match_patterns = Vec::new();
                             while i < patterns.len() {
-                                let (pattern, res) = patterns[i].clone();
-                                if pattern.is_var() {
-                                    vars.push(pattern.clone());
+                                let (is_var, pattern, vars, res) = patterns[i].clone();
+                                if is_var {
                                     has_pattern_var = true;
                                 }
-                                patterns_conss.insert(
-                                    if let Term::App(cons, args) = pattern.as_ref() {
-                                        args.iter().for_each(|a| vars.push(a.clone()));
+                                else
+                                {
+                                    patterns_conss.insert(
+                                    if let Term::App(cons, _) = pattern.as_ref() {
                                         cons.clone()
                                     } else {
                                         pattern.clone()
-                                    },
+                                    }
                                 );
+                                }
                                 if i < patterns.len() - 1 {
                                     if self.pool.sort(&res).as_sort().unwrap()
                                         != self.pool.sort(&patterns[i + 1].1).as_sort().unwrap()
@@ -1994,18 +2002,17 @@ impl<'a, R: BufRead> Parser<'a, R> {
                                         ));
                                     }
                                 }
+                                match_patterns.push((vars,pattern,res));
                                 i += 1;
                             }
-                            // if !has_pattern_var && patterns_cons.len() < cons_map.len() {
-                            //     return Err(Error::Parser(
-                            //                 ParserError::InvalidPatterns(),
-                            //                 head_pos,
-                            //             ));
-                            // }
+                            if !has_pattern_var && patterns_conss.len() < dt_def.cons_map.len() {
+                                return Err(Error::Parser(
+                                            ParserError::InvalidPatterns,
+                                            head_pos,
+                                        ));
+                            }
                             println!("Patterns: {:?}", patterns);
-
-                            // Ok(self.pool.add(Term::Match(term, )))
-                            return Ok(patterns.last().unwrap().1.clone());
+                            return Ok(self.pool.add(Term::Match(term, match_patterns)));
                         }
                         return Err(Error::Parser(
                             ParserError::ExpectedDTSort(dt_sort.clone()),

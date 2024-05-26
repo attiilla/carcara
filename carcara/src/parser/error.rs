@@ -81,6 +81,10 @@ pub enum ParserError {
     #[error("invalid match results (different types) '{0} and {1}'")]
     InvalidMatchResults(Rc<Term>, Rc<Term>),
 
+    /// Results in match do not have the same type
+    #[error("Patterns in match statement do not have variable or do not cover all constructors")]
+    InvalidPatterns,
+
     /// A term that is not a function was used as a function.
     #[error("'{0}' is not a function sort")]
     NotAFunction(Sort), // TODO: This should also carry the actual function term
