@@ -4,4 +4,6 @@ pub enum CompressionError{
     ResolutionError(Vec<(usize,usize)>)
 }
 
-pub struct CollectionError;
+pub struct CollectionError{
+    pub subproofs_to_compress: Vec<Vec<usize>>
+}

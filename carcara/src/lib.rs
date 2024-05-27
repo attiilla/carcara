@@ -360,7 +360,8 @@ pub fn compress_proof<T: io::BufRead>(
     };
     let (_prelude, proof, mut pool) = parser::parse_instance(problem, proof, config)?;
     let mut comp: ProofCompressor = ProofCompressor::new(&proof);
-    let proof_compressed = comp.run_compressor(&mut pool);
-    
-    Ok(proof_compressed)
+    //let proof_compressed = comp.run_compressor(&mut pool);
+    //Ok(proof_compressed)
+    comp.play(None, &mut pool);
+    Ok(comp.proof)
 }
