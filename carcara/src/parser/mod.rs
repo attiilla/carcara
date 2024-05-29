@@ -143,7 +143,7 @@ pub struct Parser<'a, R> {
     current_token: Token,
     current_position: Position,
     state: ParserState,
-    interpret_integers_as_reals: bool,
+    is_real_only_logic: bool,
     problem: Option<(ProblemPrelude, IndexSet<Rc<Term>>)>,
 }
 
@@ -161,7 +161,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
             current_token,
             current_position,
             state: ParserState::default(),
-            interpret_integers_as_reals: false,
+            is_real_only_logic: false,
             problem: None,
         })
     }
@@ -210,6 +210,14 @@ impl<'a, R: BufRead> Parser<'a, R> {
             None => return Err(ParserError::UndefinedIden(cached.unwrap())),
         };
         Ok(self.pool.add(Term::Var(cached.unwrap(), sort)))
+    }
+
+    /// Return whether we should interpret integer constants as `Real`s.
+    ///
+    /// If we are working with a logic that contains reals but does not contain integers, and if we
+    /// are parsing the problem and not the poof, this will be true.
+    fn interpret_ints_as_reals(&self) -> bool {
+        self.is_real_only_logic && self.problem.is_some()
     }
 
     /// Constructs and sort checks an operation term.
@@ -484,9 +492,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
 
         let [a, b] = [a, b].map(|t| match t.as_ref() {
             Term::Const(Constant::Integer(i)) => Some(i),
-            Term::Const(Constant::Real(r))
-                if self.interpret_integers_as_reals && r.is_integer() =>
-            {
+            Term::Const(Constant::Real(r)) if self.interpret_ints_as_reals() && r.is_integer() => {
                 Some(r.numer())
             }
             _ => None,
@@ -765,7 +771,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
                     // literals should be parsed as reals. For instance, `1` should be interpreted
                     // as `1.0`. We must be careful to avoid false positives with non-standard
                     // logics like "HORN".
-                    self.interpret_integers_as_reals =
+                    self.is_real_only_logic =
                         (logic.contains("LRA") || logic.contains("NRA") || logic.contains("RDL"))
                             && !logic.contains('I');
                 }
@@ -1560,7 +1566,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
     pub fn parse_term(&mut self) -> CarcaraResult<Rc<Term>> {
         let term = match self.next_token()? {
             (Token::Bitvector { value, width }, _) => Term::new_bv(value, width),
-            (Token::Numeral(n), _) if self.interpret_integers_as_reals => Term::new_real(n),
+            (Token::Numeral(n), _) if self.interpret_ints_as_reals() => Term::new_real(n),
             (Token::Numeral(n), _) => Term::new_int(n),
             (Token::Decimal(r), _) => Term::new_real(r),
             (Token::String(s), _) => Term::new_string(s),
@@ -1589,7 +1595,7 @@ impl<'a, R: BufRead> Parser<'a, R> {
     pub fn parse_constant(&mut self) -> CarcaraResult<Constant> {
         let constant = match self.next_token()? {
             (Token::Bitvector { value, width }, _) => Constant::BitVec(value, width.into()),
-            (Token::Numeral(n), _) if self.interpret_integers_as_reals => Constant::Real(n.into()),
+            (Token::Numeral(n), _) if self.interpret_ints_as_reals() => Constant::Real(n.into()),
             (Token::Numeral(n), _) => Constant::Integer(n),
             (Token::Decimal(r), _) => Constant::Real(r),
             (Token::String(s), _) => Constant::String(s),
