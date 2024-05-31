@@ -7,7 +7,7 @@
 //! - `alpha_equiv` compares terms by alpha-equivalence, meaning it implements equality of terms
 //! modulo renaming of bound variables.
 
-use super::{BindingList, Operator, ProofArg, ProofCommand, ProofStep, Rc, Sort, Subproof, Term};
+use super::{BindingList, Operator, ProofArg, ProofCommand, ProofStep, Rc, Sort, Subproof, Term,Constant,Rational};
 use crate::utils::HashMapStack;
 use std::time::{Duration, Instant};
 
@@ -335,6 +335,26 @@ impl Polyeq for Term {
             }
             (Term::Let(binds_a, a), Term::Let(binds_b, b)) => {
                 comp.compare_binder(binds_a, binds_b, a, b)
+            }
+            (Term::Const(Constant::Real(r)), Term::Op(Operator::RealDiv, args)) => {
+                // if a is a rational and b a division literal, check
+                // if they are the same
+                match (args[0].as_ref(), args[1].as_ref()) {
+                    (Term::Const(Constant::Real(r1)), Term::Const(Constant::Real(r2))) if r1.is_integer() && r2.is_integer() => {
+                        Rational::from((r1.numer(),r2.numer())) == r.clone()
+                    }
+                    _ => false
+                }
+            }
+            (Term::Op(Operator::RealDiv, args),Term::Const(Constant::Real(r)), ) => {
+                // if a is a rational and b a division literal, check
+                // if they are the same
+                match (args[0].as_ref(), args[1].as_ref()) {
+                    (Term::Const(Constant::Real(r1)), Term::Const(Constant::Real(r2))) if r1.is_integer() && r2.is_integer() => {
+                        Rational::from((r1.numer(),r2.numer())) == r.clone()
+                    }
+                    _ => false
+                }
             }
             _ => false,
         }
