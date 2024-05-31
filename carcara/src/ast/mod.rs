@@ -720,6 +720,9 @@ pub enum Term {
     /// A `let` binder term.
     Let(BindingList, Rc<Term>),
 
+    /// A `match' term, consisting of a term to be matched and a
+    /// sequence of (pattern,result) pairs, where each each pattern
+    /// binds a number of variables
     Match(Rc<Term>, Vec<(BindingList, Rc<Term>, Rc<Term>)>),
 
     /// A parameterized operation term, that is, an operation term whose operator receives extra
