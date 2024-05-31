@@ -3,11 +3,21 @@
 pub mod advanced;
 mod storage;
 
-use super::{Binder, Operator, Rc, Sort, Term};
+use super::{Binder, Operator, Rc, Sort, Substitution, Term};
 use crate::ast::{Constant, ParamOperator};
 use indexmap::{IndexMap, IndexSet};
 use rug::Integer;
 use storage::Storage;
+// pub use substitution::{Substitution, SubstitutionError};
+
+/// A `step` command.
+#[derive(Debug, Clone)]
+pub struct DatatypeDef {
+    /// The datatype name
+    pub name: String,
+    // For each constructor, its selectors and tester
+    pub cons_map: IndexMap<Rc<Term>, (Vec<Rc<Term>>, Rc<Term>)>,
+}
 
 pub trait TermPool {
     /// Returns the term corresponding to the boolean constant `true`.
@@ -45,6 +55,8 @@ pub trait TermPool {
     /// This method uses a cache, so there is no additional cost to computing the free variables of
     /// a term multiple times.
     fn free_vars(&mut self, term: &Rc<Term>) -> IndexSet<Rc<Term>>;
+
+    fn dt_def(&self, sort: &Rc<Term>) -> &DatatypeDef;
 }
 
 /// A structure to store and manage all allocated terms.
@@ -61,6 +73,7 @@ pub struct PrimitivePool {
     pub(crate) storage: Storage,
     pub(crate) free_vars_cache: IndexMap<Rc<Term>, IndexSet<Rc<Term>>>,
     pub(crate) sorts_cache: IndexMap<Rc<Term>, Rc<Term>>,
+    pub(crate) dt_defs: IndexMap<Rc<Term>, DatatypeDef>,
 }
 
 impl PrimitivePool {
@@ -202,9 +215,40 @@ impl PrimitivePool {
                 | Operator::ReRange => Sort::RegLan,
                 Operator::RareList => Sort::RareList,
             },
-            Term::App(f, _) => {
+            Term::App(f, args) => {
                 match self.compute_sort(f).as_sort().unwrap() {
                     Sort::Function(sorts) => sorts.last().unwrap().as_sort().unwrap().clone(),
+                    Sort::ParamSort(_, p_sort) => {
+                        let p_function_sort = p_sort.as_sort().unwrap();
+                        if let Sort::Function(sorts) = p_function_sort {
+                            // match with sorts of args, apply the resulting substitution on the return sort
+                            let mut map = IndexMap::new();
+                            for i in 0..args.len() {
+                                let sort_i = sorts[i].as_sort().unwrap();
+                                let arg_sort_i =
+                                    self.compute_sort(&args[i]).as_sort().unwrap().clone();
+                                if !sort_i.match_with(&arg_sort_i, &mut map) {
+                                    unreachable!();
+                                }
+                            }
+                            let substitution: IndexMap<_, _> = map
+                                .into_iter()
+                                .map(|(var_name, sort)| {
+                                    let var = Term::Sort(Sort::Var(var_name));
+                                    let sort_t = Term::Sort(sort);
+                                    (self.add(var), self.add(sort_t))
+                                })
+                                .collect();
+                            Substitution::new(self, substitution)
+                                .unwrap()
+                                .apply(self, &sorts.last().unwrap())
+                                .as_sort()
+                                .unwrap()
+                                .clone()
+                        } else {
+                            unreachable!()
+                        }
+                    }
                     _ => unreachable!(), // We assume that the function is correctly sorted
                 }
             }
@@ -218,6 +262,7 @@ impl PrimitivePool {
                 Sort::Function(result)
             }
             Term::Let(_, inner) => self.compute_sort(inner).as_sort().unwrap().clone(),
+            Term::Match(_, patterns) => self.compute_sort(&patterns.last().unwrap().2).as_sort().unwrap().clone(),
             Term::ParamOp { op, op_args, args } => {
                 let sort = match op {
                     ParamOperator::BvExtract => {
@@ -254,7 +299,7 @@ impl PrimitivePool {
                         let bvsize = op_args[0].as_integer().unwrap();
                         Sort::BitVec(bvsize)
                     }
-                    ParamOperator::BvBitOf => Sort::Bool,
+                    ParamOperator::BvBitOf | ParamOperator::Tester => Sort::Bool,
                     ParamOperator::RePower | ParamOperator::ReLoop => Sort::RegLan,
                     ParamOperator::ArrayConst => op_args[0].as_sort().unwrap().clone(),
                 };
@@ -341,6 +386,18 @@ impl PrimitivePool {
                 }
                 vars
             }
+            Term::Match(term, patterns) => {
+                let mut vars = self.free_vars_with_priorities(term, prior_pools);
+                for (bindings, _, res) in patterns {
+                    let mut res_vars = self.free_vars_with_priorities(res, prior_pools);
+                    for bound_var in bindings {
+                        let term = self.add_with_priorities(bound_var.clone().into(), prior_pools);
+                        res_vars.remove(&term);
+                    }
+                    vars.extend(res_vars.into_iter());
+                }
+                vars
+            }
             Term::Var(..) => {
                 let mut set = IndexSet::with_capacity(1);
                 set.insert(term.clone());
@@ -358,6 +415,14 @@ impl PrimitivePool {
         self.free_vars_cache.insert(term.clone(), set);
         self.free_vars_cache.get(term).unwrap().clone()
     }
+
+    pub fn add_dt_def(&mut self, sort: &Rc<Term>, def: &DatatypeDef) {
+        if !sort.is_sort_dt() {
+            // return Err(ParserError::ExpectedDTSort(sort.clone()));
+            unreachable!();
+        }
+        self.dt_defs.insert(sort.clone(), def.clone());
+    }
 }
 
 impl TermPool for PrimitivePool {
@@ -373,5 +438,13 @@ impl TermPool for PrimitivePool {
 
     fn free_vars(&mut self, term: &Rc<Term>) -> IndexSet<Rc<Term>> {
         self.free_vars_with_priorities(term, [])
+    }
+
+    fn dt_def(&self, sort: &Rc<Term>) -> &DatatypeDef {
+        if !sort.is_sort_dt() {
+            // return Err(ParserError::ExpectedDTSort(sort.clone()));
+            unreachable!();
+        }
+        &self.dt_defs[sort]
     }
 }
