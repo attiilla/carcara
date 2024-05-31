@@ -262,7 +262,11 @@ impl PrimitivePool {
                 Sort::Function(result)
             }
             Term::Let(_, inner) => self.compute_sort(inner).as_sort().unwrap().clone(),
-            Term::Match(_, patterns) => self.compute_sort(&patterns.last().unwrap().2).as_sort().unwrap().clone(),
+            Term::Match(_, patterns) => self
+                .compute_sort(&patterns.last().unwrap().2)
+                .as_sort()
+                .unwrap()
+                .clone(),
             Term::ParamOp { op, op_args, args } => {
                 let sort = match op {
                     ParamOperator::BvExtract => {

@@ -1975,16 +1975,14 @@ impl<'a, R: BufRead> Parser<'a, R> {
                                 let (is_var, vars, pattern, res) = patterns[i].clone();
                                 if is_var {
                                     has_pattern_var = true;
-                                }
-                                else
-                                {
+                                } else {
                                     patterns_conss.insert(
-                                    if let Term::App(cons, _) = pattern.as_ref() {
-                                        cons.clone()
-                                    } else {
-                                        pattern.clone()
-                                    }
-                                );
+                                        if let Term::App(cons, _) = pattern.as_ref() {
+                                            cons.clone()
+                                        } else {
+                                            pattern.clone()
+                                        },
+                                    );
                                 }
                                 if i < patterns.len() - 1 {
                                     if self.pool.sort(&res).as_sort().unwrap()
@@ -1999,14 +1997,11 @@ impl<'a, R: BufRead> Parser<'a, R> {
                                         ));
                                     }
                                 }
-                                match_patterns.push((BindingList(vars),pattern,res));
+                                match_patterns.push((BindingList(vars), pattern, res));
                                 i += 1;
                             }
                             if !has_pattern_var && patterns_conss.len() < dt_def.cons_map.len() {
-                                return Err(Error::Parser(
-                                            ParserError::InvalidPatterns,
-                                            head_pos,
-                                        ));
+                                return Err(Error::Parser(ParserError::InvalidPatterns, head_pos));
                             }
                             self.expect_token(Token::CloseParen)?;
                             return Ok(self.pool.add(Term::Match(term, match_patterns)));
