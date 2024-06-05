@@ -160,19 +160,7 @@ impl<'c> ProofChecker<'c> {
                     let time = Instant::now();
                     let step_id = command.id();
 
-                    let new_context_id = self.context.force_new_context();
-                    self.context
-                        .push(
-                            self.pool,
-                            &s.assignment_args,
-                            &s.variable_args,
-                            new_context_id,
-                        )
-                        .map_err(|e| Error::Checker {
-                            inner: e.into(),
-                            rule: "anchor".into(),
-                            step: step_id.to_owned(),
-                        })?;
+                    self.context.push(&s.args);
 
                     if let Some(elaborator) = &mut self.elaborator {
                         elaborator.open_subproof(s.commands.len());
@@ -581,6 +569,8 @@ impl<'c> ProofChecker<'c> {
             "concat_csplit_suffix" => strings::concat_csplit_suffix,
             "concat_split_prefix" => strings::concat_split_prefix,
             "concat_split_suffix" => strings::concat_split_suffix,
+            "concat_lprop_prefix" => strings::concat_lprop_prefix,
+            "concat_lprop_suffix" => strings::concat_lprop_suffix,
 
             // Special rules that always check as valid, and are used to indicate holes in the
             // proof.
@@ -606,4 +596,40 @@ impl<'c> ProofChecker<'c> {
             _ => return None,
         })
     }
+}
+
+pub fn generate_lia_smt_instances(
+    prelude: ProblemPrelude,
+    proof: &Proof,
+    use_sharing: bool,
+) -> CarcaraResult<Vec<(String, String)>> {
+    use std::fmt::Write;
+
+    let mut iter = proof.iter();
+    let mut result = Vec::new();
+    while let Some(command) = iter.next() {
+        if let ProofCommand::Step(step) = command {
+            if step.rule == "lia_generic" {
+                if iter.depth() > 0 {
+                    log::error!(
+                        "generating SMT instance for step inside subproof is not supported"
+                    );
+                    continue;
+                }
+
+                let mut problem = String::new();
+                write!(&mut problem, "{}", prelude).unwrap();
+
+                let mut bytes = Vec::new();
+                printer::write_lia_smt_instance(&mut bytes, &step.clause, use_sharing).unwrap();
+                write!(&mut problem, "{}", String::from_utf8(bytes).unwrap()).unwrap();
+
+                writeln!(&mut problem, "(check-sat)").unwrap();
+                writeln!(&mut problem, "(exit)").unwrap();
+
+                result.push((step.id.clone(), problem));
+            }
+        }
+    }
+    Ok(result)
 }
