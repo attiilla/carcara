@@ -8,8 +8,9 @@
 //! modulo renaming of bound variables.
 
 use super::{
-    AnchorArg, BindingList, Operator, ProofArg, ProofCommand, ProofStep, Rc, Sort, Subproof, Term,
+    AnchorArg, BindingList, Operator, ProofArg, ProofCommand, ProofStep, Rc, Sort, Subproof, Term, Constant,Rational
 };
+
 use crate::utils::HashMapStack;
 use std::time::{Duration, Instant};
 
