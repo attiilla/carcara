@@ -49,6 +49,7 @@ use parser::{ParserError, Position};
 use std::io;
 use std::time::{Duration, Instant};
 use thiserror::Error;
+use indexmap::IndexMap;
 
 pub type CarcaraResult<T> = Result<T, Error>;
 
@@ -72,6 +73,10 @@ pub struct CarcaraOptions {
     /// was expected. Note that this only applies to predefined operators --- passing an `Int` term
     /// to a function that expects a `Real` will still be an error.
     pub allow_int_real_subtyping: bool,
+
+    /// Maps rules to paths of binaries to check them. The arguments are passed as strings to the
+    /// binary.
+    pub rule_checkers : IndexMap<String, String>,
 
     /// If `Some`, enables the checking/elaboration of `lia_generic` steps using an external solver.
     /// When checking a proof, this means calling the solver to solve the linear integer arithmetic
@@ -165,7 +170,9 @@ pub fn check<T: io::BufRead>(problem: T, proof: T, options: CarcaraOptions) -> R
     let config = checker::Config::new()
         .strict(options.strict)
         .ignore_unknown_rules(options.ignore_unknown_rules)
-        .lia_options(options.lia_options);
+        .lia_options(options.lia_options)
+        .rule_checkers(options.rule_checkers)
+        ;
 
     // Checking
     let checking = Instant::now();

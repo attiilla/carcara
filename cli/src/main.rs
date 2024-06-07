@@ -19,6 +19,8 @@ use std::{
     sync::atomic,
 };
 
+use std::error::Error;
+
 // `git describe --all` will try to find any ref (including tags) that describes the current commit.
 // This will include tags like `carcara-0.1.0`, that we create for github releases. To account for
 // that, we pass the arguments `--exclude 'carcara-*'`, ignoring these tags.
@@ -37,6 +39,20 @@ const VERSION_STRING: &str = formatcp!(
     str_index!(GIT_BRANCH_NAME, 6..),
     GIT_COMMIT_HASH,
 );
+
+/// Parse a single key-value pair
+fn parse_key_val<T, U>(s: &str) -> Result<(T, U), Box<dyn Error + Send + Sync + 'static>>
+where
+    T: std::str::FromStr,
+    T::Err: Error + Send + Sync + 'static,
+    U: std::str::FromStr,
+    U::Err: Error + Send + Sync + 'static,
+{
+    let pos = s
+        .find('=')
+        .ok_or_else(|| format!("invalid KEY=value: no `=` found in `{s}`"))?;
+    Ok((s[..pos].parse()?, s[pos + 1..].parse()?))
+}
 
 #[derive(Parser)]
 #[clap(
@@ -143,6 +159,16 @@ struct CheckingOptions {
     #[clap(long, conflicts_with("ignore-unknown-rules"), hide = true)]
     skip_unknown_rules: bool,
 
+    // number_of_values = 1 forces the user to repeat the -D option for each key-value pair:
+    // my_program -D a=1 -D b=2
+    // Without number_of_values = 1 you can do:
+    // my_program -D a=1 b=2
+    // but this makes adding an argument after the values impossible:
+    // my_program -D a=1 -D b=2 my_input_file
+    // becomes invalid.
+    #[clap(short = 'o', value_parser = parse_key_val::<String, String>)]
+    rule_checkers: Vec<(String, String)>,
+
     /// Check `lia_generic` steps using the provided solver.
     #[clap(long)]
     lia_solver: Option<String>,
@@ -172,6 +198,7 @@ fn build_carcara_options(
     CheckingOptions {
         ignore_unknown_rules,
         skip_unknown_rules,
+        rule_checkers,
         lia_solver,
         lia_via_cvc5,
         lia_solver_args,
@@ -189,6 +216,7 @@ fn build_carcara_options(
         apply_function_defs,
         expand_lets: expand_let_bindings,
         allow_int_real_subtyping,
+        rule_checkers : rule_checkers.into_iter().collect(),
         lia_options,
         strict,
         ignore_unknown_rules: ignore_unknown_rules || skip_unknown_rules,

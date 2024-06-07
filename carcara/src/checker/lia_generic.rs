@@ -295,9 +295,10 @@ fn insert_solver_proof(
     });
 }
 
-pub fn sat_external_prove_lemmas(
+pub fn sat_cnf_lemmas(
     RuleArgs { pool, args, .. }: RuleArgs,
     prelude: &ProblemPrelude,
+    checker_path: String
 ) -> RuleResult {
     let Sort::String = pool
         .sort(&args[0].as_term().unwrap())
@@ -307,7 +308,7 @@ pub fn sat_external_prove_lemmas(
     else {
         unreachable!();
     };
-    let Sort::String = pool
+    let Sort::Bool = pool
         .sort(&args[1].as_term().unwrap())
         .as_sort()
         .cloned()
@@ -315,16 +316,8 @@ pub fn sat_external_prove_lemmas(
     else {
         unreachable!();
     };
-    let Sort::Bool = pool
-        .sort(&args[2].as_term().unwrap())
-        .as_sort()
-        .cloned()
-        .unwrap()
-    else {
-        unreachable!();
-    };
 
-    let lemmas = args[2].as_term().unwrap();
+    let lemmas = args[1].as_term().unwrap();
 
     // transform each AND arg, if any, into a string and build a
     // string "(and ... )" so that each lemma has its own names
@@ -359,7 +352,7 @@ pub fn sat_external_prove_lemmas(
     );
 
     // this will make it expect this script from where you are running Carcara
-    let mut process = Command::new("./sat-lemmas-prove.sh")
+    let mut process = Command::new(checker_path.clone())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -390,5 +383,46 @@ pub fn sat_external_prove_lemmas(
     if res == b"true\n" {
         return Ok(());
     }
-    return Err(CheckerError::Unspecified);
+    return Err(CheckerError::Explanation(format!("External checker {} did not validate step", checker_path)));
+}
+
+pub fn external_checker(
+    RuleArgs { args, .. }: RuleArgs,
+    checker_path: String
+) -> RuleResult {
+
+    let args_str : Vec<String> = args.iter().map(|t| format!("{}", t.as_term().unwrap())).collect();
+    let string = format!("(\n{}\n)", args_str.join("\n"));
+    // this will make it expect this script from where you are running Carcara
+    let mut process = Command::new(checker_path.clone())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(LiaGenericError::FailedSpawnSolver)?;
+
+    process
+        .stdin
+        .take()
+        .expect("failed to open solver stdin")
+        .write_all(string.as_bytes())
+        .map_err(LiaGenericError::FailedWriteToSolverStdin)?;
+
+    let output = process
+        .wait_with_output()
+        .map_err(LiaGenericError::FailedWaitForSolver)?;
+
+    if !output.status.success() {
+        if let Ok(s) = std::str::from_utf8(&output.stderr) {
+            if s.contains("interrupted by timeout.") {
+                return Err(CheckerError::Unspecified);
+            }
+        }
+        return Err(CheckerError::Unspecified);
+    }
+    let res = output.stdout.as_slice();
+    if res == b"true\n" {
+        return Ok(());
+    }
+    return Err(CheckerError::Explanation(format!("External checker {} did not validate step", checker_path)));
 }
