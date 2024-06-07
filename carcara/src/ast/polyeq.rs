@@ -8,7 +8,8 @@
 //! modulo renaming of bound variables.
 
 use super::{
-    AnchorArg, BindingList, Operator, ProofArg, ProofCommand, ProofStep, Rc, Sort, Subproof, Term, Constant,Rational
+    AnchorArg, BindingList, Constant, Operator, ProofArg, ProofCommand, ProofStep, Rational, Rc,
+    Sort, Subproof, Term,
 };
 
 use crate::utils::HashMapStack;
@@ -343,20 +344,24 @@ impl Polyeq for Term {
                 // if a is a rational and b a division literal, check
                 // if they are the same
                 match (args[0].as_ref(), args[1].as_ref()) {
-                    (Term::Const(Constant::Real(r1)), Term::Const(Constant::Real(r2))) if r1.is_integer() && r2.is_integer() => {
-                        Rational::from((r1.numer(),r2.numer())) == r.clone()
+                    (Term::Const(Constant::Real(r1)), Term::Const(Constant::Real(r2)))
+                        if r1.is_integer() && r2.is_integer() =>
+                    {
+                        Rational::from((r1.numer(), r2.numer())) == r.clone()
                     }
-                    _ => false
+                    _ => false,
                 }
             }
-            (Term::Op(Operator::RealDiv, args),Term::Const(Constant::Real(r)), ) => {
+            (Term::Op(Operator::RealDiv, args), Term::Const(Constant::Real(r))) => {
                 // if a is a rational and b a division literal, check
                 // if they are the same
                 match (args[0].as_ref(), args[1].as_ref()) {
-                    (Term::Const(Constant::Real(r1)), Term::Const(Constant::Real(r2))) if r1.is_integer() && r2.is_integer() => {
-                        Rational::from((r1.numer(),r2.numer())) == r.clone()
+                    (Term::Const(Constant::Real(r1)), Term::Const(Constant::Real(r2)))
+                        if r1.is_integer() && r2.is_integer() =>
+                    {
+                        Rational::from((r1.numer(), r2.numer())) == r.clone()
                     }
-                    _ => false
+                    _ => false,
                 }
             }
             _ => false,
