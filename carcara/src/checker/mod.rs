@@ -347,18 +347,6 @@ impl<'c> ProofChecker<'c> {
                 }
             }
         } else {
-            let rule = match Self::get_rule(&step.rule, self.config.strict) {
-                Some(r) => r,
-                None if self.config.ignore_unknown_rules => {
-                    self.is_holey = true;
-                    if let Some(elaborator) = &mut self.elaborator {
-                        elaborator.unchanged(&step.clause);
-                    }
-                    return Ok(());
-                }
-                None => return Err(CheckerError::UnknownRule),
-            };
-
             if step.rule == "hole" {
                 self.is_holey = true;
             }
@@ -388,16 +376,32 @@ impl<'c> ProofChecker<'c> {
                 polyeq_time: &mut polyeq_time,
             };
 
-            if let Some(elaborator) = &mut self.elaborator {
-                if let Some(elaboration_rule) = Self::get_elaboration_rule(&step.rule) {
-                    elaboration_rule(rule_args, step.id.clone(), elaborator)?;
-                    elaborated = true;
+            if step.rule == "sat_external_prove_lemmas" {
+                lia_generic::sat_external_prove_lemmas(rule_args, self.prelude)?;
+            } else {
+                let rule = match Self::get_rule(&step.rule, self.config.strict) {
+                    Some(r) => r,
+                    None if self.config.ignore_unknown_rules => {
+                        self.is_holey = true;
+                        if let Some(elaborator) = &mut self.elaborator {
+                            elaborator.unchanged(&step.clause);
+                        }
+                        return Ok(());
+                    }
+                    None => return Err(CheckerError::UnknownRule),
+                };
+
+                if let Some(elaborator) = &mut self.elaborator {
+                    if let Some(elaboration_rule) = Self::get_elaboration_rule(&step.rule) {
+                        elaboration_rule(rule_args, step.id.clone(), elaborator)?;
+                        elaborated = true;
+                    } else {
+                        rule(rule_args)?;
+                        elaborator.unchanged(&step.clause);
+                    }
                 } else {
                     rule(rule_args)?;
-                    elaborator.unchanged(&step.clause);
                 }
-            } else {
-                rule(rule_args)?;
             }
         }
 
@@ -442,7 +446,6 @@ impl<'c> ProofChecker<'c> {
         use rules::*;
 
         Some(match rule_name {
-            "sat_external_prove_lemmas" => lia_generic::sat_external_prove_lemmas,
             "true" => tautology::r#true,
             "false" => tautology::r#false,
             "not_not" => tautology::not_not,

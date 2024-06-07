@@ -4,7 +4,9 @@ use indexmap::IndexMap;
 use std::{
     io::{BufRead, Write},
     process::{Command, Stdio},
+    fs::File,
 };
+use std::process;
 
 fn get_problem_string(conclusion: &[Rc<Term>], prelude: &ProblemPrelude) -> String {
     use std::fmt::Write;
@@ -293,7 +295,10 @@ fn insert_solver_proof(
     });
 }
 
-pub fn sat_external_prove_lemmas(RuleArgs { pool, args, .. }: RuleArgs) -> RuleResult {
+pub fn sat_external_prove_lemmas(
+    RuleArgs { pool, args, .. }: RuleArgs,
+    prelude: &ProblemPrelude,
+) -> RuleResult {
     let Sort::String = pool
         .sort(&args[0].as_term().unwrap())
         .as_sort()
@@ -342,10 +347,14 @@ pub fn sat_external_prove_lemmas(RuleArgs { pool, args, .. }: RuleArgs) -> RuleR
         format!("{}", lemmas)
     };
 
+    let file_name = format!("prelude_{}.smt2", process::id());
+    let mut f = File::create(file_name.clone()).unwrap();
+    write!(f, "{}", prelude).unwrap();
+
     let string = format!(
         "(\n{}\n{}\n{}\n)",
         args[0].as_term().unwrap(),
-        args[1].as_term().unwrap(),
+        file_name,
         term_str
     );
 
