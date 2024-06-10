@@ -315,7 +315,13 @@ impl ProofCompressor{
                             data: ProofCommand::Assume{id: id.to_string(), term: term.clone()},
                             local_premises: vec![]
                         });
-                    }                     
+                    }
+                    referenced_by_parts[i].register(0, parts[0].len());
+                    parts[0].push(ClauseData{
+                        index: i as i32,
+                        data: ProofCommand::Assume{id: id.to_string(), term: term.clone()},
+                        local_premises: vec![]
+                    });
                 }
                 ProofCommand::Step(ps) => {
                     let is_resolution = ps.rule=="resolution"||ps.rule=="th-resolution";
@@ -668,6 +674,27 @@ impl ProofCompressor{
             }
             Some(v) => {
                 commands = self.get_subproof_commands(v);
+                let mut q = 0;
+                /*{
+                    let mut com = &self.proof.commands;
+                    let mut aux: &ProofCommand;
+                    for j in 0..v.len()-1{   //dive into layers of commands to fetch the commands of the subproof being traversed
+                        let i = v[j];
+                        aux = &com[i];
+                        match aux{
+                            ProofCommand::Subproof(spp) => com = &spp.commands,
+                            _ => panic!("Error in addressing subproofs") //Add error
+                        }
+                        q = j+1;
+                    }
+                    let i = v[q];
+                    if let ProofCommand::Subproof(to_check) = &com[i]{
+                        println!("{:?}",to_check);
+                    }
+
+                }*/
+
+
                 d = v.len();
                 if let ProofCommand::Subproof(sp) = &self.proof.commands[v[0]]{
                     let sub_len = sp.commands.len();
@@ -728,10 +755,10 @@ impl ProofCompressor{
                                     }
                                     match &part[prem].data{
                                         ProofCommand::Assume{term,..} => {
-                                            formated_prem.push((0, *found_assertions.get(term).unwrap()));
+                                            formated_prem.push((d, *found_assertions.get(term).unwrap()));
                                         }
                                         ProofCommand::Step(pps) => {
-                                            formated_prem.push((0, *found_clauses.get(&pps.clause.clone()).unwrap()));
+                                            formated_prem.push((d, *found_clauses.get(&pps.clause.clone()).unwrap()));
                                         }
                                         ProofCommand::Subproof(_) => ()
                                     }
@@ -740,7 +767,7 @@ impl ProofCompressor{
                                 //construct a vector analogue to the local premises in the block above referencing premises outside of the part
                                 if let ProofCommand::Step(pps) = &commands[part[local_ind].index as usize]{
                                     let analogue = &pps.premises;
-                                    for &(_, prem) in analogue{
+                                    for &(dpt, prem) in analogue{
                                         match &commands[prem]{
                                             ProofCommand::Assume{term,..} =>
                                                 formated_prem.push((d, *found_assertions.get(term).unwrap())),
@@ -819,7 +846,7 @@ impl ProofCompressor{
                                 premises: formated_prem,
                                 rule: ps.rule.clone(),
                                 args: ps.args.clone(),
-                                discharge: vec![]
+                                discharge: ps.discharge.clone()
                             };
                         }else{
                             formated_step = ProofStep{
