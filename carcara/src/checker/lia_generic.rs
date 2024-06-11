@@ -327,11 +327,7 @@ pub fn sat_cnf_lemmas(
         use std::fmt::Write;
         write!(&mut term_str2, "(and").unwrap();
         while j < and_args.len() {
-            if j < and_args.len() - 1 {
-                write!(&mut term_str2, " {}", and_args[j]).unwrap();
-            } else {
-                write!(&mut term_str2, "{}", and_args[j]).unwrap();
-            }
+            write!(&mut term_str2, " {}", and_args[j]).unwrap();
             j += 1;
         }
         write!(&mut term_str2, ")").unwrap();
