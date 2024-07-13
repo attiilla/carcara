@@ -71,8 +71,6 @@ pub fn and(RuleArgs { conclusion, premises, args, .. }: RuleArgs) -> RuleResult 
     assert_eq(
         &conclusion[0],
         &and_contents[args[0]
-            .as_term()
-            .unwrap()
             .as_integer()
             .unwrap()
             .to_usize()

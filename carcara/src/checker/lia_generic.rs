@@ -301,7 +301,7 @@ pub fn sat_cnf_lemmas(
     checker_path: String,
 ) -> RuleResult {
     let Sort::String = pool
-        .sort(&args[0].as_term().unwrap())
+        .sort(&args[0])
         .as_sort()
         .cloned()
         .unwrap()
@@ -309,7 +309,7 @@ pub fn sat_cnf_lemmas(
         unreachable!();
     };
     let Sort::Bool = pool
-        .sort(&args[1].as_term().unwrap())
+        .sort(&args[1])
         .as_sort()
         .cloned()
         .unwrap()
@@ -317,11 +317,9 @@ pub fn sat_cnf_lemmas(
         unreachable!();
     };
 
-    let lemmas = args[1].as_term().unwrap();
-
     // transform each AND arg, if any, into a string and build a
     // string "(and ... )" so that each lemma has its own names
-    let term_str = if let Some(and_args) = match_term!((and ...) = lemmas) {
+    let term_str = if let Some(and_args) = match_term!((and ...) = args[2]) {
         let mut j = 0;
         let mut term_str2 = String::new();
         use std::fmt::Write;
@@ -333,7 +331,7 @@ pub fn sat_cnf_lemmas(
         write!(&mut term_str2, ")").unwrap();
         term_str2
     } else {
-        format!("{}", lemmas)
+        format!("{}", args[2])
     };
 
     let file_name = format!("prelude_{}.smt2", process::id());
@@ -342,7 +340,7 @@ pub fn sat_cnf_lemmas(
 
     let string = format!(
         "(\n{}\n{}\n{}\n)",
-        args[0].as_term().unwrap(),
+        args[0],
         file_name,
         term_str
     );
@@ -388,7 +386,7 @@ pub fn sat_cnf_lemmas(
 pub fn external_checker(RuleArgs { args, .. }: RuleArgs, checker_path: String) -> RuleResult {
     let args_str: Vec<String> = args
         .iter()
-        .map(|t| format!("{}", t.as_term().unwrap()))
+        .map(|t| format!("{}", t))
         .collect();
     let string = format!("(\n{}\n)", args_str.join("\n"));
     // this will make it expect this script from where you are running Carcara

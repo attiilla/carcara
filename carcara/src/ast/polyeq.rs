@@ -8,7 +8,7 @@
 //! modulo renaming of bound variables.
 
 use super::{
-    AnchorArg, BindingList, Constant, Operator, ProofArg, ProofCommand, ProofStep, Rc, Sort,
+    AnchorArg, BindingList, Constant, Operator, ProofCommand, ProofStep, Rc, Sort,
     Subproof, Term,
 };
 use crate::utils::HashMapStack;
@@ -475,18 +475,6 @@ impl Polyeq for AnchorArg {
             (AnchorArg::Variable(a), AnchorArg::Variable(b)) => Polyeq::eq(comp, a, b),
             (AnchorArg::Assign(a_name, a_value), AnchorArg::Assign(b_name, b_value)) => {
                 a_name == b_name && Polyeq::eq(comp, a_value, b_value)
-            }
-            _ => false,
-        }
-    }
-}
-
-impl Polyeq for ProofArg {
-    fn eq(comp: &mut PolyeqComparator, a: &Self, b: &Self) -> bool {
-        match (a, b) {
-            (ProofArg::Term(a), ProofArg::Term(b)) => Polyeq::eq(comp, a, b),
-            (ProofArg::Assign(sa, ta), ProofArg::Assign(sb, tb)) => {
-                sa == sb && Polyeq::eq(comp, ta, tb)
             }
             _ => false,
         }
