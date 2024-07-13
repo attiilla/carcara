@@ -429,7 +429,7 @@ mod tests {
             (
                 "((_ @bitOf 1) ((_ extract 3 2) #b000000))",
                 build_term!(pool,
-                    ((_ @bitOf 1) ((_ extract 3 2) {zeros}))
+                    ((_ bitOf 1) ((_ extract 3 2) {zeros}))
                 ),
             ),
             ("(and true false)", build_term!(pool, (and true false))),
