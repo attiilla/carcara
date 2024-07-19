@@ -8,8 +8,7 @@
 //! modulo renaming of bound variables.
 
 use super::{
-    AnchorArg, BindingList, Constant, Operator, ProofCommand, ProofStep, Rc, Sort,
-    Subproof, Term,
+    AnchorArg, BindingList, Constant, Operator, ProofCommand, ProofStep, Rc, Sort, Subproof, Term,
 };
 use crate::utils::HashMapStack;
 use rug::Rational;

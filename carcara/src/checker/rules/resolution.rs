@@ -415,9 +415,7 @@ pub fn elaborate_resolution(
                     clause: Vec::new(),
                     rule: "resolution".to_owned(),
                     premises,
-                    args: [true, false]
-                        .map(|a| pool.bool_constant(a))
-                        .to_vec(),
+                    args: [true, false].map(|a| pool.bool_constant(a)).to_vec(),
                     discharge: Vec::new(),
                 });
                 return Ok(());

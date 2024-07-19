@@ -300,20 +300,10 @@ pub fn sat_cnf_lemmas(
     prelude: &ProblemPrelude,
     checker_path: String,
 ) -> RuleResult {
-    let Sort::String = pool
-        .sort(&args[0])
-        .as_sort()
-        .cloned()
-        .unwrap()
-    else {
+    let Sort::String = pool.sort(&args[0]).as_sort().cloned().unwrap() else {
         unreachable!();
     };
-    let Sort::Bool = pool
-        .sort(&args[1])
-        .as_sort()
-        .cloned()
-        .unwrap()
-    else {
+    let Sort::Bool = pool.sort(&args[1]).as_sort().cloned().unwrap() else {
         unreachable!();
     };
 
@@ -338,12 +328,7 @@ pub fn sat_cnf_lemmas(
     let mut f = File::create(file_name.clone()).unwrap();
     write!(f, "{}", prelude).unwrap();
 
-    let string = format!(
-        "(\n{}\n{}\n{}\n)",
-        args[0],
-        file_name,
-        term_str
-    );
+    let string = format!("(\n{}\n{}\n{}\n)", args[0], file_name, term_str);
 
     // this will make it expect this script from where you are running Carcara
     let mut process = Command::new(checker_path.clone())
@@ -384,10 +369,7 @@ pub fn sat_cnf_lemmas(
 }
 
 pub fn external_checker(RuleArgs { args, .. }: RuleArgs, checker_path: String) -> RuleResult {
-    let args_str: Vec<String> = args
-        .iter()
-        .map(|t| format!("{}", t))
-        .collect();
+    let args_str: Vec<String> = args.iter().map(|t| format!("{}", t)).collect();
     let string = format!("(\n{}\n)", args_str.join("\n"));
     // this will make it expect this script from where you are running Carcara
     let mut process = Command::new(checker_path.clone())
