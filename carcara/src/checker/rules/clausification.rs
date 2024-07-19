@@ -70,29 +70,23 @@ pub fn and(RuleArgs { conclusion, premises, args, .. }: RuleArgs) -> RuleResult 
 
     assert_eq(
         &conclusion[0],
-        &and_contents[args[0]
-            .as_integer()
-            .unwrap()
-            .to_usize()
-            .unwrap()],
+        &and_contents[args[0].as_integer().unwrap().to_usize().unwrap()],
     )
 }
 
-pub fn not_or(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult {
+pub fn not_or(RuleArgs { conclusion, premises, args, .. }: RuleArgs) -> RuleResult {
     assert_num_premises(premises, 1)?;
+    assert_num_args(args, 1)?;
     assert_clause_len(conclusion, 1)?;
 
     let or_term = get_premise_term(&premises[0])?;
     let or_contents = match_term_err!((not (or ...)) = or_term)?;
     let conclusion = conclusion[0].remove_negation_err()?;
 
-    if !or_contents.contains(conclusion) {
-        return Err(CheckerError::TermDoesntApperInOp(
-            Operator::Or,
-            conclusion.clone(),
-        ));
-    }
-    Ok(())
+    assert_eq(
+        conclusion,
+        &or_contents[args[0].as_integer().unwrap().to_usize().unwrap()],
+    )
 }
 
 pub fn or(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult {
