@@ -250,7 +250,6 @@ impl ProofCompressor{
         let mut adrs = vec![];
         let mut depth = 0;
         //self.print();
-        depth = adrs.len();
         let mut parts: Vec<Vec<ClauseData>> = vec![Vec::new(),Vec::new()];
         let mut referenced_by_parts: HashMap<(usize,usize),PartTracker> = HashMap::new();
 
@@ -268,6 +267,7 @@ impl ProofCompressor{
                 }
                 None => ()
             }
+            depth = adrs.len();
             let n = commands.len();
             //anotates the conclusion of the commands vector on part 1
             //part 0 is reserved for assumes
@@ -500,12 +500,22 @@ impl ProofCompressor{
     // substituted_in_parts: A vector where the i-th element is a list of nodes in part i that were substituted by some parent 
     fn fix_broken_proof(
         &mut self,
+        sub: &Option<Vec<usize>>,
         part_deleted: Vec<HashSet<(usize,usize)>>,
         parts: &mut Vec<Vec<ClauseData>>,
         depth: usize,
         proof_pool: &mut PrimitivePool 
     )->Result<Vec<HashMap<usize, usize>>,CompressionError>{
-        
+        let mut adrs = vec![];
+        let mut commands;
+        match sub{
+            Some(addrs) => {
+                adrs = addrs.clone();
+                commands = self.get_subproof_commands(&adrs);
+            }
+            None => ()
+        }
+        let depth = adrs.len();
         let mut substituted_in_parts: Vec<HashMap<usize, usize>> = vec![HashMap::new();parts.len()];
         for current_part_id in 0..part_deleted.len(){
             parts[current_part_id].reverse();
@@ -524,7 +534,7 @@ impl ProofCompressor{
                                 let true_index: (usize, usize);
                                     match &parts[current_part_id][aux[j]].index{
                                         Some(k) => true_index = *k,
-                                        None => panic!("Wrong call of local_premises_computation")
+                                        None => panic!("Something went wrong with local_premises_computation")
                                     } 
                                 
                                 if !part_deleted[current_part_id].contains(&true_index){
@@ -538,20 +548,28 @@ impl ProofCompressor{
                                     &mut substituted_in_parts[current_part_id]
                                 );
                             } else {
-                                let current_index = parts[current_part_id][cl_data_ind].index as usize;
+                                let current_index: (usize, usize);
+                                match &parts[current_part_id][cl_data_ind].index{
+                                    Some(indx ) => current_index = *indx,
+                                    None => {
+                                        current_index = (0,0);
+                                        panic!("None index")
+                                    }
+                                }
                                 if current_clause.local_premises.len()>0{
                                     let mut args_input: Option<Vec<ProofArg>> = None;
-                                    if let ProofCommand::Step(ps) = &self.proof.commands[current_index]{
+                                    let mut current_commands = commands;
+                                    if (current_index.0!=depth){
+                                        let slice = &adrs[0..(current_index.0+1)];
+                                        current_commands = &self.get_subproof_commands(slice);
+                                    }
+                                    if let ProofCommand::Step(ps) = current_commands[current_index]{
                                         if not_missing_index.len()==ps.premises.len(){           //Heuristic, fix
                                             args_input = Some(args);
                                         } else {
                                             args_input = Self::select_args(&not_missing_index, &args);
                                         }
                                     } 
-                                    /*println!("args input: {:?}", &args_input);
-                                    println!("not missing: {:?}", &not_missing_index);
-                                    println!("subs: {:?}", &substituted_in_parts);
-                                    println!("depth {depth}");*/
                                     self.generic_re_resolve_parted(
                                         current_part_id,
                                         cl_data_ind,
@@ -1002,7 +1020,7 @@ impl ProofCompressor{
         }
     }
 
-
+*/
     fn generic_re_resolve_parted(
         &mut self, 
         part_ind: usize, 
@@ -1097,7 +1115,7 @@ impl ProofCompressor{
         }
         ans
     }
-
+/*
     fn args_new_clause(&self, id_left: usize, id_right:usize, part: &Vec<ClauseData>, proof_pool: &mut PrimitivePool) -> Vec<ProofArg>{
         let term_r = match &part[id_right].data{
             ProofCommand::Assume{term,..} => vec![term.clone()],
