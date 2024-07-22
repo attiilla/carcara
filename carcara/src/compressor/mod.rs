@@ -11,10 +11,11 @@
 //nome alethe novo, artigos e acesso
 use crate::ast::*;
 use std::collections::{HashSet, HashMap};
+use std::ops::Index;
 use crate::checker::rules::Premise;
 use crate::checker::rules::resolution::{apply_generic_resolution, unremove_all_negations};
 use crate::checker::error::CheckerError;
-use indexmap::IndexSet;
+use indexmap::{IndexMap, IndexSet};
 use std::env;
 mod error;
 use crate::compressor::error::CompressionError;
@@ -36,20 +37,7 @@ pub struct ClauseData{
 
 
 
-#[derive(Debug)]
-struct ClauseCounter(HashMap<(usize,usize),usize>);
 
-impl ClauseCounter{
-    fn new(c: (usize,usize), t: usize)->ClauseCounter{
-        let mut map = HashMap::new();
-        map.insert(c,t);
-        ClauseCounter(map)
-    }
-
-    fn insert(&mut self, c: (usize, usize), t: usize){
-        self.0.entry(c).and_modify(|times| *times += t).or_insert(t);
-    }
-}
 
 #[derive(Debug, Clone, Default)]
 pub struct PartTracker{
@@ -193,7 +181,7 @@ impl ProofCompressor{
 //-i --allow-int-real-subtyping --expand-let-bindings
     pub fn run_compressor(&mut self, _pool: &mut PrimitivePool) -> Proof{
         env::set_var("RUST_BACKTRACE", "1");
-        let mut outer_steps: &mut HashMap<Vec<usize>,ClauseCounter> = &mut HashMap::new();
+        let mut outer_steps: &mut IndexMap<Vec<usize>,IndexSet<(usize,usize)>> = &mut IndexMap::new();
         match self.compress(&None, outer_steps, _pool){
             Err(e) => {
                 match e{
@@ -208,7 +196,7 @@ impl ProofCompressor{
     }
 
     
-    pub fn compress(&mut self, sub: &Option<Vec<usize>>, outer_steps: &mut HashMap<Vec<usize>,ClauseCounter>, _pool: &mut PrimitivePool) -> Result<(),CompressionError>{
+    pub fn compress(&mut self, sub: &Option<Vec<usize>>, outer_steps: &mut IndexMap<Vec<usize>,IndexSet<(usize,usize)>>, _pool: &mut PrimitivePool) -> Result<(),CompressionError>{
         //self.print();
         let mut none_flag = false;
         let (mut parts, 
@@ -251,218 +239,258 @@ impl ProofCompressor{
 
     // referenced_by_parts: HashMap of PartTrackers, key (d, i) stores all parts that contain the node (d, i) and how many times
     // this node is used inside that part
-    pub fn collect_units(&self, sub: &Option<Vec<usize>>, outer_steps: &mut HashMap<Vec<usize>,ClauseCounter>, _pool: &mut PrimitivePool)->
+    pub fn collect_units(&mut self, sub: &Option<Vec<usize>>, outer_steps: &mut IndexMap<Vec<usize>,IndexSet<(usize,usize)>>, _pool: &mut PrimitivePool)->
         (Vec<Vec<ClauseData>>,
         Vec<HashSet<(usize,usize)>>,
         Vec<Vec<(usize,usize)>>,
         HashMap<(usize,usize),PartTracker>)
     {
-        let mut commands = &self.proof.commands;
+        let mut to_compress: Vec<Vec<usize>> = vec![];
+        
         let mut adrs = vec![];
         let mut depth = 0;
         //self.print();
-        match sub{
-            Some(addrs) => {
-                adrs = addrs.clone();
-                commands = self.get_subproof_commands(&adrs);
-            }
-            None => ()
-        }
-
         depth = adrs.len();
-        let n = commands.len();
         let mut parts: Vec<Vec<ClauseData>> = vec![Vec::new(),Vec::new()];
         let mut referenced_by_parts: HashMap<(usize,usize),PartTracker> = HashMap::new();
 
-        //anotates the conclusion of the commands vector on part 1
-        //part 0 is reserved for assumes
-        referenced_by_parts.insert((depth,n-1), PartTracker::new_insert(1));
         
         let mut part_units_queue: Vec<Vec<(usize,usize)>> = vec![Vec::new(),Vec::new()];
         let mut part_deleted: Vec<HashSet<(usize,usize)>> = vec![HashSet::new(),HashSet::new()];
         let mut coming_from_resolution: HashSet<(usize,usize)> = HashSet::new();
-        //let mut outer_steps: HashMap<(usize,usize),usize> = HashMap::new();
-        for i in (0..commands.len()).rev(){
-            let pc = &commands[i];
-            match pc{
-                ProofCommand::Assume{id, term} => {
-                    let mut current_parts: &mut PartTracker;
-                    match referenced_by_parts.get_mut(&(depth,i)) {
-                        Some(value) => current_parts = value,
-                        None => {
-                            current_parts = &mut PartTracker::new();
-                            panic!("({depth},{i}) is not referenced by any part");
+        let mut compress_later: IndexSet<Vec<usize>> = IndexSet::new();
+        {
+            let mut commands = &self.proof.commands;
+            match sub{
+                Some(addrs) => {
+                    adrs = addrs.clone();
+                    commands = self.get_subproof_commands(&adrs);
+                }
+                None => ()
+            }
+            let n = commands.len();
+            //anotates the conclusion of the commands vector on part 1
+            //part 0 is reserved for assumes
+            referenced_by_parts.insert((depth,n-1), PartTracker::new_insert(1));
+            for i in (0..commands.len()).rev(){
+                let pc = &commands[i];
+                match pc{
+                    ProofCommand::Assume{id, term} => {
+                        let mut current_parts: &mut PartTracker;
+                        match referenced_by_parts.get_mut(&(depth,i)) {
+                            Some(value) => current_parts = value,
+                            None => {
+                                current_parts = &mut PartTracker::new();
+                                panic!("({depth},{i}) is not referenced by any part");
+                            }
                         }
-                    }
-                    for (&k, &times) in &current_parts.data{
-                        if times>=2{
-                            part_units_queue[k].push((depth,i));
-                            part_deleted[k].insert((depth,i));
+                        for (&k, &times) in &current_parts.data{
+                            if times>=2{
+                                part_units_queue[k].push((depth,i));
+                                part_deleted[k].insert((depth,i));
+                            }
+                            
+                            current_parts.inv_index.insert(k,parts[k].len());
+                            parts[k].push(ClauseData{
+                                index: Some((depth,i)),
+                                data: ProofCommand::Assume{id: id.to_string(), term: term.clone()},
+                                local_premises: vec![]
+                            });
                         }
-                        current_parts.register(k, parts[k].len());
-                        parts[k].push(ClauseData{
+                        current_parts.register(0, parts[0].len());
+                        parts[0].push(ClauseData{
                             index: Some((depth,i)),
                             data: ProofCommand::Assume{id: id.to_string(), term: term.clone()},
                             local_premises: vec![]
                         });
                     }
-                    current_parts.register(0, parts[0].len());
-                    parts[0].push(ClauseData{
-                        index: Some((depth,i)),
-                        data: ProofCommand::Assume{id: id.to_string(), term: term.clone()},
-                        local_premises: vec![]
-                    });
-                }
 
-                ProofCommand::Step(ps) => {
-                    let is_resolution = ps.rule=="resolution"||ps.rule=="th-resolution";
-                    if is_resolution{  
-                        self.collecting_resolutions(
-                            depth, i,
-                            sub, 
-                            &mut referenced_by_parts, 
-                            &mut coming_from_resolution,
-                            &mut part_units_queue,
-                            &mut part_deleted,
-                            &mut parts,
-                            outer_steps,
-                            ps
-                        );
-                    } else { //is not a resolution
-                        if coming_from_resolution.contains(&(depth,i)){//not a reslution but a premise of a resolution
-                            let (premise_depth, premise_loc) = ps.premises[0];
-                            let premise: &ProofCommand;
-                            if premise_depth==depth{
-                                premise = &self.proof.commands[premise_loc];
-                            } else {
-                                let slice = &adrs[0..(premise_depth+1)];
-                                premise = &self.get_subproof_commands(slice)[premise_loc];
+                    ProofCommand::Step(ps) => {
+                        let is_resolution = ps.rule=="resolution"||ps.rule=="th-resolution";
+                        if is_resolution{  
+                            self.collecting_resolutions(
+                                depth, 
+                                i,
+                                sub, 
+                                &mut referenced_by_parts, 
+                                &mut coming_from_resolution,
+                                &mut part_units_queue,
+                                &mut part_deleted,
+                                &mut parts,
+                                outer_steps,
+                                ps
+                            );
+                        } else { //is not a resolution
+                            if coming_from_resolution.contains(&(depth,i)){//not a resolution but a premise of a resolution
+                                self.collecting_resolution_premises(
+                                    depth, 
+                                    i,
+                                    sub, 
+                                    &mut referenced_by_parts, 
+                                    &mut coming_from_resolution,
+                                    &mut part_units_queue,
+                                    &mut part_deleted,
+                                    &mut parts,
+                                    outer_steps,
+                                    ps
+                                );
+                            } else { 
+                                //not a resolution nor premise of a resolution
+                                self.not_resoltion_nor_premises(
+                                    depth, 
+                                    i,
+                                    &mut referenced_by_parts, 
+                                    &mut parts,
+                                    ps
+                                );
                             }
+                        }
+                    }
+                    ProofCommand::Subproof(sp) => {
+                        let mut adrs_sp = adrs.clone();
+                        adrs_sp.push(i);
+                        compress_later.insert(adrs_sp);
+                        let last_clause = self.subproof_conclusion(&Some(adrs.clone()));
+                        let conclusion = &last_clause.clause;
+                        let resumed_to_step = 
+                        ProofStep {
+                            id: last_clause.id.clone(), 
+                            clause: conclusion.clone(), 
+                            rule: last_clause.rule.clone(), 
+                            premises: last_clause.premises.clone(), 
+                            args: last_clause.args.clone(), 
+                            discharge: last_clause.discharge.clone()
+                        };
 
-                            if ps.rule=="or" && premise.is_assume(){ //if the rule is an "or" applied over an "assume", anotate the assume only in the part 0
-                                referenced_by_parts.entry((premise_depth, premise_loc)).or_insert_with(|| PartTracker::new()).insert(0);
-                            } else {
+                        let mut current_parts: &mut PartTracker;
+                        match referenced_by_parts.get_mut(&(depth,i)) {
+                            Some(value) => current_parts = value,
+                            None => {
+                                current_parts = &mut PartTracker::new();
+                                panic!("({depth},{i}) is not referenced by any part");
+                            }
+                        }
+                        for (&k, &times) in &current_parts.data{    
+                            parts[k].push(ClauseData{
+                                index: Some((depth,i)),
+                                data: ProofCommand::Step(resumed_to_step.clone()),
+                                local_premises: vec![]
+                            });
+                        
+                            if coming_from_resolution.contains(&(depth,i)) && times>=2 && conclusion.len()==1{
+                                part_units_queue[k].push((depth,i));
+                                part_deleted[k].insert((depth,i));
+                            
+                            }
+                        }
+                    }                   
+                }
+                
+                for (v,c) in outer_steps.iter(){
+                    let commands = self.get_subproof_commands(v);
+                    for (dd,y) in c.iter(){
+                        let i = *y;
+                        let d = *dd;
+                        let clause = &commands[i];
+                        match clause{
+                            ProofCommand::Assume { id, term } => {
                                 let mut current_parts: &mut PartTracker;
                                 match referenced_by_parts.get_mut(&(depth,i)) {
                                     Some(value) => current_parts = value,
                                     None => {
                                         current_parts = &mut PartTracker::new();
-                                        panic!("({depth},{i}) is not referenced by any part");
+                                        panic!("({d},{i}) is not referenced by any part");
                                     }
                                 }
-
-                               //create a new part for each premise of the node, as each premise may
-                               //come from an independent resolution tree
-                                for &(d, j) in &ps.premises{
-                                    let new_part = parts.len();
-                                    part_units_queue.push(Vec::new());
-                                    part_deleted.push(HashSet::new());
-                                    referenced_by_parts.entry((d, j)).or_insert_with(|| PartTracker::new()).insert(new_part);
-                                    parts.push(Vec::new());
-
-                                    //anotate each step from distinct command vectors
-                                    if d!=depth{
-                                        let higher_adrs = adrs[0..d+1].to_vec();
-                                        outer_steps.entry(higher_adrs)
-                                        .and_modify(|c| c.insert((d,j),1)).
-                                        or_insert(ClauseCounter::new((d,j),1));
-                                    }
-                                }
-
-                                //add the current clause to it's parts
                                 for (&k, &times) in &current_parts.data{
+                                    if times>=2{
+                                        part_units_queue[k].push((d,i));
+                                        part_deleted[k].insert((d,i));
+                                    }
+                                    
+                                    current_parts.inv_index.insert(k,parts[k].len());
                                     parts[k].push(ClauseData{
-                                        index: Some((depth,i)),
-                                        data: ProofCommand::Step(ps.clone()),
+                                        index: Some((d,i)),
+                                        data: ProofCommand::Assume{id: id.to_string(), term: term.clone()},
                                         local_premises: vec![]
                                     });
-
-                                    //checks if the current clause must be collected
-                                    if times>=2 && ps.clause.len()==1{
-                                        part_units_queue[k].push((depth,i));
-                                        part_deleted[k].insert((depth,i));
-                                    }
                                 }
-                            }
-                        } else { //not a resolution nor premise of a resolution
-                            let mut current_parts: &mut PartTracker;
-                            match referenced_by_parts.get_mut(&(depth,i)) {
-                                Some(value) => current_parts = value,
-                                None => {
-                                    current_parts = &mut PartTracker::new();
-                                    panic!("({depth},{i}) is not referenced by any part");
-                                }
-                            }
-                            for (&k, &times) in &current_parts.data{
-                                for &(d ,j) in &ps.premises{
-                                    referenced_by_parts.entry((d, j)).or_insert_with(|| PartTracker::new()).insert(k);
-                                }
-                                
-                                parts[k].push(ClauseData{
+                                current_parts.register(0, parts[0].len());
+                                parts[0].push(ClauseData{
                                     index: Some((depth,i)),
-                                    data: ProofCommand::Step(ps.clone()),
+                                    data: ProofCommand::Assume{id: id.to_string(), term: term.clone()},
                                     local_premises: vec![]
                                 });
                             }
-                        }
-                    }
-                }
-                ProofCommand::Subproof(sp) => {
-                    let mut adrs_sp = adrs.clone();
-                    adrs_sp.push(i);
-                    self.compress(&Some(adrs_sp), outer_steps,_pool);
-                    let last_clause = self.subproof_conclusion(&Some(adrs.clone()));
-                    let conclusion = &last_clause.clause;
-                    let resumed_to_step = 
-                    ProofStep {
-                        id: last_clause.id.clone(), 
-                        clause: conclusion.clone(), 
-                        rule: last_clause.rule.clone(), 
-                        premises: last_clause.premises.clone(), 
-                        args: last_clause.args.clone(), 
-                        discharge: last_clause.discharge.clone()
-                    };
-
-                    let mut current_parts: &mut PartTracker;
-                    match referenced_by_parts.get_mut(&(depth,i)) {
-                        Some(value) => current_parts = value,
-                        None => {
-                            current_parts = &mut PartTracker::new();
-                            panic!("({depth},{i}) is not referenced by any part");
-                        }
-                    }
-                    if coming_from_resolution.contains(&(depth,i)){
-                        for (&k, &times) in &current_parts.data{    
-                            parts[k].push(ClauseData{
-                                index: Some((depth,i)),
-                                data: ProofCommand::Step(resumed_to_step),
-                                local_premises: vec![]
-                            });
-    
-                            if times>=2 && conclusion.len()==1{
-                                part_units_queue[k].push((depth,i));
-                                part_deleted[k].insert((depth,i));
+                            ProofCommand::Step(ps) => {
+                                if let Some(mut current_parts) = referenced_by_parts.get_mut(&(d,i)){
+                                    for (&k, &times) in &current_parts.data{
+                                        parts[k].push(ClauseData{
+                                            index: Some((d,i)),
+                                            data: ProofCommand::Step(ps.clone()),
+                                            local_premises: vec![]
+                                        });
+                                        if coming_from_resolution.contains(&(d,i)){
+                                            if times>=2 && ps.clause.len()==1{
+                                                part_units_queue[k].push((d,i));
+                                                part_deleted[k].insert((d,i));
+                                            }
+                                        }
+                                    }
+                                }
                             }
-                        }
-                    } else {
-                        for (&k, &times) in &current_parts.data{    
-                            parts[k].push(ClauseData{
-                                index: Some((depth,i)),
-                                data: ProofCommand::Step(resumed_to_step),
-                                local_premises: vec![]
-                            });
+                            ProofCommand::Subproof(Sp) => {
+                                let mut adrs_sp = adrs.clone();
+                                adrs_sp.push(i);
+                                compress_later.insert(adrs_sp);
+                                let last_clause = self.subproof_conclusion(&Some(adrs.clone()));
+                                let conclusion = &last_clause.clause;
+                                let resumed_to_step = 
+                                ProofStep {
+                                    id: last_clause.id.clone(), 
+                                    clause: conclusion.clone(), 
+                                    rule: last_clause.rule.clone(), 
+                                    premises: last_clause.premises.clone(), 
+                                    args: last_clause.args.clone(), 
+                                    discharge: last_clause.discharge.clone()
+                                };
+
+                                let mut current_parts: &mut PartTracker;
+                                match referenced_by_parts.get_mut(&(d,i)) {
+                                    Some(value) => current_parts = value,
+                                    None => {
+                                        current_parts = &mut PartTracker::new();
+                                        panic!("({d},{i}) is not referenced by any part");
+                                    }
+                                }
+                                for (&k, &times) in &current_parts.data{    
+                                    parts[k].push(ClauseData{
+                                        index: Some((d,i)),
+                                        data: ProofCommand::Step(resumed_to_step.clone()),
+                                        local_premises: vec![]
+                                    });
+                                
+                                    if coming_from_resolution.contains(&(d,i)) && times>=2 && conclusion.len()==1{
+                                        part_units_queue[k].push((d,i));
+                                        part_deleted[k].insert((d,i));
+                                    
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
         }
-        
+        for v in compress_later{
+            self.compress(&Some(v), outer_steps,_pool);
+        }
         
         (parts, part_deleted, part_units_queue, referenced_by_parts)
     }
 
 
-/*
+
     // Iterates over parts that can be compressed
     // If some nodes of the proof were marked as deleted, recompute the clauses that used the deleted node as premise.
     // If a node has only one parent left, marks it as substituted by it's parent.
@@ -472,7 +500,7 @@ impl ProofCompressor{
     // substituted_in_parts: A vector where the i-th element is a list of nodes in part i that were substituted by some parent 
     fn fix_broken_proof(
         &mut self,
-        part_deleted: Vec<HashSet<usize>>,
+        part_deleted: Vec<HashSet<(usize,usize)>>,
         parts: &mut Vec<Vec<ClauseData>>,
         depth: usize,
         proof_pool: &mut PrimitivePool 
@@ -481,9 +509,6 @@ impl ProofCompressor{
         let mut substituted_in_parts: Vec<HashMap<usize, usize>> = vec![HashMap::new();parts.len()];
         for current_part_id in 0..part_deleted.len(){
             parts[current_part_id].reverse();
-            //self.print_part_ids_prems(&parts[current_part_id], Some(current_part_id));
-            
-            //println!("");
             self.local_premises_computation(current_part_id, parts);
             if part_deleted[current_part_id].len()>0{
                 for cl_data_ind in 0..parts[current_part_id].len(){
@@ -502,7 +527,7 @@ impl ProofCompressor{
                                         None => panic!("Wrong call of local_premises_computation")
                                     } 
                                 
-                                if !part_deleted[current_part_id].contains(true_index){
+                                if !part_deleted[current_part_id].contains(&true_index){
                                     not_missing_index.push((j,aux[j]));
                                 }
                             }
@@ -549,7 +574,7 @@ impl ProofCompressor{
     }
 
 
-
+/*
     // Insert the collected units and resolves them with the last element of each part and append them to the commands vector
     fn reinsert_units(
         &self,
@@ -872,7 +897,7 @@ impl ProofCompressor{
         }
     
     }
-
+*/
 
     // Assigns indices of the elements of the ind-th part that points to the location within the part of the premises of each clause
     fn local_premises_computation(
@@ -938,7 +963,7 @@ impl ProofCompressor{
         
     }
 
-
+/*
     // Receives a part, an index and a vector containing a tuple representing the premises of the ind-th clause of the part that are not
     // marked for deletion. The 1st element of the tuple is the order of the premise in the vector of premises of the clause
     // and the 2nd element in the tuple is the index of the premise within the part.
@@ -1205,80 +1230,183 @@ impl ProofCompressor{
     }
 
     fn collecting_resolutions(&self, 
-        d: usize, i: usize,
+        depth: usize, i: usize,
         sub: &Option<Vec<usize>>, 
         referenced_by_parts: &mut HashMap<(usize, usize), PartTracker>, 
         coming_from_resolution: &mut HashSet<(usize,usize)>,
         part_units_queue: &mut Vec<Vec<(usize,usize)>>,
         part_deleted: &mut Vec<HashSet<(usize,usize)>>,
         parts: &mut Vec<Vec<ClauseData>>,
-        outer_steps: &mut HashMap<Vec<usize>,ClauseCounter>,
+        outer_steps: &mut IndexMap<Vec<usize>,IndexSet<(usize,usize)>>,
         ps: &ProofStep
     ) -> (){
         let mut adrs = vec![];
-        let mut depth = 0;
-        //self.print();
         match sub{
             Some(addrs) => {
                 adrs = addrs.clone();
             }
             None => ()
         }
-        depth = adrs.len();
-        let mut current_parts: &mut PartTracker;
+        /*let mut current_parts: &mut PartTracker;
         match referenced_by_parts.get_mut(&(depth,i)) {
             Some(value) => current_parts = value,
             None => {
                 current_parts = &mut PartTracker::new();
                 panic!("({depth},{i}) is not referenced by any part");
             }
+        }*/
+        let mut part_references: Vec<(usize,usize,usize)> = vec![];
+        if let Some(mut current_parts) = referenced_by_parts.get_mut(&(depth,i)){
+            let mut new_tracker = PartTracker::new();
+            if !coming_from_resolution.contains(&(depth,i)){ 
+                let new_part = parts.len();
+                part_units_queue.push(Vec::new());
+                part_deleted.push(HashSet::new());
+                current_parts = &mut new_tracker;
+                parts.push(Vec::new());
+                current_parts.insert(new_part);
+            }
+
+            for (&k, &times) in &current_parts.data{
+                //Counts how many times each premise shows up in the current parts 
+                for &(d, j) in &ps.premises{
+                    //must anotate instead of updating references due to borrow checker
+                    part_references.push((d,j,k));
+                    coming_from_resolution.insert((d,j));
+
+                    //anotate each step from distinct command vectors
+                    if d!=depth{
+                        let higher_adrs = adrs[0..d+1].to_vec();
+                        outer_steps.entry(higher_adrs)
+                        .and_modify(|c| {c.insert((d,j));}).
+                        or_insert(IndexSet::from([(d,j)]));
+                    }
+                }
+                
+                
+                //add the current clause to it's parts
+                parts[k].push(ClauseData{
+                    index: Some((depth,i)),
+                    data: ProofCommand::Step(ps.clone()),
+                    local_premises: vec![]
+                });
+
+                //checks if the current clause must be collected
+                if times>=2 && ps.clause.len()==1{
+                    part_units_queue[k].push((depth,i));
+                    part_deleted[k].insert((depth,i));
+                }
+            }
+        }
+        for (d,j,k) in part_references{
+            referenced_by_parts.entry((d,j)).or_insert_with(|| PartTracker::new()).insert(k);
+            //Anotate the position of the current clause in each of the current parts
+            if let Some(mut current_parts) = referenced_by_parts.get_mut(&(depth,i)){
+                current_parts.register(k,parts[k].len());
+            }
         }
 
-        //checks if this clause is premise of any resolution
-        //if isn't, this is the last clause of a part with only resolutions
-        //so, a new part is created and the previous part anotations are discarded
-        if !coming_from_resolution.contains(&(depth,i)){ 
-            let new_part = parts.len();
-            part_units_queue.push(Vec::new());
-            part_deleted.push(HashSet::new());
-            current_parts = &mut PartTracker::new();
-            parts.push(Vec::new());
-            current_parts.insert(new_part);
+    }
+
+    fn collecting_resolution_premises(&self, 
+        depth: usize, i: usize,
+        sub: &Option<Vec<usize>>, 
+        referenced_by_parts: &mut HashMap<(usize, usize), PartTracker>, 
+        coming_from_resolution: &mut HashSet<(usize,usize)>,
+        part_units_queue: &mut Vec<Vec<(usize,usize)>>,
+        part_deleted: &mut Vec<HashSet<(usize,usize)>>,
+        parts: &mut Vec<Vec<ClauseData>>,
+        outer_steps: &mut IndexMap<Vec<usize>,IndexSet<(usize,usize)>>,
+        ps: &ProofStep
+    ) -> (){
+        let mut adrs = vec![];
+        match sub{
+            Some(addrs) => {
+                adrs = addrs.clone();
+            }
+            None => ()
+        }
+        let (premise_depth, premise_loc) = ps.premises[0];
+        let premise: &ProofCommand;
+        if premise_depth==depth{
+            premise = &self.proof.commands[premise_loc];
+        } else {
+            let slice = &adrs[0..(premise_depth+1)];
+            premise = &self.get_subproof_commands(slice)[premise_loc];
         }
 
-        for (&k, &times) in &current_parts.data{
-            //Counts how many times each premise shows up in the current parts 
+        if ps.rule=="or" && premise.is_assume(){ //if the rule is an "or" applied over an "assume", anotate the assume only in the part 0
+            referenced_by_parts.entry((premise_depth, premise_loc)).or_insert_with(|| PartTracker::new()).insert(0);
+        } else {
+        //create a new part for each premise of the node, as each premise may
+        //come from an independent resolution tree
             for &(d, j) in &ps.premises{
-                referenced_by_parts.entry((d,j)).or_insert_with(|| PartTracker::new()).insert(k);
-                coming_from_resolution.insert((d,j));
+                let new_part = parts.len();
+                part_units_queue.push(Vec::new());
+                part_deleted.push(HashSet::new());
+                referenced_by_parts.entry((d, j)).or_insert_with(|| PartTracker::new()).insert(new_part);
+                parts.push(Vec::new());
 
                 //anotate each step from distinct command vectors
                 if d!=depth{
                     let higher_adrs = adrs[0..d+1].to_vec();
-                    outer_steps.entry(higher_adrs)
-                    .and_modify(|c| c.insert((d,j),1)).
-                    or_insert(ClauseCounter::new((d,j),1));
+                        outer_steps.entry(higher_adrs)
+                        .and_modify(|c| {c.insert((d,j));}).
+                        or_insert(IndexSet::from([(d,j)]));
                 }
             }
 
-            //Anotate the position of the current clause in each of the current parts
-            current_parts.register(k,parts[k].len());
-            
-            
-            //add the current clause to it's parts
-            parts[k].push(ClauseData{
-                index: Some((depth,i)),
-                data: ProofCommand::Step(ps.clone()),
-                local_premises: vec![]
-            });
+            let mut current_parts: &mut PartTracker;
+            match referenced_by_parts.get_mut(&(depth,i)) {
+                Some(value) => current_parts = value,
+                None => {
+                    current_parts = &mut PartTracker::new();
+                    panic!("({depth},{i}) is not referenced by any part");
+                }
+            }
 
-            //checks if the current clause must be collected
-            if times>=2 && ps.clause.len()==1{
-                part_units_queue[k].push((depth,i));
-                part_deleted[k].insert((depth,i));
+            //add the current clause to it's parts
+            for (&k, &times) in &current_parts.data{
+                parts[k].push(ClauseData{
+                    index: Some((depth,i)),
+                    data: ProofCommand::Step(ps.clone()),
+                    local_premises: vec![]
+                });
+
+                //checks if the current clause must be collected
+                if times>=2 && ps.clause.len()==1{
+                    part_units_queue[k].push((depth,i));
+                    part_deleted[k].insert((depth,i));
+                }
             }
         }
+    }
 
+    fn not_resoltion_nor_premises(&self, 
+        depth: usize, i: usize,
+        referenced_by_parts: &mut HashMap<(usize, usize), PartTracker>, 
+        parts: &mut Vec<Vec<ClauseData>>,
+        ps: &ProofStep
+    ) -> (){
+        let mut to_collect: Vec<((usize,usize),usize)> = vec![];
+        if let Some(ref mut current_parts) = referenced_by_parts.get(&(depth,i)){
+            for (&k, &times) in &current_parts.data{
+                for &(d ,j) in &ps.premises{
+                    to_collect.push(((d,j),k));
+                }
+                
+                parts[k].push(ClauseData{
+                    index: Some((depth,i)),
+                    data: ProofCommand::Step(ps.clone()),
+                    local_premises: vec![]
+                });
+            }
+        } else {
+            panic!("({depth},{i}) is not referenced by any part");
+        }
+        for ((d,j),k) in to_collect{
+            referenced_by_parts.entry((d, j)).or_insert_with(|| PartTracker::new()).insert(k);
+        }
     }
 
 }
