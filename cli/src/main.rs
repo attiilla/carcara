@@ -80,6 +80,9 @@ enum Command {
 
     /// Generates the equivalent SMT instance for every `lia_generic` step in a proof.
     GenerateLiaProblems(ParseCommandOptions),
+
+    /// Compress a proof
+    Compress(CompressCommandOptions),
 }
 
 #[derive(Args)]
@@ -337,6 +340,18 @@ struct ElaborateCommandOptions {
 }
 
 #[derive(Args)]
+struct CompressCommandOptions {
+    #[clap(flatten)]
+    input: Input,
+
+    #[clap(flatten)]
+    parsing: ParsingOptions,
+
+    #[clap(flatten)]
+    elaboration: ElaborationOptions,
+}
+
+#[derive(Args)]
 struct BenchCommandOptions {
     #[clap(flatten)]
     parsing: ParsingOptions,
@@ -430,6 +445,7 @@ fn main() {
 
     if let Command::Check(CheckCommandOptions { checking, .. })
     | Command::Elaborate(ElaborateCommandOptions { checking, .. })
+    | Command::Compress(CompressCommandOptions { checking, ..})
     | Command::Bench(BenchCommandOptions { checking, .. }) = &cli.command
     {
         if checking.skip_unknown_rules {
@@ -464,6 +480,12 @@ fn main() {
                 } else {
                     println!("valid");
                 }
+                ast::print_proof(&mut pool, &prelude, &proof, !cli.no_print_with_sharing)?;
+                Ok(())
+            })
+        }
+        Command::Compress(options) => {
+            compress_command(options).and_then(|(prelude, proof, mut pool)| {
                 ast::print_proof(&mut pool, &prelude, &proof, !cli.no_print_with_sharing)?;
                 Ok(())
             })
@@ -544,6 +566,22 @@ fn elaborate_command(
         elab_config,
         pipeline,
         options.stats.stats,
+    )
+    .map_err(CliError::CarcaraError)
+}
+
+fn compress_command(
+    options: CompressCommandOptions
+) -> CliResult<(ast::ProblemPrelude, ast::Proof, ast::PrimitivePool)>{
+    let (problem, proof) = get_instance(&options.input)?;
+
+    let (elab_config, pipeline) = options.elaboration.into();
+    compress(
+        problem,
+        proof,
+        options.parsing.into(),
+        elab_config,
+        pipeline
     )
     .map_err(CliError::CarcaraError)
 }

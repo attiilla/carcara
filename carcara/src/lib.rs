@@ -268,6 +268,38 @@ pub fn check_and_elaborate<T: io::BufRead>(
     Ok((checking_result, prelude, elaborated, pool))
 }
 
+pub fn compress<T: io::BufRead>(
+    problem: T,
+    proof: T,
+    parser_config: parser::Config,
+    elaborator_config: elaborator::Config,
+    pipeline: Vec<elaborator::ElaborationStep>,
+) -> Result<(ast::ProblemPrelude, ast::Proof, ast::PrimitivePool), Error>{
+    let mut run: RunMeasurement = RunMeasurement::default();
+
+    // Parsing
+    let total = Instant::now();
+    let (prelude, proof, mut pool) = parser::parse_instance(problem, proof, parser_config)?;
+    run.parsing = total.elapsed();
+
+    // Elaborating
+    let elaboration = Instant::now();
+
+    let node = ast::ProofNode::from_commands(proof.commands);
+    let (elaborated, pipeline_durations) =
+        elaborator::Elaborator::new(&mut pool, &proof.premises, &prelude, elaborator_config)
+            .elaborate_with_stats(&node, pipeline);
+    let elaborated = ast::Proof {
+        commands: elaborated.into_commands(),
+        ..proof
+    };
+
+    //Compressing
+    let compressor = ProofCompressor::from(elaborated);
+    let compressed = compressor.compress_proof();
+    Ok((prelude, compressed, pool))
+}
+
 pub fn generate_lia_smt_instances<T: io::BufRead>(
     problem: T,
     proof: T,
