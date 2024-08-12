@@ -226,7 +226,7 @@ pub(super) mod extras;
 pub(super) mod linear_arithmetic;
 pub(super) mod quantifier;
 pub(super) mod reflexivity;
-pub(super) mod resolution;
+pub mod resolution;
 pub(super) mod simplification;
 pub(super) mod strings;
 pub(super) mod subproof;

@@ -40,11 +40,13 @@ pub mod benchmarking;
 pub mod checker;
 pub mod elaborator;
 pub mod parser;
+pub mod compressor;
 mod resolution;
 mod utils;
 
 use crate::benchmarking::{CollectResults, OnlineBenchmarkResults, RunMeasurement};
 use checker::{error::CheckerError, CheckerStatistics};
+use compressor::ProofCompressor;
 use parser::{ParserError, Position};
 use std::io;
 use std::time::{Duration, Instant};
@@ -295,7 +297,7 @@ pub fn compress<T: io::BufRead>(
     };
 
     //Compressing
-    let compressor = ProofCompressor::from(elaborated);
+    let mut compressor = ProofCompressor::from(elaborated);
     let compressed = compressor.compress_proof();
     Ok((prelude, compressed, pool))
 }

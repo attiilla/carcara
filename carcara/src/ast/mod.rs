@@ -6,12 +6,12 @@
 mod macros;
 mod context;
 mod iter;
-mod node;
+pub mod node;
 mod polyeq;
 pub mod pool;
 pub(crate) mod printer;
-mod proof;
-mod rc;
+pub mod proof;
+pub mod rc;
 mod substitution;
 mod term;
 #[cfg(test)]

@@ -5,7 +5,7 @@ mod path_args;
 
 use carcara::{
     ast, benchmarking::OnlineBenchmarkResults, check, check_and_elaborate, check_parallel, checker,
-    elaborator, generate_lia_smt_instances, parser,
+    compress, elaborator, generate_lia_smt_instances, parser,
 };
 use clap::{AppSettings, ArgEnum, Args, Parser, Subcommand};
 use const_format::{formatcp, str_index};
@@ -445,7 +445,6 @@ fn main() {
 
     if let Command::Check(CheckCommandOptions { checking, .. })
     | Command::Elaborate(ElaborateCommandOptions { checking, .. })
-    | Command::Compress(CompressCommandOptions { checking, ..})
     | Command::Bench(BenchCommandOptions { checking, .. }) = &cli.command
     {
         if checking.skip_unknown_rules {

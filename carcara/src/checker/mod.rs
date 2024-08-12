@@ -1,6 +1,6 @@
 pub mod error;
 mod parallel;
-mod rules;
+pub mod rules;
 
 use crate::{
     ast::*,

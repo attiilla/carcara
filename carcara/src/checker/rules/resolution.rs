@@ -130,7 +130,7 @@ pub fn strict_resolution(
     }
 }
 
-fn apply_generic_resolution<'a, C: ClauseCollection<'a>>(
+pub fn apply_generic_resolution<'a, C: ClauseCollection<'a>>(
     premises: &'a [Premise],
     args: &'a [ProofArg],
     pool: &mut dyn TermPool,
