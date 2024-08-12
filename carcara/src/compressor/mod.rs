@@ -1,3 +1,5 @@
+mod tracker;
+//mod error;
 use crate::ast::proof::*;
 use crate::ast::node::*;
 use std::collections::{HashSet, HashMap};
@@ -8,6 +10,7 @@ use crate::checker::error::CheckerError;
 use crate::ast::rc::Rc;
 use indexmap::{IndexMap, IndexSet};
 use std::env;
+use tracker::*;
 
 
 #[derive(Debug)]
@@ -17,10 +20,13 @@ pub struct ProofCompressor{
     sp_stack: Vec<Vec<AnchorArg>>
 }
 
-struct DisjointPart{
-    commands: Vec<PartSteps>
+#[derive(Debug)]
+pub struct DisjointPart{
+    commands: Vec<PartSteps>,
+    number: usize
 }
 
+#[derive(Debug)]
 struct PartSteps{
     ind: usize,
     proof_ind: Option<(usize,usize)>,
@@ -28,19 +34,15 @@ struct PartSteps{
     //term: Rc<Term>
 }
 
-struct PartTracker{
-
-}
-
 impl DisjointPart{
-    fn new() -> DisjointPart{
+    fn new(number: usize) -> DisjointPart{
         DisjointPart{
-            commands: vec![]
+            commands: vec![],
+            number
         }
     }
-
-
 }
+
 
 impl ProofCompressor{
     pub fn from(p: Proof)->ProofCompressor{
@@ -73,8 +75,8 @@ impl ProofCompressor{
         let n = commands.len();
         let mut deduced_by_resolution: Vec<bool> = vec![false;n]; 
         let mut parts: Vec<DisjointPart> = vec![];
-        parts.push(DisjointPart::new()); //the part 0 must contain all the assumes
-        parts.push(DisjointPart::new()); //the part 1 must contain the conclusion
+        parts.push(DisjointPart::new(0)); //the part 0 must contain all the assumes
+        parts.push(DisjointPart::new(1)); //the part 1 must contain the conclusion
         for i in (0..n).rev(){
             match &commands[i]{
                 ProofCommand::Assume{id, term} => {
@@ -88,6 +90,13 @@ impl ProofCompressor{
                 }
             };
         }
+        let mut pt = PartTracker::new();
+        let dj = &DisjointPart{
+            commands: vec![],
+            number: 3
+        };
+        pt.add_step_to_part((1,2), dj);
+        pt.add_step_to_part((1,2), dj);
         ()
     }
 
