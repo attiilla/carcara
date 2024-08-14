@@ -8,6 +8,7 @@ use indexmap::IndexSet;
 pub struct DisjointPart{
     pub part_commands: Vec<PartStep>,
     pub units_queue: IndexSet<(usize,usize)>,
+    pub compressible: bool,
 }
 
 #[derive(Debug)]
@@ -22,10 +23,11 @@ pub struct PartStep{
 }
 
 impl DisjointPart{
-    pub fn new() -> Self{
+    pub fn new(is_resolution: bool) -> Self{
         Self{
             part_commands: vec![],
             units_queue: IndexSet::new(),
+            compressible: is_resolution 
         }
     }
 }

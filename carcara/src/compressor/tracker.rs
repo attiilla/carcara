@@ -11,25 +11,27 @@ use crate::ast::term::Term;
 #[derive(Debug)]
 pub(super) struct PartTracker{
     track_data: HashMap<(usize,usize), TrackerData>,
-    parts: Vec<DisjointPart>
+    parts: Vec<DisjointPart>,
+    resolutions_premises: HashSet<(usize, usize)>,
 }
 
 #[derive(Debug)]
 struct TrackerData{
     parts_belonged: HashSet<usize>, //the parts (i, j) belong to
     part_count: HashMap<usize, usize>, //stores the number of times (i,j) appears on the part key
-    pub inv_index: HashMap<usize, usize>, //the index of (i,j) in the part key
+    inv_index: HashMap<usize, usize>, //the index of (i,j) in the part key
     global_index: (usize, usize) //the (i, j)
 }
 
 impl PartTracker{
-    pub fn new() -> Self{
+    pub fn new(end_in_resolution: bool) -> Self{
         let mut parts: Vec<DisjointPart> = Vec::new();
-        parts.push(DisjointPart::new()); //the part 0 must contain all the assumes
-        parts.push(DisjointPart::new()); //the part 1 must contain the conclusion
+        parts.push(DisjointPart::new(false)); //the part 0 must contain all the assumes
+        parts.push(DisjointPart::new(end_in_resolution)); //the part 1 must contain the conclusion
         Self{
             track_data: HashMap::new(),
             parts,
+            resolutions_premises: HashSet::new(),
         }
     }
 
@@ -59,9 +61,9 @@ impl PartTracker{
         }
     }
 
-    pub fn add_step_to_new_part(&mut self, step: (usize, usize)) -> usize{//OK
+    pub fn add_step_to_new_part(&mut self, step: (usize, usize), is_resolution: bool) -> usize{//OK
         let new_part_ind: usize = self.parts.len();
-        self.parts.push(DisjointPart::new());
+        self.parts.push(DisjointPart::new(is_resolution));
         self.add_step_to_part(step, new_part_ind);
         new_part_ind
     }
@@ -130,6 +132,41 @@ impl PartTracker{
             },
             None => panic!("Impossible adding to queue of a part that doesn't exist")
         }
+    }
+
+    pub fn set_resolutions_premise(&mut self, step: (usize, usize)){
+        self.resolutions_premises.insert(step)
+    }
+
+    pub fn is_premise_of_resolution(&self, step: (usize, usize)) -> bool{
+        self.resolutions_premises.contains(&step)
+    }
+
+    pub fn is_resolution_part(&self, part_ind: usize) -> bool{
+        match self.parts.get(part_ind){
+            Some(D) => D.compressible,
+            None => panic!("There is no part with such a high index")
+        }
+    }
+
+    pub fn resolution_parts(&self, step: (usize, usize)) -> Vec<usize>{
+        let mut ans: Vec<usize> = Vec::new();
+        for (i,p) in self.parts.iter().enumerate(){
+            if p.compressible{
+                ans.push(i);
+            }
+        }
+        ans
+    }
+
+    pub fn non_resolution_parts(&self, step: (usize, usize)) -> Vec<usize>{
+        let mut ans: Vec<usize> = Vec::new();
+        for (i,p) in self.parts.iter().enumerate(){
+            if !p.compressible{
+                ans.push(i);
+            }
+        }
+        ans
     }
 }
 
