@@ -13,7 +13,7 @@ pub(crate) mod printer;
 pub mod proof;
 pub mod rc;
 mod substitution;
-mod term;
+pub mod term;
 #[cfg(test)]
 mod tests;
 
