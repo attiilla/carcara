@@ -16,6 +16,8 @@ pub struct PartStep{
     ind: usize,
     proof_ind: Option<(usize,usize)>,
     premises: Vec<(usize,usize)>,
+    indirect_premises: Vec<(usize,usize)>,
+    local_premises: Vec<usize>,
     rule: String,
     clause: Vec<Rc<Term>>,
     args: Vec<ProofArg>
@@ -27,7 +29,15 @@ impl DisjointPart{
         Self{
             part_commands: vec![],
             units_queue: IndexSet::new(),
-            compressible: is_resolution 
+            compressible: is_resolution,
+            
+        }
+    }
+
+    pub fn conclusion(&self) -> &Vec<Rc<Term>>{
+        match self.part_commands.get(0){
+            None => panic!("This part is empty"),
+            Some(ps) => &ps.clause
         }
     }
 }
@@ -37,6 +47,7 @@ impl PartStep{
         ind: usize, 
         proof_ind: Option<(usize,usize)>,
         premises: Vec<(usize,usize)>,
+        indirect_premises: Vec<(usize,usize)>,
         rule: String,
         clause: Vec<Rc<Term>>,
         args: Vec<ProofArg>,
@@ -45,6 +56,8 @@ impl PartStep{
             ind,
             proof_ind,
             premises,
+            indirect_premises,
+            local_premises: vec![],
             rule,
             clause,
             args,

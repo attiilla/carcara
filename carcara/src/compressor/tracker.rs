@@ -20,7 +20,9 @@ struct TrackerData{
     parts_belonged: HashSet<usize>, //the parts (i, j) belong to
     part_count: HashMap<usize, usize>, //stores the number of times (i,j) appears on the part key
     inv_index: HashMap<usize, usize>, //the index of (i,j) in the part key
-    global_index: (usize, usize) //the (i, j)
+    global_index: (usize, usize), //the (i, j)
+    is_conclusion: bool,
+    cant_be_deleted: bool,
 }
 
 impl PartTracker{
@@ -35,11 +37,31 @@ impl PartTracker{
         }
     }
 
+    pub fn set_is_conclusion(&mut self, step: (usize,usize)){
+        match self.track_data.get_mut(&step){
+            Some(tracker) => tracker.is_conclusion = true,
+            None => panic!("This step isn't being tracked")
+        }
+    }
+
+    pub fn set_cant_be_deleted(&mut self, step: (usize,usize)){
+        match self.track_data.get_mut(&step){
+            Some(tracker) => tracker.cant_be_deleted = true,
+            None => panic!("This step isn't being tracked")
+        }
+    }
+
+    pub fn must_be_a_new_conclusion(&self, step: (usize,usize)) -> bool{
+        match self.track_data.get(&step){
+            Some(tracker) => !tracker.is_conclusion && tracker.cant_be_deleted,
+            None => panic!("This step isn't being tracked")
+        }
+    } 
+
     pub fn add_step_to_part(&mut self, step: (usize, usize), part_ind: usize){//OK
         match self.track_data.get_mut(&step){
-            Some(tracker) => { // The step is already in some part
-                tracker.add_one_more_to_part(part_ind);
-            }
+            // The step is already in some part 
+            Some(tracker) => tracker.add_one_more_to_part(part_ind),
             None => { // The step is new
                 let tracker = TrackerData::new(step, part_ind, None);
                 self.track_data.insert(step,tracker);
@@ -65,30 +87,40 @@ impl PartTracker{
         let new_part_ind: usize = self.parts.len();
         self.parts.push(DisjointPart::new(is_resolution));
         self.add_step_to_part(step, new_part_ind);
+        self.set_is_conclusion(step);
         new_part_ind
     }
 
-    pub fn clone_data_to_part(&mut self, step: (usize, usize), part_ind: usize, commands: &Vec<ProofCommand>){//OK
+    pub fn clone_data_to_part(&mut self, step: (usize, usize), part_ind: usize, commands: &Vec<ProofCommand>, sub_full_premises: Option<Vec<(usize,usize)>>){//OK
         let mut part_commands: &mut Vec<PartStep> = &mut self.parts[part_ind].part_commands;
         let ind = part_commands.len();
         let premises: Vec<(usize,usize)>;
+        let indirect_premises: Vec<(usize,usize)>;
+        let local_premises: Vec<usize> = vec![];
         let rule: String;
         let clause: Vec<Rc<Term>>;
         let args: Vec<ProofArg>;
         match commands.get(step.1){
             Some(ProofCommand::Assume { id, term })=> {
                 premises = vec![];
+                indirect_premises = vec![];
                 rule = "Assume".to_string();
                 clause = vec![Rc::clone(term)];
                 args = vec![];
             }
             Some(ProofCommand::Step(ps)) => {
                 premises = ps.premises.clone();
+                indirect_premises = vec![];
                 rule = ps.rule.clone();
                 clause = ps.clause.clone();
                 args = ps.args.clone();
             }
             Some(ProofCommand::Subproof(sp)) => {
+                match sub_full_premises{
+                    Some(v) => indirect_premises = v,
+                    None => panic!("All clauses used internally by this subproof that aren't from this subproof must be passed here.\n
+                    You must pass an empty vector if the subproof uses no such clauses.")
+                }
                 match sp.commands.last(){
                     Some(ProofCommand::Step(sub_ps)) => {
                         premises = sub_ps.premises.clone();
@@ -106,12 +138,14 @@ impl PartTracker{
             ind,
             Some(step),
             premises,
+            indirect_premises,
             rule,
             clause,
             args,
         );
         part_commands.push(part_step);
     }
+
 
     pub fn counting_in_part(&self, step: (usize, usize), part_ind: usize) -> usize{
         match self.track_data.get(&step){
@@ -135,7 +169,7 @@ impl PartTracker{
     }
 
     pub fn set_resolutions_premise(&mut self, step: (usize, usize)){
-        self.resolutions_premises.insert(step)
+        self.resolutions_premises.insert(step);
     }
 
     pub fn is_premise_of_resolution(&self, step: (usize, usize)) -> bool{
@@ -183,7 +217,9 @@ impl TrackerData{
             parts_belonged,
             part_count,
             inv_index,
-            global_index: key
+            global_index: key,
+            is_conclusion: false,
+            cant_be_deleted: false,
         }
     }
 

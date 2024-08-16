@@ -1,3 +1,6 @@
+//Question: outer_premises that aren't resolution can be thrown out after cloning their data to the parts?
+//Only steps that are resolution and are premise of another resolution are compressed by lower units
+
 mod tracker;
 mod disjoints;
 mod error;
@@ -17,21 +20,17 @@ use tracker::*;
 
 
 #[derive(Debug)]
-pub struct ProofCompressor<'a>{
-    pub proof: Proof,
-    sp_binder: HashSet<&'static str>,
-    sp_stack: Vec<&'a mut Subproof>
+pub struct ProofCompressor{
+    proof: Proof,
 }
 
+//sp_binder: HashSet<&'static str>,
+//sp_binder: HashSet::from_iter(vec!["subproof","let","sko_ex","sko_forall","bind","onepoint"].into_iter()),
 
-
-
-impl<'a> ProofCompressor<'a>{
+impl ProofCompressor{
     pub fn from(p: Proof)->Self{
         Self{
             proof: p,
-            sp_binder: HashSet::from_iter(vec!["subproof","let","sko_ex","sko_forall","bind","onepoint"].into_iter()),
-            sp_stack: Vec::new()
         }
     }
 
@@ -50,40 +49,26 @@ impl<'a> ProofCompressor<'a>{
     }*/
 
     pub fn compress_proof(&mut self) -> Proof{
-        self.lower_units(None);
+        self.lower_units(vec![]);
         self.proof.clone()
     }
 
-    fn lower_units(&mut self, sub: Option<&'a mut Subproof>) -> Result<(), ()> {
-        let n: usize;
-        match sub{
-            Some(sp) => {
-                self.sp_stack.push(sp);
-                n = self.sp_stack.len();
-            }
-            None => n = 0
-        };
-        self.collect_units(n);
-        Ok(())
+    fn lower_units(&mut self, sub_adrs: Vec<usize>) -> Result<IndexSet<(usize,usize)>, ()> {
+        let (pt, premises_from_sub) = self.collect_units( &sub_adrs);
+        Ok(premises_from_sub)
     }
 
-    fn collect_units(&mut self, depth: usize) -> (){
-        let depth: usize = self.sp_stack.len();
-        let commands: &Vec<ProofCommand>;
-        if depth==0{
-            commands = &self.proof.commands;
-        }else{
-            commands = &self.sp_stack[depth-1].commands;
-        }
+    fn collect_units(&mut self, sub_adrs: &Vec<usize>) -> (PartTracker, IndexSet<(usize,usize)>){
+        let (subproof_to_outer_premises, mut outer_premises)= self.process_subproofs(sub_adrs);
+        let depth: usize = sub_adrs.len();
+        let commands: &Vec<ProofCommand> = self.dive_into_proof(sub_adrs);
+        //let m_commands: &mut Vec<ProofCommand> = ;
         let n = commands.len();
-
-
-        let mut pt = PartTracker::new(self.is_resolution((depth,n-1)));
-        let mut outer_premises: IndexSet<(usize,usize)> = IndexSet::new();
+        let mut pt = PartTracker::new(self.step_is_resolution((depth,n-1), sub_adrs));
         pt.add_step_to_part((depth,n-1),1); //adds conclusion to part 1
-        for i in (0..n).rev(){
-            //collect_inner_units(depth,sub,premise_of_resolution,pt,outer_premises)
-            match &commands[i]{
+        pt.set_is_conclusion((depth,n-1));
+        for (i, c) in commands.iter().enumerate().rev(){
+            match c{
                 ProofCommand::Assume{id, term} => {
                     // Select the parts whose the current step belong to
                     let mut containing: Vec<usize> = vec![];
@@ -97,13 +82,14 @@ impl<'a> ProofCompressor<'a>{
 
                     for &containing_part in &containing{
                         // Check if this step must be collected in this part
-                        if pt.is_resolutions_premise_in_part((depth,i), containing_part) &&
-                        pt.counting_in_part((depth,i), containing_part)>=2
+                        if pt.is_premise_of_resolution((depth,i)) &&
+                        pt.counting_in_part((depth,i), containing_part)>=2 &&
+                        pt.is_resolution_part(containing_part)
                         {
                             pt.add_to_units_queue_of_part((depth,i),containing_part);
                         }
                         // Now the data in the Assume should be added to the DisjointParts of the Tracker
-                        pt.clone_data_to_part((depth,i),containing_part, commands);
+                        pt.clone_data_to_part((depth,i),containing_part, commands, None);
                     }
                 }
 
@@ -113,14 +99,22 @@ impl<'a> ProofCompressor<'a>{
                     match pt.parts_containing((depth,i)){
                         Ok(v) => containing = v,
                         Err(CollectionError::NodeWithoutInwardEdge) => {
-                            let new_part_ind: usize = pt.add_step_to_new_part((depth,i),self.is_resolution((depth,i)));
+                            let new_part_ind: usize = pt.add_step_to_new_part((depth,i),self.step_is_resolution((depth,i), sub_adrs));
                             containing.push(new_part_ind);
                         }
                         Err(_) => panic!("Unexpected error"),
                     }
-
+                    
+                    // Case 1
                     // If this node is a resolution, every premise is in the same parts
                     if ps.rule == "resolution" || ps.rule == "th-resolution" {
+                        // First we check if this is one of the steps that can't be deleted
+                        // If it isn't conclusion of a part and can't be deleted, we create a 
+                        // new part with this step as conclusion
+                        if pt.must_be_a_new_conclusion((depth,i)){
+                            let new_part_ind: usize = pt.add_step_to_new_part((depth,i), true);
+                            containing.push(new_part_ind);
+                        }
                         for &containing_part in &containing{
                             for &prem in &ps.premises{
                                 pt.add_step_to_part(prem, containing_part);
@@ -131,15 +125,16 @@ impl<'a> ProofCompressor<'a>{
                             }
 
                             // Now the data in the ProofStep should be added to the DisjointParts of the Tracker
-                            pt.clone_data_to_part((depth,i),containing_part, commands);
+                            pt.clone_data_to_part((depth,i),containing_part, commands, None);
 
                             // Check if this step must be collected in this part
-                            if pt.counting_in_part((depth,i), containing_part)>=2 && self.get_clause_len((depth,i))==1{
+                            if pt.counting_in_part((depth,i), containing_part)>=2 && self.get_clause_len((depth,i), sub_adrs)==1{
                                 pt.add_to_units_queue_of_part((depth,i),containing_part);
                             }
                         }
                     }
 
+                    // Case 2
                     // If this node is not a resolution but is premise of a resolution,
                     // it will be in the same parts as the resolutions who use it, but its
                     // premises will be in their own parts if they are resolutions
@@ -147,7 +142,7 @@ impl<'a> ProofCompressor<'a>{
                     else if pt.is_premise_of_resolution((depth,i)){
                         let mut premise_not_r: Vec<(usize,usize)> = vec![];
                         for &prem in &ps.premises{
-                            if self.is_resolution(prem){
+                            if self.step_is_resolution(prem, sub_adrs){
                                 pt.add_step_to_new_part((depth,i), true); // creates new parts for the premises that are resolutions
                             } else {
                                 premise_not_r.push(prem); // stores the premises that aren't resolutions
@@ -159,42 +154,34 @@ impl<'a> ProofCompressor<'a>{
 
                         // Here we will add the non-resolution premises to non-resolution parts where this node belongs to 
                         // or create a single part for this node and all it's non-resolution premises
-                        if premise_nor_r.len()>0{ // checks if there is a non-resolution premise
+                        if premise_not_r.len()>0{ // checks if there is a non-resolution premise
                             let non_resolution_parts = pt.non_resolution_parts((depth,i));
                             if non_resolution_parts.len()==0{ // checks if every part of this step is a resolution part, so we will create a new part
                                 let new_part_ind: usize = pt.add_step_to_new_part((depth,i), false);
                                 containing.push(new_part_ind);
-                                for prem in premise_not_r{
+                                for &prem in &premise_not_r{
                                     pt.add_step_to_part(prem, new_part_ind)
                                 }
                             } else {
                                 for containing_part in non_resolution_parts{
-                                    for prem in premise_not_r{
+                                    for &prem in &premise_not_r{
                                         pt.add_step_to_part(prem, containing_part)
                                     }
                                 }
                             }
                         }
-                        
+                        // Now the data in the ProofStep should be added to the DisjointParts of the Tracker
                         for &containing_part in &containing{    
-                            // Now the data in the ProofStep should be added to the DisjointParts of the Tracker
-                            pt.clone_data_to_part((depth,i),containing_part, commands);
-
-                            // Check if this step must be collected in this part
-                            if pt.counting_in_part((depth,i), containing_part)>=2 &&
-                            self.get_clause_len((depth,i))==1 &&
-                            pt.is_resolution_part(containing_part)
-                            {
-                                pt.add_to_units_queue_of_part((depth,i),containing_part);
-                            }
+                            pt.clone_data_to_part((depth,i),containing_part, commands, None);
                         }
                     }
 
+                    // Case 3
                     // If the node is not a resolution nor premise of one
                     else {
                         for &prem in &ps.premises{
                             // If the premise is a resolution, it will be the conclusion of a new part
-                            if self.get_rule(prem) == "resolution" || self.get_rule(prem) == "th-resolution"{
+                            if self.get_rule(prem, sub_adrs) == "resolution" || self.get_rule(prem, sub_adrs) == "th-resolution"{
                                 if prem.0!=depth{
                                     outer_premises.insert(prem);
                                 } else {
@@ -213,59 +200,158 @@ impl<'a> ProofCompressor<'a>{
                         }
                         for &containing_part in &containing{
                             // Now the data in the ProofStep should be added to the DisjointParts of the Tracker
-                            pt.clone_data_to_part((depth,i),containing_part, commands);
+                            pt.clone_data_to_part((depth,i),containing_part, commands, None);
                         }
                     }
                 }
                 
                 ProofCommand::Subproof(sp) => {
+                    // At first, recursivelly call lower units on the subproof
+                    // it should return every premise used by the subproof that is outside of the subproof
+                    /*let mut new_subproof_adrs = sub_adrs.clone();
+                    new_subproof_adrs.push(i);
+                    let sp_result: Result<IndexSet<(usize,usize)>,_> = self.lower_units(new_subproof_adrs);*/
+                    let sp_premises: Vec<(usize,usize)>;
+                    match subproof_to_outer_premises.get(&i){
+                        Some(v) => sp_premises = v.iter().cloned().collect(),
+                        None => panic!("No outer premises. Add an empty set to the structure if a subproof has no outer premise")
+                    };
+                    let same_depth_premises: Vec<(usize,usize)> = sp_premises.iter().filter( |&&x | x.0==depth).cloned().collect();
+                    let other_depth_premises: Vec<(usize,usize)> = sp_premises.iter().filter( |&&x | x.0<depth).cloned().collect();
+                    outer_premises.extend(other_depth_premises);
+
+                    
                     // Select the parts whose the current step belong to
                     let mut containing: Vec<usize> = vec![];
                     match pt.parts_containing((depth,i)){//WARNING
                     //CORNER CASE TO TEST: Node is a subproof that isn't used as premise for any node of same depth
                         Ok(v) => containing = v,
                         Err(CollectionError::NodeWithoutInwardEdge) => {
-                            let new_part_ind: usize = pt.add_step_to_new_part((depth,i),self.is_resolution((depth,i)));
+                            let new_part_ind: usize = pt.add_step_to_new_part((depth,i), false);
                             containing.push(new_part_ind);
                         }
                         Err(_) => panic!("Unexpected error"),
                     }
                     
-                    //Get the premises of the subproof
-                    let mut sp_premises: &Vec<(usize, usize)> = &vec![];
-                    match self.get_premises((depth,i)){
-                        Some(v) => sp_premises = v,
+                    //Get the premises of the last step of the subproof and extend with hidden premises of same depth
+                    let mut last_step_premises: IndexSet<(usize,usize)> = IndexSet::new();
+                    match self.get_premises((depth,i), sub_adrs){
+                        Some(v) => { //CHECK
+                            let vv = v.clone();
+                            last_step_premises.extend(vv.iter())
+                        }
                         None => ()
                     }
+                    let mut last_step_and_same_depth_premises: IndexSet<(usize,usize)> = last_step_premises.clone();
+                    last_step_and_same_depth_premises.extend(same_depth_premises.iter());
 
-                    //Check if the subproof is compressible in each part
-                    for &containing_part in &containing{
-                        if pt.is_resolutions_premise_in_part((depth,i), containing_part){
-
-                        } else {
-                            for &prem in sp_premises{
-                                pt.add_step_to_part(prem, containing_part);
+                    // If the subproof is not premise of a resolution, it's resolution premises of same depth will be conclusion of new parts
+                    // and it's other premises will be added to it's parts
+                    if !pt.is_premise_of_resolution((depth,i)){
+                        for &prem in &last_step_and_same_depth_premises{
+                            if self.step_is_resolution(prem, sub_adrs) && prem.0==depth{
+                                pt.add_step_to_new_part(prem, true);
+                            } else {
+                                for &containing_parts in &containing {
+                                    pt.add_step_to_part(prem, containing_parts);
+                                }
                             }
                         }
                     }
+                    // In the other scenario, a heavy logic much like the Case 2 of ProofStep will be used
+                    else{
+                        let mut premise_not_r_of_same_depth: Vec<(usize,usize)> = vec![];
+                        for &prem in &last_step_and_same_depth_premises{
+                            if self.step_is_resolution(prem, sub_adrs) && prem.0==depth{
+                                pt.add_step_to_new_part((depth,i), true); // creates new parts for the premises that are resolutions of same depth
+                            } else {
+                                premise_not_r_of_same_depth.push(prem); // stores the premises that aren't resolutions
+                            }
+                        }
+                        if premise_not_r_of_same_depth.len()>0{ // checks if there is a non-resolution premise
+                            let non_resolution_parts = pt.non_resolution_parts((depth,i));
+                            if non_resolution_parts.len()==0{ // checks if every part of this step is a resolution part, so we will create a new part
+                                let new_part_ind: usize = pt.add_step_to_new_part((depth,i), false);
+                                containing.push(new_part_ind);
+                                for prem in premise_not_r_of_same_depth{
+                                    pt.add_step_to_part(prem, new_part_ind)
+                                }
+                            } else {
+                                for &containing_part in &non_resolution_parts{
+                                    for &prem in &premise_not_r_of_same_depth{
+                                        pt.add_step_to_part(prem, containing_part)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Now the data in the ProofStep should be added to the DisjointParts of the Tracker
+                    for &containing_part in &containing{    
+                        pt.clone_data_to_part((depth,i),containing_part, commands, Some(sp_premises.clone()));
+                    }
+
+                    // And now the steps that can't be deleted are marked
+                    for needed in same_depth_premises{
+                        if self.step_is_resolution(needed, sub_adrs){
+                            pt.set_cant_be_deleted(needed);
+                        }
+                    }
+
                 }
             };
         }
-        ()
-    }
-
-    fn get_rule(&self, step: (usize, usize)) -> String{
-        let depth = step.0;
-        let ind = step.1;
-        let commands: &Vec<ProofCommand>;
-        if depth==0{
-            commands = &self.proof.commands;
-        } else{
-            match self.sp_stack.get(depth-1){
-                Some(v) => commands = &v.commands,
-                None => panic!("Index out of bounds. There is a step with a depth larger than the subproof stack.")
+        // Now we will clone the data from outer premises in the respective parts
+        // WARNING: After debugging this entire loop might be deleted
+        for &outer_step in outer_premises.iter(){
+            let mut containing: Vec<usize> = vec![];
+            match pt.parts_containing(outer_step){
+                Ok(v) => containing = v,
+                Err(_) => panic!("There is an error in the logic. You added this step to outer_premises without adding it to ist respective parts."),
+            }
+            let outer_commands: &Vec<ProofCommand> = self.dive_into_proof(&sub_adrs[0..outer_step.0]);
+            for containing_part in containing{
+                pt.clone_data_to_part(outer_step, containing_part, outer_commands, Some(vec![]));
             }
         }
+
+        (pt,outer_premises)
+    }
+
+    fn process_subproofs(&mut self, sub_adrs: &Vec<usize>) -> (HashMap<usize,IndexSet<(usize,usize)>>, IndexSet<(usize,usize)>){
+        let mut all_outer_premises: IndexSet<(usize,usize)> = IndexSet::new();
+        let mut subproofs_to_outer_premises: HashMap<usize,IndexSet<(usize,usize)>> = HashMap::new();
+        let mut subproofs_ind: Vec<usize> = Vec::new();
+        let commands = self.dive_into_proof(sub_adrs);
+        for (i, c) in commands.iter().enumerate(){
+            match c{
+                ProofCommand::Subproof(_) => subproofs_ind.push(i),
+                _ => ()
+            }
+        }
+        for i in subproofs_ind{
+            let m_commands = self.dive_into_proof_mut(sub_adrs);
+            if let ProofCommand::Subproof(sp) = &mut m_commands[i]{
+                let mut new_sub_adrs = sub_adrs.clone();
+                new_sub_adrs.push(i);
+                let sp_result = self.lower_units(new_sub_adrs);
+                match sp_result{
+                    Ok(sp_premises) => {
+                        all_outer_premises.extend(sp_premises.iter());
+                        subproofs_to_outer_premises.insert(i, sp_premises);
+                    },
+                    Err(_) => panic!("Some subproof coudn't be compressed")
+                }
+            }else{
+                panic!("AAAAAAAAAAAARRRGHH, CURSE YOU BAYLE!!!!")
+            }
+        }
+        (subproofs_to_outer_premises, all_outer_premises)
+    }
+
+    fn get_rule(&self, step: (usize, usize), sub_adrs: &Vec<usize>) -> String{
+        let ind = step.1;
+        let commands: &Vec<ProofCommand> = self.dive_into_proof(sub_adrs);
         match commands.get(ind){
             Some(ProofCommand::Assume {..}) => "Assume".to_string(),
             Some(ProofCommand::Step(ps)) => ps.rule.clone(),
@@ -280,18 +366,9 @@ impl<'a> ProofCompressor<'a>{
         }
     }
 
-    fn get_clause_len(&self, step: (usize, usize)) -> usize{
-        let depth = step.0;
+    fn get_clause_len(&self, step: (usize, usize), sub_adrs: &Vec<usize>) -> usize{
         let ind = step.1;
-        let commands: &Vec<ProofCommand>;
-        if depth==0{
-            commands = &self.proof.commands;
-        } else{
-            match self.sp_stack.get(depth-1){
-                Some(v) => commands = &v.commands,
-                None => panic!("Index out of bounds. There is a step with a depth larger than the subproof stack.")
-            }
-        }
+        let commands: &Vec<ProofCommand> = self.dive_into_proof(sub_adrs);
         match commands.get(ind){
             Some(ProofCommand::Assume {..}) => 1,
             Some(ProofCommand::Step(ps)) => ps.clause.len(),
@@ -306,18 +383,9 @@ impl<'a> ProofCompressor<'a>{
         }
     }
 
-    fn get_premises(&self, step: (usize,usize)) -> Option<&Vec<(usize, usize)>>{
-        let depth = step.0;
+    fn get_premises(&self, step: (usize,usize), sub_adrs: &Vec<usize>) -> Option<&Vec<(usize, usize)>>{
         let ind = step.1;
-        let commands: &Vec<ProofCommand>;
-        if depth==0{
-            commands = &self.proof.commands;
-        } else{
-            match self.sp_stack.get(depth-1){
-                Some(v) => commands = &v.commands,
-                None => panic!("Index out of bounds. There is a step with a depth larger than the subproof stack.")
-            }
-        }
+        let commands: &Vec<ProofCommand> = self.dive_into_proof(sub_adrs);
         match commands.get(ind){
             Some(ProofCommand::Assume {..}) => None,
             Some(ProofCommand::Step(ps)) => Some(&ps.premises),
@@ -332,24 +400,16 @@ impl<'a> ProofCompressor<'a>{
         }
     }
 
-    fn is_resolution(&self, step: (usize, usize)) -> bool{
-        let depth = step.0;
+    fn step_is_resolution(&self, step: (usize, usize), sub_adrs: &Vec<usize>) -> bool{
         let ind = step.1;
-        let commands: &Vec<ProofCommand>;
-        if depth==0{
-            commands = &self.proof.commands;
-        } else{
-            match self.sp_stack.get(depth-1){
-                Some(v) => commands = &v.commands,
-                None => panic!("Index out of bounds. There is a step with a depth larger than the subproof stack.")
-            }
-        }
+        let commands: &Vec<ProofCommand> = self.dive_into_proof(sub_adrs);
         match commands.get(ind){
             Some(ProofCommand::Step(ps)) => ps.rule=="resolution" || ps.rule =="th-resolution",
             Some(_) => false,
             None => panic!("This command doesn't exist")
         }
     }
+
 /*    fn collect_units_t(&mut self, sub_adrs: &Vec<usize>) -> (){
         let depth: usize = sub_adrs.len();
         //get commands and put the data of the current subproof in stack if the current proof a a subproof
@@ -445,24 +505,28 @@ impl<'a> ProofCompressor<'a>{
         }
         ()
     }
-
-    fn get_commands(&mut self, sub_adrs: &Vec<usize>) -> Vec<&Vec<ProofCommand>>{
-        let mut commands_table: Vec<&Vec<ProofCommand>> = vec![];
+*/
+    fn dive_into_proof(&self, sub_adrs: &[usize]) -> &Vec<ProofCommand>{
         let mut commands = &self.proof.commands;
-        commands_table.push(commands);
-        for i in 0..sub_adrs.len(){
-            let ind = sub_adrs[i];
-            if let ProofCommand::Subproof(sp) = &commands[ind]{
+        for &i in sub_adrs{
+            if let ProofCommand::Subproof(sp) = &commands[i]{
                 commands = &sp.commands;
-                commands_table.push(commands);
-                if i == sub_adrs.len()-1{
-                    self.sp_stack.push(sp.args.clone());
-                }
             } else {
                 panic!("Subproof addressing is wrong");
             }
         }
-        commands_table
+        commands
     }
-*/
+
+    fn dive_into_proof_mut(&mut self, sub_adrs: &[usize]) -> &mut Vec<ProofCommand>{
+        let mut commands = &mut self.proof.commands;
+        for &i in sub_adrs{
+            if let ProofCommand::Subproof(sp) = &mut commands[i]{
+                commands = &mut sp.commands;
+            } else {
+                panic!("Subproof addressing is wrong");
+            }
+        }
+        commands
+    }
 }
