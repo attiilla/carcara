@@ -14,10 +14,45 @@ use crate::checker::rules::resolution::{apply_generic_resolution/*, unremove_all
 use crate::checker::error::CheckerError;
 use crate::ast::rc::Rc;
 use indexmap::IndexSet;
+use std::env;
 //use std::env;
 use tracker::*;
 //use disjoints::*;
 
+//WARNING: Ignore contractions
+
+fn print_proof(p: &Vec<ProofCommand>, indentation: String, base: usize) -> usize{
+    let mut from = base;
+    let mut sub_len: usize = 0;
+    for (i, c) in p.iter().enumerate(){
+        match c{
+            ProofCommand::Assume { id, term } => println!("{}{} - {} Assume: {}", &indentation, i+from, id, term),
+            ProofCommand::Step(ps) => {
+                let mut s: String = format!("{}{} - {} {}: {:?}", &indentation, from+i, &ps.id, &ps.rule, &ps.clause).to_string();
+                if ps.premises.len()>0{
+                    let prem = format!(", premises: {:?}", &ps.premises);
+                    s = s + &prem;
+                }
+                if ps.args.len()>0{
+                    let args = format!(", args: {:?}", &ps.premises);
+                    s = s + &args;
+                }
+                if ps.discharge.len()>0{
+                    let disc = format!(", discharge: {:?}", &ps.discharge);
+                    s = s + &disc;
+                }
+                println!("{}",s);
+            }
+            ProofCommand::Subproof(sp) => {
+                let new_indentation = indentation.clone() + "   ";
+                //println!("i: {i}, from: {from}");
+                sub_len = print_proof(&sp.commands, new_indentation, i+from);
+                from += sub_len;
+            }
+        }
+    }
+    p.len()+sub_len-1
+}
 
 #[derive(Debug)]
 pub struct ProofCompressor{
@@ -49,27 +84,34 @@ impl ProofCompressor{
     }*/
 
     pub fn compress_proof(&mut self) -> Proof{
-        self.lower_units(vec![]);
+        env::set_var("RUST_BACKTRACE", "1");
+        print_proof(&self.proof.commands, "".to_string(), 0);
+        let _ = self.lower_units(vec![], 0);
         self.proof.clone()
     }
 
-    fn lower_units(&mut self, sub_adrs: Vec<usize>) -> Result<IndexSet<(usize,usize)>, ()> {
-        let (pt, premises_from_sub) = self.collect_units( &sub_adrs);
+    fn lower_units(&mut self, sub_adrs: Vec<usize>, debug_aux: usize) -> Result<IndexSet<(usize,usize)>, ()> {
+        let (pt, premises_from_sub) = self.collect_units(&sub_adrs, debug_aux);
         Ok(premises_from_sub)
     }
 
-    fn collect_units(&mut self, sub_adrs: &Vec<usize>) -> (PartTracker, IndexSet<(usize,usize)>){
-        let (subproof_to_outer_premises, mut outer_premises)= self.process_subproofs(sub_adrs);
+    fn collect_units(&mut self, sub_adrs: &Vec<usize>, debug_aux: usize) -> (PartTracker, IndexSet<(usize,usize)>){
+        println!("Diving into subproofs from level {debug_aux}");
+        let (subproof_to_outer_premises, mut outer_premises)= self.process_subproofs(sub_adrs, debug_aux+1);
         let depth: usize = sub_adrs.len();
         let commands: &Vec<ProofCommand> = self.dive_into_proof(sub_adrs);
         //let m_commands: &mut Vec<ProofCommand> = ;
         let n = commands.len();
-        let mut pt = PartTracker::new(self.step_is_resolution((depth,n-1), sub_adrs));
+        let mut pt = PartTracker::new(self.step_is_resolution((depth,n-1), sub_adrs), sub_adrs.len());
         pt.add_step_to_part((depth,n-1),1); //adds conclusion to part 1
         pt.set_is_conclusion((depth,n-1));
+        println!("Collecting units on level {debug_aux}");
+        let _ = if debug_aux==1 {print_proof(commands, "".to_string(), 0)} else {0};
         for (i, c) in commands.iter().enumerate().rev(){
             match c{
                 ProofCommand::Assume{id, term} => {
+                    if debug_aux==1 {println!("id: {:?}", id)};
+
                     // Select the parts whose the current step belong to
                     let mut containing: Vec<usize> = vec![];
                     pt.add_step_to_part((depth,i), 0); //all assumes must be in the part 0
@@ -94,6 +136,9 @@ impl ProofCompressor{
                 }
 
                 ProofCommand::Step(ps) => {
+                    if debug_aux==1 {println!("id: {:?}", &ps.id)};
+
+
                     // Select the parts whose the current step belong to
                     let mut containing: Vec<usize> = vec![];
                     match pt.parts_containing((depth,i)){
@@ -307,7 +352,7 @@ impl ProofCompressor{
             let mut containing: Vec<usize> = vec![];
             match pt.parts_containing(outer_step){
                 Ok(v) => containing = v,
-                Err(_) => panic!("There is an error in the logic. You added this step to outer_premises without adding it to ist respective parts."),
+                Err(_) => panic!("There is an error in the logic. You added this step to outer_premises without adding it to its respective parts."),
             }
             let outer_commands: &Vec<ProofCommand> = self.dive_into_proof(&sub_adrs[0..outer_step.0]);
             for containing_part in containing{
@@ -318,7 +363,8 @@ impl ProofCompressor{
         (pt,outer_premises)
     }
 
-    fn process_subproofs(&mut self, sub_adrs: &Vec<usize>) -> (HashMap<usize,IndexSet<(usize,usize)>>, IndexSet<(usize,usize)>){
+    fn process_subproofs(&mut self, sub_adrs: &Vec<usize>, debug_aux: usize) -> (HashMap<usize,IndexSet<(usize,usize)>>, IndexSet<(usize,usize)>){
+        println!("Processing subproofs on level {debug_aux}");
         let mut all_outer_premises: IndexSet<(usize,usize)> = IndexSet::new();
         let mut subproofs_to_outer_premises: HashMap<usize,IndexSet<(usize,usize)>> = HashMap::new();
         let mut subproofs_ind: Vec<usize> = Vec::new();
@@ -334,7 +380,9 @@ impl ProofCompressor{
             if let ProofCommand::Subproof(sp) = &mut m_commands[i]{
                 let mut new_sub_adrs = sub_adrs.clone();
                 new_sub_adrs.push(i);
-                let sp_result = self.lower_units(new_sub_adrs);
+                println!("Diving in subproof {i} of depth {debug_aux}");
+                let sp_result = self.lower_units(new_sub_adrs, debug_aux);
+                println!("Emerging from subproof {i} of depth {debug_aux}");
                 match sp_result{
                     Ok(sp_premises) => {
                         all_outer_premises.extend(sp_premises.iter());

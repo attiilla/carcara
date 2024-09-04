@@ -1,4 +1,5 @@
 use std::collections::{HashSet, HashMap};
+
 use super::error::*;
 use super::disjoints::*;
 //use super::Proof;
@@ -13,6 +14,8 @@ pub(super) struct PartTracker{
     track_data: HashMap<(usize,usize), TrackerData>,
     parts: Vec<DisjointPart>,
     resolutions_premises: HashSet<(usize, usize)>,
+    next_part: usize,
+    depth: usize,
 }
 
 #[derive(Debug)]
@@ -26,14 +29,16 @@ struct TrackerData{
 }
 
 impl PartTracker{
-    pub fn new(end_in_resolution: bool) -> Self{
+    pub fn new(end_in_resolution: bool, depth: usize) -> Self{
         let mut parts: Vec<DisjointPart> = Vec::new();
-        parts.push(DisjointPart::new(false)); //the part 0 must contain all the assumes
-        parts.push(DisjointPart::new(end_in_resolution)); //the part 1 must contain the conclusion
+        parts.push(DisjointPart::new(false, 0, depth)); //the part 0 must contain all the assumes
+        parts.push(DisjointPart::new(end_in_resolution, 1, depth)); //the part 1 must contain the conclusion
         Self{
             track_data: HashMap::new(),
             parts,
             resolutions_premises: HashSet::new(),
+            next_part: 2,
+            depth
         }
     }
 
@@ -85,7 +90,8 @@ impl PartTracker{
 
     pub fn add_step_to_new_part(&mut self, step: (usize, usize), is_resolution: bool) -> usize{//OK
         let new_part_ind: usize = self.parts.len();
-        self.parts.push(DisjointPart::new(is_resolution));
+        self.parts.push(DisjointPart::new(is_resolution, self.next_part, self.depth));
+        self.next_part += 1;
         self.add_step_to_part(step, new_part_ind);
         self.set_is_conclusion(step);
         new_part_ind
@@ -178,7 +184,7 @@ impl PartTracker{
 
     pub fn is_resolution_part(&self, part_ind: usize) -> bool{
         match self.parts.get(part_ind){
-            Some(D) => D.compressible,
+            Some(dp) => dp.compressible,
             None => panic!("There is no part with such a high index")
         }
     }
@@ -240,3 +246,4 @@ impl TrackerData{
         &self.parts_belonged
     }
 }
+
