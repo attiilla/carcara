@@ -5,6 +5,17 @@ use super::{
 use crate::{ast::*, resolution::*};
 use indexmap::IndexSet;
 
+type ResolutionTerm<'a> = (u32, &'a Rc<Term>);
+
+/// Undoes the transformation done by `Rc<Term>::remove_all_negations`.
+pub fn unremove_all_negations(pool: &mut dyn TermPool, (n, term): ResolutionTerm) -> Rc<Term> {
+    let mut term = term.clone();
+    for _ in 0..n {
+        term = build_term!(pool, (not { term }));
+    }
+    term
+}
+
 pub fn resolution(rule_args: RuleArgs) -> RuleResult {
     if !rule_args.args.is_empty() {
         // If the rule was given arguments, we redirect to the variant of "resolution" that takes

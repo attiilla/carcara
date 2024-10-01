@@ -6,4 +6,5 @@ pub enum CompressionError{
 
 pub enum CollectionError{
     NodeWithoutInwardEdge,
+    ContractionWithMoreThanOnePremise
 }

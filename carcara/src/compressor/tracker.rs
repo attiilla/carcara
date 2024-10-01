@@ -12,10 +12,12 @@ use crate::ast::term::Term;
 #[derive(Debug)]
 pub(super) struct PartTracker{
     track_data: HashMap<(usize,usize), TrackerData>,
-    parts: Vec<DisjointPart>,
+    pub parts: Vec<DisjointPart>,
     resolutions_premises: HashSet<(usize, usize)>,
     next_part: usize,
     depth: usize,
+    cant_be_deleted: HashSet<(usize, usize)>,
+    is_conclusion: HashSet<(usize, usize)>,
 }
 
 #[derive(Debug)]
@@ -24,8 +26,6 @@ struct TrackerData{
     part_count: HashMap<usize, usize>, //stores the number of times (i,j) appears on the part key
     inv_index: HashMap<usize, usize>, //the index of (i,j) in the part key
     global_index: (usize, usize), //the (i, j)
-    is_conclusion: bool,
-    cant_be_deleted: bool,
 }
 
 impl PartTracker{
@@ -38,30 +38,33 @@ impl PartTracker{
             parts,
             resolutions_premises: HashSet::new(),
             next_part: 2,
-            depth
+            depth,
+            cant_be_deleted: HashSet::new(),
+            is_conclusion: HashSet::new(),
         }
+    }
+
+    pub fn print_all_parts(&self){
+        for (i, p) in self.parts.iter().enumerate(){
+            println!("{:?}\n", p);
+        }
+    }
+
+    pub fn print_part(&self, ind: usize){
+        println!("{:?}", &self.parts[ind]);
     }
 
     pub fn set_is_conclusion(&mut self, step: (usize,usize)){
-        match self.track_data.get_mut(&step){
-            Some(tracker) => tracker.is_conclusion = true,
-            None => panic!("This step isn't being tracked")
-        }
+        self.is_conclusion.insert(step);
     }
 
     pub fn set_cant_be_deleted(&mut self, step: (usize,usize)){
-        match self.track_data.get_mut(&step){
-            Some(tracker) => tracker.cant_be_deleted = true,
-            None => panic!("This step isn't being tracked")
-        }
+        self.cant_be_deleted.insert(step);
     }
 
     pub fn must_be_a_new_conclusion(&self, step: (usize,usize)) -> bool{
-        match self.track_data.get(&step){
-            Some(tracker) => !tracker.is_conclusion && tracker.cant_be_deleted,
-            None => panic!("This step isn't being tracked")
-        }
-    } 
+        !self.is_conclusion.contains(&step) && self.cant_be_deleted.contains(&step)
+    }
 
     pub fn add_step_to_part(&mut self, step: (usize, usize), part_ind: usize){//OK
         match self.track_data.get_mut(&step){
@@ -201,12 +204,21 @@ impl PartTracker{
 
     pub fn non_resolution_parts(&self, step: (usize, usize)) -> Vec<usize>{
         let mut ans: Vec<usize> = Vec::new();
-        for (i,p) in self.parts.iter().enumerate(){
-            if !p.compressible{
+        let mut containing: Vec<usize> = vec![];
+        match self.parts_containing(step){
+            Ok(v) => containing = v,
+            _ => (),
+        };
+        for &i in &containing{
+            if !self.parts[i].compressible{
                 ans.push(i);
             }
         }
         ans
+    }
+
+    pub fn depth(&self) -> usize{
+        self.depth
     }
 }
 
@@ -224,8 +236,6 @@ impl TrackerData{
             part_count,
             inv_index,
             global_index: key,
-            is_conclusion: false,
-            cant_be_deleted: false,
         }
     }
 

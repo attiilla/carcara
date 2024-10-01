@@ -298,7 +298,7 @@ pub fn compress<T: io::BufRead>(
 
     //Compressing
     let mut compressor = ProofCompressor::from(elaborated);
-    let compressed = compressor.compress_proof();
+    let compressed = compressor.compress_proof(&mut pool);
     Ok((prelude, compressed, pool))
 }
 
