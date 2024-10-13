@@ -1,19 +1,18 @@
-use super::{assert_clause_len, get_premise_term, CheckerError, Elaborator, RuleArgs, RuleResult};
+use super::{assert_clause_len, get_premise_term, CheckerError, RuleArgs, RuleResult};
 use crate::ast::*;
-use std::time::Duration;
 
 /// Function to find a transitive chain given a conclusion equality and a series of premise
 /// equalities.
 fn find_chain(
     conclusion: (&Rc<Term>, &Rc<Term>),
     premises: &mut [(&Rc<Term>, &Rc<Term>)],
-    polyeq_time: &mut Duration,
 ) -> RuleResult {
+    let polyeq_time = &mut Default::default();
+
     // When the conclusion is of the form (= a a), it is trivially valid
     if polyeq(conclusion.0, conclusion.1, polyeq_time) {
         return Ok(());
     }
-    // print!("Looking for {:?} in {:?}\n", conclusion, premises);
 
     // Find in the premises, if it exists, an equality such that one of its terms is equal to the
     // first term in the conclusion. Possibly reorder this equality so the matching term is the
@@ -42,56 +41,10 @@ fn find_chain(
     // The new conclusion will be the terms in the conclusion and the found equality that didn't
     // match. For example, if the conclusion was (= a d) and we found in the premises (= a b), the
     // new conclusion will be (= b d)
-    find_chain((eq.1, conclusion.1), &mut premises[1..], polyeq_time)
+    find_chain((eq.1, conclusion.1), &mut premises[1..])
 }
 
-/// Similar to `find_chain`, but reorders a premises vector to match the found chain. In `trans`,
-/// this is used to reorder the step premises vector; in `eq_transitive`, it is used to reorder the
-/// clause. This returns a boolean indicating whether any reordering was needed, a `usize`
-/// indicating how many premises are needed to prove the conclusion, and a vector of indices of the
-/// premise equalities that need to be flipped.
-fn find_and_trace_chain<'a, T>(
-    mut conclusion: (&'a Rc<Term>, &'a Rc<Term>),
-    premise_equalities: &mut [(&'a Rc<Term>, &'a Rc<Term>)],
-    premises: &mut [T],
-) -> Result<(bool, usize, Vec<usize>), CheckerError> {
-    let mut reordered = false;
-    let mut should_flip = Vec::with_capacity(premise_equalities.len());
-    let mut i = 0;
-    loop {
-        if conclusion.0 == conclusion.1 {
-            return Ok((reordered, i, should_flip));
-        }
-
-        let (found_index, next_link) = premise_equalities[i..]
-            .iter()
-            .enumerate()
-            .find_map(|(j, &(t, u))| {
-                if t == conclusion.0 {
-                    Some((j + i, u))
-                } else if u == conclusion.0 {
-                    should_flip.push(i);
-                    Some((j + i, t))
-                } else {
-                    None
-                }
-            })
-            .ok_or_else(|| {
-                let (a, b) = conclusion;
-                CheckerError::BrokenTransitivityChain(a.clone(), b.clone())
-            })?;
-
-        if found_index != i {
-            premise_equalities.swap(i, found_index);
-            premises.swap(i, found_index);
-            reordered = true;
-        }
-        conclusion = (next_link, conclusion.1);
-        i += 1;
-    }
-}
-
-pub fn eq_transitive(RuleArgs { conclusion, polyeq_time, .. }: RuleArgs) -> RuleResult {
+pub fn eq_transitive(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 3..)?;
 
     // The last term in the conclusion clause should be an equality, and it will be the conclusion
@@ -105,178 +58,10 @@ pub fn eq_transitive(RuleArgs { conclusion, polyeq_time, .. }: RuleArgs) -> Rule
         .map(|term| match_term_err!((not (= t u)) = term))
         .collect::<Result<_, _>>()?;
 
-    find_chain(chain_conclusion, &mut premises, polyeq_time)
+    find_chain(chain_conclusion, &mut premises)
 }
 
-pub fn elaborate_eq_transitive(
-    RuleArgs { conclusion, pool, .. }: RuleArgs,
-    command_id: String,
-    elaborator: &mut Elaborator,
-) -> RuleResult {
-    assert_clause_len(conclusion, 3..)?;
-    let n = conclusion.len();
-
-    // The last term in the conclusion clause should be an equality, and it will be the conclusion
-    // of the transitive chain
-    let conclusion_equality = match_term_err!((= t u) = conclusion.last().unwrap())?;
-
-    // The first `conclusion.len()` - 1 terms in the conclusion clause must be a sequence of
-    // inequalities, and they will be the premises of the transitive chain
-    let mut premise_equalities: Vec<_> = conclusion[..n - 1]
-        .iter()
-        .map(|term| match_term_err!((not (= t u)) = term))
-        .collect::<Result<_, _>>()?;
-
-    let mut new_clause: Vec<_> = conclusion.to_vec();
-    let (needs_reordering, num_needed, should_flip) = find_and_trace_chain(
-        conclusion_equality,
-        &mut premise_equalities,
-        &mut new_clause[..n - 1],
-    )?;
-
-    if !needs_reordering && num_needed == n - 1 && should_flip.is_empty() {
-        elaborator.unchanged(conclusion);
-        return Ok(());
-    }
-
-    for &i in &should_flip {
-        new_clause[i] = if let Some((a, b)) = match_term!((not (= a b)) = &new_clause[i]) {
-            build_term!(pool, (not (= {b.clone()} {a.clone()})))
-        } else {
-            panic!()
-        };
-    }
-
-    let not_needed = if num_needed == n - 1 {
-        Vec::new()
-    } else {
-        let conclusion = new_clause.pop().unwrap();
-        let not_needed = new_clause.split_off(num_needed);
-        new_clause.push(conclusion);
-        not_needed
-    };
-
-    let new_eq_transitive_step = ProofStep {
-        id: elaborator.get_new_id(&command_id),
-        clause: new_clause.clone(),
-        rule: "eq_transitive".to_owned(),
-        premises: Vec::new(),
-        args: Vec::new(),
-        discharge: Vec::new(),
-    };
-    let new_eq_transitive_step = elaborator.add_new_step(new_eq_transitive_step);
-    let mut latest_step_index = new_eq_transitive_step;
-    let mut latest_clause = new_clause;
-
-    if !should_flip.is_empty() {
-        let (clause, step) = flip_eq_transitive_premises(
-            pool,
-            elaborator,
-            new_eq_transitive_step,
-            &latest_clause,
-            &command_id,
-            &should_flip,
-        );
-        latest_step_index = step;
-        latest_clause = clause;
-    }
-
-    if !not_needed.is_empty() {
-        let mut clause = latest_clause;
-        clause.extend(not_needed);
-        let or_intro_step = ProofStep {
-            id: elaborator.get_new_id(&command_id),
-            clause,
-            rule: "or_intro".to_owned(),
-            premises: vec![latest_step_index],
-            args: Vec::new(),
-            discharge: Vec::new(),
-        };
-        latest_step_index = elaborator.add_new_step(or_intro_step);
-    }
-
-    elaborator.push_elaborated_step(ProofStep {
-        id: command_id,
-        clause: conclusion.to_vec(),
-        rule: "reordering".to_owned(),
-        premises: vec![latest_step_index],
-        args: Vec::new(),
-        discharge: Vec::new(),
-    });
-    Ok(())
-}
-
-fn flip_eq_transitive_premises(
-    pool: &mut dyn TermPool,
-    elaborator: &mut Elaborator,
-    new_eq_transitive_step: (usize, usize),
-    new_clause: &[Rc<Term>],
-    original_id: &str,
-    should_flip: &[usize],
-) -> (Vec<Rc<Term>>, (usize, usize)) {
-    let resolution_pivots: Vec<_> = should_flip
-        .iter()
-        .map(|&i| {
-            let (a, b) = match_term!((not (= a b)) = new_clause[i]).unwrap();
-            let pivot = build_term!(pool, (= {a.clone()} {b.clone()}));
-            let to_introduce = build_term!(pool, (not (= {b.clone()} {a.clone()})));
-            let clause = vec![to_introduce.clone(), pivot.clone()];
-            let new_step = ProofStep {
-                id: elaborator.get_new_id(original_id),
-                clause,
-                rule: "eq_symmetric".to_owned(),
-                premises: Vec::new(),
-                args: Vec::new(),
-                discharge: Vec::new(),
-            };
-            (elaborator.add_new_step(new_step), pivot, to_introduce)
-        })
-        .collect();
-
-    let clause = {
-        let should_flip = {
-            let mut new = vec![false; new_clause.len()];
-            for &i in should_flip {
-                new[i] = true;
-            }
-            new
-        };
-        let mut original: Vec<_> = new_clause
-            .iter()
-            .enumerate()
-            .filter(|&(i, _)| !should_flip[i])
-            .map(|(_, t)| t.clone())
-            .collect();
-        original.extend(
-            resolution_pivots
-                .iter()
-                .map(|(_, _, to_introduce)| to_introduce.clone()),
-        );
-        original
-    };
-    let mut premises = vec![new_eq_transitive_step];
-    premises.extend(resolution_pivots.iter().map(|&(index, _, _)| index));
-    let args: Vec<_> = resolution_pivots
-        .into_iter()
-        .flat_map(|(_, pivot, _)| [pivot, pool.bool_false()])
-        .collect();
-
-    let final_step = ProofStep {
-        id: elaborator.get_new_id(original_id),
-        clause: clause.clone(),
-        rule: "strict_resolution".to_owned(),
-        premises,
-        args,
-        discharge: Vec::new(),
-    };
-    (clause, elaborator.add_new_step(final_step))
-}
-
-pub fn trans(
-    RuleArgs {
-        conclusion, premises, polyeq_time, ..
-    }: RuleArgs,
-) -> RuleResult {
+pub fn trans(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
 
     let conclusion = match_term_err!((= t u) = &conclusion[0])?;
@@ -285,68 +70,7 @@ pub fn trans(
         .map(|premise| match_term_err!((= t u) = get_premise_term(premise)?))
         .collect::<Result<_, _>>()?;
 
-    find_chain(conclusion, &mut premises, polyeq_time)
-}
-
-pub fn elaborate_trans(
-    RuleArgs { conclusion, premises, pool, .. }: RuleArgs,
-    command_id: String,
-    elaborator: &mut Elaborator,
-) -> RuleResult {
-    assert_clause_len(conclusion, 1)?;
-
-    let conclusion_equality = match_term_err!((= t u) = &conclusion[0])?;
-    let mut premise_equalities: Vec<_> = premises
-        .iter()
-        .map(|premise| match_term_err!((= t u) = get_premise_term(premise)?))
-        .collect::<Result<_, _>>()?;
-
-    let mut new_premises: Vec<_> = premises.iter().map(|p| p.index).collect();
-    let (_, num_needed, should_flip) = find_and_trace_chain(
-        conclusion_equality,
-        &mut premise_equalities,
-        &mut new_premises,
-    )?;
-
-    // If there are any premises in the step which are not needed to complete the transitivity
-    // chain, we simply remove them in the elaborated step.
-    new_premises.truncate(num_needed);
-
-    for p in &mut new_premises {
-        *p = elaborator.map_index(*p);
-    }
-
-    // To make things easier later, we change `should_flip` to be a vector of booleans instead of a
-    // vector of indices. Now, `should_flip[i]` indicates whether the i-th premise needs to be
-    // flipped.
-    let should_flip = {
-        let mut new = vec![false; num_needed];
-        for i in should_flip {
-            new[i] = true;
-        }
-        new
-    };
-
-    // If there are any premises that need flipping, we need to introduce `symm` steps to flip the
-    // needed equalities
-    for i in 0..new_premises.len() {
-        if should_flip[i] {
-            let (a, b) = premise_equalities[i];
-            let id = elaborator.get_new_id(&command_id);
-            new_premises[i] =
-                elaborator.add_symm_step(pool, new_premises[i], (a.clone(), b.clone()), id);
-        }
-    }
-
-    elaborator.push_elaborated_step(ProofStep {
-        id: command_id,
-        clause: conclusion.into(),
-        rule: "trans".into(),
-        premises: new_premises,
-        args: Vec::new(),
-        discharge: Vec::new(),
-    });
-    Ok(())
+    find_chain(conclusion, &mut premises)
 }
 
 #[cfg(test)]

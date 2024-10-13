@@ -8,6 +8,36 @@ use std::{fmt, io};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
+pub enum LiaGenericError {
+    #[error("failed to spawn solver process")]
+    FailedSpawnSolver(io::Error),
+
+    #[error("failed to write to solver stdin")]
+    FailedWriteToSolverStdin(io::Error),
+
+    #[error("error while waiting for solver to exit")]
+    FailedWaitForSolver(io::Error),
+
+    #[error("solver gave invalid output")]
+    SolverGaveInvalidOutput,
+
+    #[error("solver output not unsat")]
+    OutputNotUnsat,
+
+    #[error("solver timed out when solving problem")]
+    SolverTimeout,
+
+    #[error(
+        "solver returned non-zero exit code: {}",
+        if let Some(i) = .0 { format!("{}", i) } else { "none".to_owned() }
+    )]
+    NonZeroExitCode(Option<i32>),
+
+    #[error("error in inner proof: {0}")]
+    InnerProofError(Box<crate::Error>),
+}
+
+#[derive(Debug, Error)]
 pub enum CheckerError {
     #[error("unspecified error")]
     Unspecified,
@@ -23,7 +53,7 @@ pub enum CheckerError {
 
     // Rule specific errors
     #[error(transparent)]
-    Resolution(#[from] ResolutionError),
+    Resolution(#[from] crate::resolution::ResolutionError),
 
     #[error(transparent)]
     Cong(#[from] CongruenceError),
@@ -138,6 +168,9 @@ pub enum CheckerError {
     #[error("expected term {0} to be a suffix of {1}")]
     ExpectedToBeSuffix(Rc<Term>, Rc<Term>),
 
+    #[error("expected term {0} to not be empty")]
+    ExpectedToNotBeEmpty(Rc<Term>),
+
     #[error("this rule can only be used in the last step of a subproof")]
     MustBeLastStepInSubproof,
 
@@ -166,24 +199,6 @@ pub enum EqualityError<T: TypeName> {
 
     #[error("expected {} '{got}' to be '{expected}'", T::NAME)]
     ExpectedToBe { expected: T, got: T },
-}
-
-#[derive(Debug, Error)]
-pub enum ResolutionError {
-    #[error("couldn't find tautology in clause")]
-    TautologyFailed,
-
-    #[error("pivot was not eliminated: '{0}'")]
-    RemainingPivot(Rc<Term>),
-
-    #[error("term in conclusion was not produced by resolution: '{0}'")]
-    ExtraTermInConclusion(Rc<Term>),
-
-    #[error("term produced by resolution is missing in conclusion: '{0}'")]
-    MissingTermInConclusion(Rc<Term>),
-
-    #[error("pivot was not found in clause: '{0}'")]
-    PivotNotFound(Rc<Term>),
 }
 
 struct DisplayIndexedOp<'a>(&'a ParamOperator, &'a Vec<Rc<Term>>);
@@ -289,36 +304,6 @@ pub enum LinearArithmeticError {
 
     #[error("expected term '{0}' to be less than or equal to term '{1}'")]
     ExpectedLessEq(Rc<Term>, Rc<Term>),
-}
-
-#[derive(Debug, Error)]
-pub enum LiaGenericError {
-    #[error("failed to spawn solver process")]
-    FailedSpawnSolver(io::Error),
-
-    #[error("failed to write to solver stdin")]
-    FailedWriteToSolverStdin(io::Error),
-
-    #[error("error while waiting for solver to exit")]
-    FailedWaitForSolver(io::Error),
-
-    #[error("solver gave invalid output")]
-    SolverGaveInvalidOutput,
-
-    #[error("solver output not unsat")]
-    OutputNotUnsat,
-
-    #[error("solver timed out when solving problem")]
-    SolverTimeout,
-
-    #[error(
-        "solver returned non-zero exit code: {}",
-        if let Some(i) = .0 { format!("{}", i) } else { "none".to_owned() }
-    )]
-    NonZeroExitCode(Option<i32>),
-
-    #[error("error in inner proof: {0}")]
-    InnerProofError(Box<crate::Error>),
 }
 
 /// Errors relevant to all rules that end subproofs (not just the `subproof` rule).
