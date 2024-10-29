@@ -306,7 +306,12 @@ impl<'a, R: BufRead> Parser<'a, R> {
             }
             Operator::Abs => {
                 assert_num_args(&args, 1)?;
-                SortError::assert_eq(&Sort::Int, sorts[0])?;
+                // The argument must be Int unless we are allowing Int/Real subtyping
+                if self.config.allow_int_real_subtyping {
+                    SortError::assert_one_of(&[Sort::Int, Sort::Real], sorts[0])?;
+                } else {
+                    SortError::assert_eq(&Sort::Int, sorts[0])?;
+                }
             }
             Operator::LessThan | Operator::GreaterThan | Operator::LessEq | Operator::GreaterEq => {
                 assert_num_args(&args, 2..)?;

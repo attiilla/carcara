@@ -171,6 +171,7 @@ impl PrimitivePool {
                     Sort::BitVec(total_width)
                 }
                 Operator::Ite => self.compute_sort(&args[1]).as_sort().unwrap().clone(),
+                Operator::Abs => self.compute_sort(&args[0]).as_sort().unwrap().clone(),
                 Operator::Add | Operator::Sub | Operator::Mult => {
                     if args
                         .iter()
@@ -182,7 +183,7 @@ impl PrimitivePool {
                     }
                 }
                 Operator::RealDiv | Operator::ToReal => Sort::Real,
-                Operator::IntDiv | Operator::Mod | Operator::Abs | Operator::ToInt => Sort::Int,
+                Operator::IntDiv | Operator::Mod | Operator::ToInt => Sort::Int,
                 Operator::Select => match self.compute_sort(&args[0]).as_sort().unwrap() {
                     Sort::Array(_, y) => y.as_sort().unwrap().clone(),
                     _ => unreachable!(),
