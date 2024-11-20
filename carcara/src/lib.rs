@@ -98,7 +98,7 @@ pub fn check<T: io::BufRead>(
 
     // Checking
     let checking = Instant::now();
-    let mut checker = checker::ProofChecker::new(&mut pool, checker_config, &problem.prelude);
+    let mut checker = checker::ProofChecker::new(&mut pool, checker_config);
     if collect_stats {
         let mut checker_stats = CheckerStatistics {
             file_name: "this",
@@ -221,7 +221,7 @@ pub fn check_and_elaborate<T: io::BufRead>(
 
     // Checking
     let checking = Instant::now();
-    let mut checker = checker::ProofChecker::new(&mut pool, checker_config, &problem.prelude);
+    let mut checker = checker::ProofChecker::new(&mut pool, checker_config);
     let checking_result = if collect_stats {
         let mut checker_stats = CheckerStatistics {
             file_name: "this",

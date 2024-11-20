@@ -65,6 +65,9 @@ pub enum CheckerError {
     LinearArithmetic(#[from] LinearArithmeticError),
 
     #[error(transparent)]
+    LiaGeneric(#[from] LiaGenericError),
+
+    #[error(transparent)]
     Subproof(#[from] SubproofError),
 
     #[error("reflexivity failed with terms '{0}' and '{1}'")]

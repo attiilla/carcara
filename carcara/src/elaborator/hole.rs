@@ -70,7 +70,7 @@ pub fn hole(elaborator: &mut Elaborator, step: &StepNode) -> Option<Rc<ProofNode
     };
     let problem = get_problem_string(elaborator.pool, &prelude, &step.clause);
     let options = elaborator.config.hole_options.as_ref().unwrap();
-    let commands = match get_solver_proof(elaborator.pool, problem.clone(), options, &prelude) {
+    let commands = match get_solver_proof(elaborator.pool, problem.clone(), options) {
         Ok((c, false)) => c,
         Ok((_, true)) => {
             log::warn!("failed to elaborate `all_simplify` step: solver proof contains holes");
@@ -94,8 +94,7 @@ pub fn hole(elaborator: &mut Elaborator, step: &StepNode) -> Option<Rc<ProofNode
 fn get_solver_proof(
     pool: &mut PrimitivePool,
     problem: String,
-    options: &HoleOptions,
-    prelude: &ProblemPrelude,
+    options: &HoleOptions
 ) -> Result<(Vec<ProofCommand>, bool), HoleError> {
     let mut process = Command::new(options.solver.as_ref())
         .args(options.arguments.iter().map(AsRef::as_ref))
@@ -136,14 +135,13 @@ fn get_solver_proof(
         return Err(HoleError::OutputNotUnsat);
     }
 
-    parse_and_check_solver_proof(pool, problem.as_bytes(), prelude, proof)
+    parse_and_check_solver_proof(pool, problem.as_bytes(), proof)
         .map_err(|e| HoleError::InnerProofError(Box::new(e)))
 }
 
 fn parse_and_check_solver_proof(
     pool: &mut PrimitivePool,
     problem: &[u8],
-    prelude: &ProblemPrelude,
     proof: &[u8],
 ) -> CarcaraResult<(Vec<ProofCommand>, bool)> {
     let config = parser::Config {
@@ -157,7 +155,7 @@ fn parse_and_check_solver_proof(
     let (problem, proof) = parser::parse_instance_with_pool(problem, proof, config, pool)?;
 
     let config = checker::Config::new();
-    let res = checker::ProofChecker::new(pool, config, prelude).check(&problem, &proof)?;
+    let res = checker::ProofChecker::new(pool, config).check(&problem, &proof)?;
     Ok((proof.commands, res))
 }
 

@@ -61,7 +61,7 @@ fn get_problem_string(
 pub fn lia_generic(elaborator: &mut Elaborator, step: &StepNode) -> Option<Rc<ProofNode>> {
     let problem_str = get_problem_string(elaborator.pool, &elaborator.problem.prelude, &step.clause);
     let options = elaborator.config.lia_options.as_ref().unwrap();
-    let commands = match get_solver_proof(elaborator.pool, problem_str, &elaborator.problem.prelude, options) {
+    let commands = match get_solver_proof(elaborator.pool, problem_str, options) {
         Ok(c) => c,
         Err(e) => {
             log::warn!("failed to elaborate `lia_generic` step: {}", e);
@@ -81,7 +81,6 @@ pub fn lia_generic(elaborator: &mut Elaborator, step: &StepNode) -> Option<Rc<Pr
 fn get_solver_proof(
     pool: &mut PrimitivePool,
     problem: String,
-    prelude: &ProblemPrelude,
     options: &LiaGenericOptions,
 ) -> Result<Vec<ProofCommand>, LiaGenericError> {
     let mut process = Command::new(options.solver.as_ref())
@@ -123,14 +122,13 @@ fn get_solver_proof(
         return Err(LiaGenericError::OutputNotUnsat);
     }
 
-    parse_and_check_solver_proof(pool, problem.as_bytes(), prelude, proof)
+    parse_and_check_solver_proof(pool, problem.as_bytes(), proof)
         .map_err(|e| LiaGenericError::InnerProofError(Box::new(e)))
 }
 
 fn parse_and_check_solver_proof(
     pool: &mut PrimitivePool,
     problem: &[u8],
-    prelude: &ProblemPrelude,
     proof: &[u8],
 ) -> CarcaraResult<Vec<ProofCommand>> {
     let config = parser::Config {
@@ -143,7 +141,7 @@ fn parse_and_check_solver_proof(
     let (problem, proof) = parser::parse_instance_with_pool(problem, proof, config, pool)?;
 
     let config = checker::Config::new().ignore_unknown_rules(true);
-    checker::ProofChecker::new(pool, config, problem.prelude).check(&problem, &proof)?;
+    checker::ProofChecker::new(pool, config).check(&problem, &proof)?;
     Ok(proof.commands)
 }
 

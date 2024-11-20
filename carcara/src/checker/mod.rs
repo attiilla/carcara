@@ -1,4 +1,5 @@
 pub mod error;
+mod lia_generic;
 mod parallel;
 mod rules;
 
@@ -144,7 +145,7 @@ impl<'c> ProofChecker<'c> {
                     } else {
                         None
                     };
-                    self.check_step(step, previous_command, &iter, &mut stats)
+                    self.check_step(step, previous_command, &iter, &mut stats, &problem.prelude)
                         .map_err(|e| Error::Checker {
                             inner: e,
                             rule: step.rule.clone(),
@@ -276,6 +277,7 @@ impl<'c> ProofChecker<'c> {
         previous_command: Option<Premise>,
         iter: &'i ProofIter<'i>,
         stats: &mut Option<&mut CheckerStatistics<CR>>,
+        prelude: &ProblemPrelude,
     ) -> RuleResult {
         let time = Instant::now();
         let mut polyeq_time = Duration::ZERO;
@@ -311,7 +313,7 @@ impl<'c> ProofChecker<'c> {
 
         if step.rule == "sat_cnf_lemmas" {
             if let Some(checker) = self.config.rule_checkers.get(&step.rule) {
-                lia_generic::sat_cnf_lemmas(rule_args, self.prelude, checker.clone())?;
+                lia_generic::sat_cnf_lemmas(rule_args, prelude, checker.clone())?;
             } else {
                 return Err(CheckerError::UnknownRule);
             }
@@ -335,33 +337,6 @@ impl<'c> ProofChecker<'c> {
 
             rule(rule_args)?;
         }
-
-        let premises: Vec<_> = step
-            .premises
-            .iter()
-            .map(|&p| {
-                let command = iter.get_premise(p);
-                Premise::new(p, command)
-            })
-            .collect();
-        let discharge: Vec<_> = step
-            .discharge
-            .iter()
-            .map(|&i| iter.get_premise(i))
-            .collect();
-
-        let rule_args = RuleArgs {
-            conclusion: &step.clause,
-            premises: &premises,
-            args: &step.args,
-            pool: self.pool,
-            context: &mut self.context,
-            previous_command,
-            discharge: &discharge,
-            polyeq_time: &mut polyeq_time,
-        };
-
-        rule(rule_args)?;
 
         if iter.is_end_step() {
             let subproof = iter.current_subproof().unwrap();
