@@ -558,22 +558,3 @@ impl<'c> ProofChecker<'c> {
         })
     }
 }
-
-
-            // Special rules that always check as valid, and are used to indicate holes in the
-            // proof.
-            "hole" => |_| Ok(()),
-            "lia_generic" => |_| {
-                log::warn!("encountered \"lia_generic\" rule, ignoring");
-                Ok(())
-            },
-
-            // The Alethe specification does not yet describe how this more strict version of the
-            // resolution rule will be called. Until that is decided and added to the specification,
-            // we define a new specialized rule that calls it
-            "strict_resolution" => resolution::strict_resolution,
-
-            _ => return None,
-        })
-    }
-}

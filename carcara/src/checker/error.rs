@@ -4,7 +4,7 @@ use crate::{
     utils::{Range, TypeName},
 };
 use rug::{Integer, Rational};
-use std::fmt;
+use std::{fmt, io};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
