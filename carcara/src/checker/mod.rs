@@ -1,5 +1,4 @@
 pub mod error;
-mod lia_generic;
 mod parallel;
 mod rules;
 
@@ -87,26 +86,25 @@ impl Config {
 pub struct ProofChecker<'c> {
     pool: &'c mut PrimitivePool,
     config: Config,
-    prelude: &'c ProblemPrelude,
     context: ContextStack,
     reached_empty_clause: bool,
     is_holey: bool,
 }
 
 impl<'c> ProofChecker<'c> {
-    pub fn new(pool: &'c mut PrimitivePool, config: Config, prelude: &'c ProblemPrelude) -> Self {
+    pub fn new(pool: &'c mut PrimitivePool, config: Config) -> Self {
         ProofChecker {
             pool,
             config,
-            prelude,
             context: ContextStack::new(),
             reached_empty_clause: false,
             is_holey: false,
         }
     }
 
-    pub fn check(&mut self, proof: &Proof) -> CarcaraResult<bool> {
+    pub fn check(&mut self, problem: &Problem, proof: &Proof) -> CarcaraResult<bool> {
         self.check_impl(
+            problem,
             proof,
             None::<&mut CheckerStatistics<OnlineBenchmarkResults>>,
         )
@@ -114,14 +112,16 @@ impl<'c> ProofChecker<'c> {
 
     pub fn check_with_stats<CR: CollectResults + Send + Default>(
         &mut self,
+        problem: &Problem,
         proof: &Proof,
         stats: &mut CheckerStatistics<CR>,
     ) -> CarcaraResult<bool> {
-        self.check_impl(proof, Some(stats))
+        self.check_impl(problem, proof, Some(stats))
     }
 
     fn check_impl<CR: CollectResults + Send + Default>(
         &mut self,
+        problem: &Problem,
         proof: &Proof,
         mut stats: Option<&mut CheckerStatistics<CR>>,
     ) -> CarcaraResult<bool> {
@@ -182,7 +182,7 @@ impl<'c> ProofChecker<'c> {
                     }
                 }
                 ProofCommand::Assume { id, term } => {
-                    if !self.check_assume(id, term, &proof.premises, &iter, &mut stats) {
+                    if !self.check_assume(id, term, &problem.premises, &iter, &mut stats) {
                         return Err(Error::Checker {
                             inner: CheckerError::Assume(term.clone()),
                             rule: "assume".into(),
@@ -335,6 +335,33 @@ impl<'c> ProofChecker<'c> {
 
             rule(rule_args)?;
         }
+
+        let premises: Vec<_> = step
+            .premises
+            .iter()
+            .map(|&p| {
+                let command = iter.get_premise(p);
+                Premise::new(p, command)
+            })
+            .collect();
+        let discharge: Vec<_> = step
+            .discharge
+            .iter()
+            .map(|&i| iter.get_premise(i))
+            .collect();
+
+        let rule_args = RuleArgs {
+            conclusion: &step.clause,
+            premises: &premises,
+            args: &step.args,
+            pool: self.pool,
+            context: &mut self.context,
+            previous_command,
+            discharge: &discharge,
+            polyeq_time: &mut polyeq_time,
+        };
+
+        rule(rule_args)?;
 
         if iter.is_end_step() {
             let subproof = iter.current_subproof().unwrap();
@@ -508,6 +535,30 @@ impl<'c> ProofChecker<'c> {
             "string_decompose" => strings::string_decompose,
             "string_length_pos" => strings::string_length_pos,
             "string_length_non_empty" => strings::string_length_non_empty,
+
+            "re_inter" => strings::re_inter,
+            "re_unfold_neg" => strings::re_unfold_neg,
+            "re_unfold_neg_concat_fixed_prefix" => strings::re_unfold_neg_concat_fixed_prefix,
+            "re_unfold_neg_concat_fixed_suffix" => strings::re_unfold_neg_concat_fixed_suffix,
+
+            // Special rules that always check as valid, and are used to indicate holes in the
+            // proof.
+            "hole" => |_| Ok(()),
+            "lia_generic" => |_| {
+                log::warn!("encountered \"lia_generic\" rule, ignoring");
+                Ok(())
+            },
+
+            // The Alethe specification does not yet describe how this more strict version of the
+            // resolution rule will be called. Until that is decided and added to the specification,
+            // we define a new specialized rule that calls it
+            "strict_resolution" => resolution::strict_resolution,
+
+            _ => return None,
+        })
+    }
+}
+
 
             // Special rules that always check as valid, and are used to indicate holes in the
             // proof.

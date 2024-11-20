@@ -143,7 +143,7 @@ fn apply_generic_resolution<'a, C: ClauseCollection<'a>>(
         .chunks(2)
         .map(|chunk| {
             let pivot = chunk[0].remove_all_negations();
-            let polarity = &chunk[1];
+            let polarity = chunk[1].clone();
             let polarity = if polarity.is_bool_true() {
                 true
             } else if polarity.is_bool_false() {

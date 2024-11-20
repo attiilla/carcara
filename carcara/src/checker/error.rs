@@ -4,7 +4,7 @@ use crate::{
     utils::{Range, TypeName},
 };
 use rug::{Integer, Rational};
-use std::{fmt, io};
+use std::fmt;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -65,9 +65,6 @@ pub enum CheckerError {
     LinearArithmetic(#[from] LinearArithmeticError),
 
     #[error(transparent)]
-    LiaGeneric(#[from] LiaGenericError),
-
-    #[error(transparent)]
     Subproof(#[from] SubproofError),
 
     #[error("reflexivity failed with terms '{0}' and '{1}'")]
@@ -103,6 +100,9 @@ pub enum CheckerError {
 
     #[error("term '{0}' is not a valid n-ary operation")]
     NotValidNaryTerm(Rc<Term>),
+
+    #[error("cannot evaluate the fixed length of the term '{0}'")]
+    LengthCannotBeEvaluated(Rc<Term>),
 
     // General errors
     #[error("expected {0} premises, got {1}")]
