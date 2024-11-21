@@ -170,23 +170,6 @@ enum CheckGranularity {
     Elaborated,
 }
 
-impl From<ParsingOptions> for parser::Config {
-    fn from(val: ParsingOptions) -> Self {
-        Self {
-            apply_function_defs: val.apply_function_defs,
-            expand_lets: val.expand_let_bindings,
-            allow_int_real_subtyping: val.allow_int_real_subtyping,
-            strict: val.strict,
-        }
-    }
-}
-
-#[derive(ArgEnum, Clone, Copy, PartialEq, Eq)]
-enum CheckGranularity {
-    Normal,
-    Elaborated,
-}
-
 #[derive(Args, Clone)]
 struct CheckingOptions {
     /// Allow steps with rules that are not known by the checker, and consider them as holes.
@@ -666,25 +649,6 @@ fn slice_command(
     };
 
     Ok((problem, sliced, pool))
-}
-
-fn generate_lia_problems_command(options: ParseCommandOptions, use_sharing: bool) -> CliResult<()> {
-    use std::io::Write;
-
-    let root_file_name = options.input.proof_file.clone();
-    let (problem, proof) = get_instance(&options.input)?;
-
-    let instances =
-        generate_lia_smt_instances(problem, proof, options.parsing.into(), use_sharing)?;
-    for (id, content) in instances {
-        let file_name = format!("{}.{}.lia_smt2", root_file_name, id);
-        let mut f = File::create(file_name)?;
-        write!(f, "{}", content)?;
-    }
-
-    Ok(())
-}
-
 }
 
 fn generate_lia_problems_command(options: ParseCommandOptions, use_sharing: bool) -> CliResult<()> {
