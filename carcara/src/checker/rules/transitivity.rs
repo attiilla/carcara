@@ -7,10 +7,8 @@ fn find_chain(
     conclusion: (&Rc<Term>, &Rc<Term>),
     premises: &mut [(&Rc<Term>, &Rc<Term>)],
 ) -> RuleResult {
-    let polyeq_time = &mut Default::default();
-
     // When the conclusion is of the form (= a a), it is trivially valid
-    if polyeq(conclusion.0, conclusion.1, polyeq_time) {
+    if conclusion.0 == conclusion.1 {
         return Ok(());
     }
 
@@ -21,9 +19,9 @@ fn find_chain(
         .iter()
         .enumerate()
         .find_map(|(i, &(t, u))| {
-            if polyeq(t, conclusion.0, polyeq_time) {
+            if t == conclusion.0 {
                 Some((i, (t, u)))
-            } else if polyeq(u, conclusion.0, polyeq_time) {
+            } else if u == conclusion.0 {
                 Some((i, (u, t)))
             } else {
                 None
