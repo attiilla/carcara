@@ -2,7 +2,6 @@ use super::{
     assert_clause_len, assert_num_premises, get_premise_term, CheckerError, RuleArgs, RuleResult,
 };
 use crate::{ast::*, checker::error::CongruenceError};
-use std::time::Duration;
 
 pub fn eq_congruent(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 2..)?;
@@ -90,24 +89,17 @@ where
 
 /// Since the semantics of the `cong` rule is slightly different from that of `eq_congruent` and
 /// `eq_congruent_pred`, we cannot just use the `generic_congruent_rule` function
-fn check_cong<'a, I>(
-    premises: &[(&'a Rc<Term>, &'a Rc<Term>)],
-    f_args: I,
-    g_args: I,
-    polyeq_time: &'a mut Duration,
-) -> RuleResult
+fn check_cong<'a, I>(premises: &[(&'a Rc<Term>, &'a Rc<Term>)], f_args: I, g_args: I) -> RuleResult
 where
     I: IntoIterator<Item = &'a Rc<Term>>,
 {
     let mut premises = premises.iter().peekable();
     for (f_arg, g_arg) in f_args.into_iter().zip(g_args) {
+        let expected = (f_arg.as_ref(), g_arg.as_ref());
         match premises.peek() {
             // If the next premise can justify that the arguments are equal, we consume it. We
             // prefer consuming the premise even if the arguments are directly equal
-            Some((t, u))
-                if (polyeq(f_arg, t, polyeq_time) && polyeq(g_arg, u, polyeq_time))
-                    || (polyeq(f_arg, u, polyeq_time) && polyeq(g_arg, t, polyeq_time)) =>
-            {
+            Some((t, u)) if expected == (t, u) || expected == (u, t) => {
                 premises.next();
             }
 
@@ -138,11 +130,7 @@ where
     }
 }
 
-pub fn cong(
-    RuleArgs {
-        conclusion, premises, polyeq_time, ..
-    }: RuleArgs,
-) -> RuleResult {
+pub fn cong(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 1)?;
     assert_num_premises(premises, 1..)?;
 
@@ -167,11 +155,11 @@ pub fn cong(
             // We store the result of the first possibility (when neither arguments are flipped),
             // because, if the checking fails in the end, we use it to get more sensible error
             // messages
-            let original_result = check_cong(&premises, f_args, g_args, polyeq_time);
+            let original_result = check_cong(&premises, f_args, g_args);
             let any_valid = original_result.is_ok()
-                || check_cong(&premises, f_args_flipped, g_args.as_slice(), polyeq_time).is_ok()
-                || check_cong(&premises, f_args.as_slice(), g_args_flipped, polyeq_time).is_ok()
-                || check_cong(&premises, f_args_flipped, g_args_flipped, polyeq_time).is_ok();
+                || check_cong(&premises, f_args_flipped, g_args.as_slice()).is_ok()
+                || check_cong(&premises, f_args.as_slice(), g_args_flipped).is_ok()
+                || check_cong(&premises, f_args_flipped, g_args_flipped).is_ok();
             return if any_valid { Ok(()) } else { original_result };
         }
 
@@ -215,14 +203,10 @@ pub fn cong(
         f_args.len() == g_args.len(),
         CongruenceError::DifferentNumberOfArguments(f_args.len(), g_args.len())
     );
-    check_cong(&premises, f_args, g_args, polyeq_time)
+    check_cong(&premises, f_args, g_args)
 }
 
-pub fn ho_cong(
-    RuleArgs {
-        conclusion, premises, polyeq_time, ..
-    }: RuleArgs,
-) -> RuleResult {
+pub fn ho_cong(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult {
     use std::iter::once;
 
     assert_clause_len(conclusion, 1)?;
@@ -246,7 +230,7 @@ pub fn ho_cong(
         _ => Err(CongruenceError::NotApplicationOrOperation(f.clone())),
     }?;
 
-    check_cong(&premises, f_args, g_args, polyeq_time)
+    check_cong(&premises, f_args, g_args)
 }
 
 #[cfg(test)]
