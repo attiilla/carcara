@@ -59,7 +59,8 @@ fn get_problem_string(
 }
 
 pub fn lia_generic(elaborator: &mut Elaborator, step: &StepNode) -> Option<Rc<ProofNode>> {
-    let problem_str = get_problem_string(elaborator.pool, &elaborator.problem.prelude, &step.clause);
+    let problem_str =
+        get_problem_string(elaborator.pool, &elaborator.problem.prelude, &step.clause);
     let options = elaborator.config.lia_options.as_ref().unwrap();
     let commands = match get_solver_proof(elaborator.pool, problem_str, options) {
         Ok(c) => c,

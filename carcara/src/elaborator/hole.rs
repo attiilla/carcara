@@ -94,7 +94,7 @@ pub fn hole(elaborator: &mut Elaborator, step: &StepNode) -> Option<Rc<ProofNode
 fn get_solver_proof(
     pool: &mut PrimitivePool,
     problem: String,
-    options: &HoleOptions
+    options: &HoleOptions,
 ) -> Result<(Vec<ProofCommand>, bool), HoleError> {
     let mut process = Command::new(options.solver.as_ref())
         .args(options.arguments.iter().map(AsRef::as_ref))
