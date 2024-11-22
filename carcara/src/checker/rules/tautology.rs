@@ -1,5 +1,5 @@
 use super::{
-    assert_clause_len, assert_eq, assert_num_args, assert_num_premises, get_premise_term,
+    assert_clause_len, assert_eq, assert_num_args, assert_num_premises, assert_polyeq, get_premise_term,
     CheckerError, RuleArgs, RuleResult,
 };
 use crate::{ast::*, checker::rules::assert_operation_len};
@@ -282,7 +282,7 @@ pub fn ite_intro(RuleArgs { conclusion, polyeq_time, .. }: RuleArgs) -> RuleResu
     let us = match_term_err!((and ...) = right_side)?;
 
     // `us` must be a conjunction where the first term is the root term
-    assert_eq(&us[0], root_term)?;
+    assert_polyeq(&us[0], root_term, polyeq_time)?;
 
     // The remaining terms in `us` should be of the correct form
     for u_i in &us[1..] {
