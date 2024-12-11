@@ -317,6 +317,13 @@ impl<'c> ProofChecker<'c> {
             } else {
                 return Err(CheckerError::UnknownRule);
             }
+        }
+        else if step.rule == "sat_refutation_lemmas" {
+            if let Some(checker) = self.config.rule_checkers.get(&step.rule) {
+                lia_generic::sat_refutation_lemmas(rule_args, prelude, checker.clone())?;
+            } else {
+                return Err(CheckerError::UnknownRule);
+            }
         } else if let Some(checker) = self.config.rule_checkers.get(&step.rule) {
             lia_generic::external_checker(rule_args, checker.clone())?;
         } else {
