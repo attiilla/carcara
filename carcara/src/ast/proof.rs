@@ -3,7 +3,7 @@ use crate::CheckerError;
 use indexmap::IndexSet;
 
 /// A proof in the Alethe format.
-#[derive(Debug, Clone)]
+#[derive(Debug, Default, Clone)]
 pub struct Proof {
     /// The proof's premises.
     ///
@@ -60,7 +60,7 @@ pub struct ProofStep {
 }
 
 /// An argument for a `step` command.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ProofArg {
     /// An argument that is just a term.
     Term(Rc<Term>),
@@ -118,6 +118,34 @@ impl ProofCommand {
         }
     }
 
+    /// Returns a string with the rule of this command.
+    ///
+    /// For subproofs, this is the rule of the last step in the subproof.
+    /// For assumes, return "assume"
+    pub fn rule(&self) -> &str {
+        match self {
+            ProofCommand::Assume {..} => "assume",
+            ProofCommand::Step(s) => &s.rule,
+            ProofCommand::Subproof(s) => s.commands.last().unwrap().rule(),
+        }
+    }
+
+    /// Returns a reference for a vector with the args of this command.
+    ///
+    /// For subproofs, this is the args of the last step in the subproof.
+    /// For assumes, return reference to an empty vector
+    pub fn args(&self) -> &Vec<ProofArg> {
+        match self {
+            ProofCommand::Assume {..} => {
+                static NO_ARGS: Vec<ProofArg> = Vec::new();
+                &NO_ARGS
+            },
+            ProofCommand::Step(s) => &s.args,
+            ProofCommand::Subproof(s) => s.commands.last().unwrap().args(),
+        }
+    }
+
+
     /// Returns the clause of this command.
     ///
     /// For `assume` commands, this is a unit clause containing the assumed term; for steps, it's
@@ -163,6 +191,15 @@ impl ProofArg {
         match self {
             ProofArg::Assign(s, t) => Ok((s, t)),
             ProofArg::Term(t) => Err(CheckerError::ExpectedAssignStyleArg(t.clone())),
+        }
+    }
+}
+
+impl Subproof {
+    pub fn new_placeholder(context_id: usize) -> Self {
+        Subproof {
+            context_id,
+            ..Default::default()
         }
     }
 }
