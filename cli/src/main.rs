@@ -217,11 +217,11 @@ struct ElaborationOptions {
     #[clap(long)]
     uncrowd_rotate: bool,
 
-    /// Elaborate certain holey steps using the provided solver.
+    /// Elaborate `hole` steps using the provided solver.
     #[clap(long)]
     hole_solver: Option<String>,
 
-    /// The arguments to pass to the hole solver. This should be a single string where
+    /// The arguments to pass to the `lia_generic` solver. This should be a single string where
     /// multiple arguments are separated by spaces.
     #[clap(
         long,
@@ -263,6 +263,7 @@ impl From<ElaborationOptions> for (elaborator::Config, Vec<elaborator::Elaborati
                 .map(Into::into)
                 .collect(),
         });
+
         let hole_options = val.hole_solver.map(|solver| elaborator::HoleOptions {
             solver: solver.into(),
             arguments: val
@@ -271,10 +272,11 @@ impl From<ElaborationOptions> for (elaborator::Config, Vec<elaborator::Elaborati
                 .map(Into::into)
                 .collect(),
         });
+
         let config = elaborator::Config {
             lia_options,
-            hole_options,
             uncrowd_rotation: val.uncrowd_rotate,
+            hole_options,
         };
         (config, pipeline)
     }
@@ -565,22 +567,6 @@ fn elaborate_command(
         elab_config,
         pipeline,
         options.stats.stats,
-    )
-    .map_err(CliError::CarcaraError)
-}
-
-fn compress_command(
-    options: CompressCommandOptions,
-) -> CliResult<(ast::ProblemPrelude, ast::Proof, ast::PrimitivePool)> {
-    let (problem, proof) = get_instance(&options.input)?;
-
-    let (elab_config, pipeline) = options.elaboration.into();
-    compress(
-        problem,
-        proof,
-        options.parsing.into(),
-        elab_config,
-        pipeline,
     )
     .map_err(CliError::CarcaraError)
 }

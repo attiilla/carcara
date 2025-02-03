@@ -53,7 +53,7 @@ pub fn eq_symmetric(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
     assert_eq(u_1, u_2)
 }
 
-pub fn or_intro(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult {
+pub fn weakening(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult {
     assert_num_premises(premises, 1)?;
     let premise = premises[0].clause;
     assert_clause_len(conclusion, premise.len()..)?;
@@ -288,7 +288,7 @@ mod tests {
     }
 
     #[test]
-    fn or_intro() {
+    fn weakening() {
         test_cases! {
             definitions = "
                 (declare-fun a () Bool)
@@ -297,17 +297,17 @@ mod tests {
             ",
             "Simple working examples" {
                 "(step t1 (cl a b) :rule hole)
-                (step t2 (cl a b c) :rule or_intro :premises (t1))": true,
+                (step t2 (cl a b c) :rule weakening :premises (t1))": true,
 
                 "(step t1 (cl) :rule hole)
-                (step t2 (cl a b) :rule or_intro :premises (t1))": true,
+                (step t2 (cl a b) :rule weakening :premises (t1))": true,
             }
             "Failing examples" {
                 "(step t1 (cl a b) :rule hole)
-                (step t2 (cl a c b) :rule or_intro :premises (t1))": false,
+                (step t2 (cl a c b) :rule weakening :premises (t1))": false,
 
                 "(step t1 (cl a b c) :rule hole)
-                (step t2 (cl a b) :rule or_intro :premises (t1))": false,
+                (step t2 (cl a b) :rule weakening :premises (t1))": false,
             }
         }
     }

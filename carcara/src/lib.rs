@@ -91,6 +91,13 @@ pub fn check<T: io::BufRead>(
     checker_config: checker::Config,
     collect_stats: bool,
 ) -> Result<bool, Error> {
+pub fn check<T: io::BufRead>(
+    problem: T,
+    proof: T,
+    parser_config: parser::Config,
+    checker_config: checker::Config,
+    collect_stats: bool,
+) -> Result<bool, Error> {
     let mut run_measures: RunMeasurement = RunMeasurement::default();
 
     // Parsing

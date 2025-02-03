@@ -445,7 +445,7 @@ impl<'c> ProofChecker<'c> {
             "symm" => extras::symm,
             "not_symm" => extras::not_symm,
             "eq_symmetric" => extras::eq_symmetric,
-            "or_intro" => extras::or_intro,
+            "weakening" => extras::weakening,
             "bind_let" => extras::bind_let,
             "la_mult_pos" => extras::la_mult_pos,
             "la_mult_neg" => extras::la_mult_neg,
@@ -463,6 +463,8 @@ impl<'c> ProofChecker<'c> {
             "concat_split_suffix" => strings::concat_split_suffix,
             "concat_lprop_prefix" => strings::concat_lprop_prefix,
             "concat_lprop_suffix" => strings::concat_lprop_suffix,
+            "concat_cprop_prefix" => strings::concat_cprop_prefix,
+            "concat_cprop_suffix" => strings::concat_cprop_suffix,
 
             // Special rules that always check as valid, and are used to indicate holes in the
             // proof.

@@ -6,7 +6,7 @@
 mod macros;
 mod context;
 mod iter;
-pub mod node;
+mod node;
 mod polyeq;
 pub mod pool;
 pub(crate) mod printer;

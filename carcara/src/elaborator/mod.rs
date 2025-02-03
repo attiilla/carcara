@@ -23,14 +23,11 @@ pub struct Config {
     /// inserted in the place of the `lia_generic` step. See [`LiaGenericOptions`] for more details.
     pub lia_options: Option<LiaGenericOptions>,
 
-    /// If `Some`, enables the elaboration of certain holey steps,
-    /// like `all_simplify` and `rare_rewrite`, using an external
-    /// solver, like with `lia_generic`.
-    pub hole_options: Option<HoleOptions>,
-
     /// Enables an optimization that reorders premises when uncrowding resolution steps, in order to
     /// further minimize the number of `contraction` steps added.
     pub uncrowd_rotation: bool,
+
+    pub hole_options: Option<HoleOptions>,
 }
 
 #[derive(Debug, Clone, Copy)]
