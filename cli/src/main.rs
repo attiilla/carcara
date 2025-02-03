@@ -622,6 +622,22 @@ fn bench_command(options: BenchCommandOptions) -> CliResult<()> {
     Ok(())
 }
 
+fn compress_command(
+    options: CompressCommandOptions,
+) -> CliResult<(ast::ProblemPrelude, ast::Proof, ast::PrimitivePool)> {
+    let (problem, proof) = get_instance(&options.input)?;
+
+    let (elab_config, pipeline) = options.elaboration.into();
+    compress(
+        problem,
+        proof,
+        options.parsing.into(),
+        elab_config,
+        pipeline,
+    )
+    .map_err(CliError::CarcaraError)
+}
+
 fn slice_command(
     options: SliceCommandOptions,
 ) -> CliResult<(ast::ProblemPrelude, ast::Proof, ast::PrimitivePool)> {
