@@ -7,7 +7,7 @@ use std::{
     process::{Command, Stdio},
 };
 
-pub fn sat_cnf_lemmas(
+pub fn sat_refutation(
     RuleArgs { pool, args, .. }: RuleArgs,
     prelude: &ProblemPrelude,
     checker_path: String,

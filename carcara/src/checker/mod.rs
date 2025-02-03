@@ -285,7 +285,6 @@ impl<'c> ProofChecker<'c> {
         if !step.discharge.is_empty() && step.rule != "subproof" {
             return Err(CheckerError::Subproof(SubproofError::DischargeInWrongRule));
         }
-
         let premises: Vec<_> = step
             .premises
             .iter()
@@ -311,9 +310,9 @@ impl<'c> ProofChecker<'c> {
             polyeq_time: &mut polyeq_time,
         };
 
-        if step.rule == "sat_cnf_lemmas" {
+        if step.rule == "sat_refutation" {
             if let Some(checker) = self.config.rule_checkers.get(&step.rule) {
-                lia_generic::sat_cnf_lemmas(rule_args, prelude, checker.clone())?;
+                lia_generic::sat_refutation(rule_args, prelude, checker.clone())?;
             } else {
                 return Err(CheckerError::UnknownRule);
             }
