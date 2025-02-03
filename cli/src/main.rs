@@ -570,8 +570,8 @@ fn elaborate_command(
 }
 
 fn compress_command(
-    options: CompressCommandOptions
-) -> CliResult<(ast::ProblemPrelude, ast::Proof, ast::PrimitivePool)>{
+    options: CompressCommandOptions,
+) -> CliResult<(ast::ProblemPrelude, ast::Proof, ast::PrimitivePool)> {
     let (problem, proof) = get_instance(&options.input)?;
 
     let (elab_config, pipeline) = options.elaboration.into();
@@ -580,7 +580,7 @@ fn compress_command(
         proof,
         options.parsing.into(),
         elab_config,
-        pipeline
+        pipeline,
     )
     .map_err(CliError::CarcaraError)
 }

@@ -38,9 +38,9 @@
 pub mod ast;
 pub mod benchmarking;
 pub mod checker;
+pub mod compressor;
 pub mod elaborator;
 pub mod parser;
-pub mod compressor;
 mod resolution;
 mod utils;
 
@@ -276,7 +276,7 @@ pub fn compress<T: io::BufRead>(
     parser_config: parser::Config,
     elaborator_config: elaborator::Config,
     pipeline: Vec<elaborator::ElaborationStep>,
-) -> Result<(ast::ProblemPrelude, ast::Proof, ast::PrimitivePool), Error>{
+) -> Result<(ast::ProblemPrelude, ast::Proof, ast::PrimitivePool), Error> {
     let mut run: RunMeasurement = RunMeasurement::default();
 
     // Parsing
@@ -297,7 +297,7 @@ pub fn compress<T: io::BufRead>(
     };
 
     //Compressing
-    let mut compressor = ProofCompressor::from(elaborated);
+    let compressor = ProofCompressor::from(elaborated);
     let compressed = compressor.compress_proof(&mut pool);
     Ok((prelude, compressed, pool))
 }

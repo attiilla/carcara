@@ -124,7 +124,7 @@ impl ProofCommand {
     /// For assumes, return "assume"
     pub fn rule(&self) -> &str {
         match self {
-            ProofCommand::Assume {..} => "assume",
+            ProofCommand::Assume { .. } => "assume",
             ProofCommand::Step(s) => &s.rule,
             ProofCommand::Subproof(s) => s.commands.last().unwrap().rule(),
         }
@@ -136,15 +136,14 @@ impl ProofCommand {
     /// For assumes, return reference to an empty vector
     pub fn args(&self) -> &Vec<ProofArg> {
         match self {
-            ProofCommand::Assume {..} => {
+            ProofCommand::Assume { .. } => {
                 static NO_ARGS: Vec<ProofArg> = Vec::new();
                 &NO_ARGS
-            },
+            }
             ProofCommand::Step(s) => &s.args,
             ProofCommand::Subproof(s) => s.commands.last().unwrap().args(),
         }
     }
-
 
     /// Returns the clause of this command.
     ///
@@ -196,10 +195,12 @@ impl ProofArg {
 }
 
 impl Subproof {
-    pub fn new_placeholder(context_id: usize) -> Self {
+    pub fn new_placeholder(&self, context_id: usize) -> Self {
+        let conclusion = self.commands.last().unwrap().clone();
         Subproof {
             context_id,
-            ..Default::default()
+            args: vec![],
+            commands: vec![conclusion],
         }
     }
 }
