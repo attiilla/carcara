@@ -1,6 +1,6 @@
 use super::{
-    assert_clause_len, assert_eq, assert_num_args, assert_num_premises, assert_polyeq, get_premise_term,
-    CheckerError, RuleArgs, RuleResult,
+    assert_clause_len, assert_eq, assert_num_args, assert_num_premises, assert_polyeq,
+    get_premise_term, CheckerError, RuleArgs, RuleResult,
 };
 use crate::{ast::*, checker::rules::assert_operation_len};
 
