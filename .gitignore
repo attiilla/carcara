@@ -1,2 +1,9 @@
 /target
 /benchmarks
+/sample
+/scripts
+/fetch.sh
+/debug.sh
+/resolve.sh
+/.vscode/launch.json
+/.vscode/settings.json
