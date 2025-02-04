@@ -772,7 +772,9 @@ impl<'a, R: BufRead> Parser<'a, R> {
         if self.current_token == Token::Symbol("unsat".into()) {
             self.next_token()?;
         }
-
+        if self.current_token == Token::Symbol("valid".into()) {
+            self.next_token()?;
+        }
         while self.current_token != Token::Eof {
             self.expect_token(Token::OpenParen)?;
             let (token, position) = self.next_token()?;
