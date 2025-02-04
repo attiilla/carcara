@@ -16,7 +16,6 @@ pub(super) struct PartTracker {
     pub parts: Vec<DisjointPart>,
     resolutions_premises: HashSet<(usize, usize)>,
     next_part: usize,
-    depth: usize,
     pub is_conclusion: HashSet<(usize, usize)>,
 }
 
@@ -24,11 +23,10 @@ pub(super) struct PartTracker {
 struct TrackerData {
     parts_belonged: HashSet<usize>,    //the parts (i, j) belong to
     part_count: HashMap<usize, usize>, //stores the number of times (i,j) appears on the part key
-    inv_index: HashMap<usize, usize>,  //the index of (i,j) in the part that is the key
 }
 
 impl PartTracker {
-    pub fn new(end_in_resolution: bool, depth: usize) -> Self {
+    pub fn new(end_in_resolution: bool) -> Self {
         //okp
         let mut parts: Vec<DisjointPart> = Vec::new();
         parts.push(DisjointPart::new(false, 0)); //the part 0 must contain all the assumes
@@ -38,7 +36,6 @@ impl PartTracker {
             parts,
             resolutions_premises: HashSet::new(),
             next_part: 2,
-            depth,
             is_conclusion: HashSet::new(),
         }
     }
@@ -89,46 +86,45 @@ impl PartTracker {
         commands: &[ProofCommand],
     ) {
         //ok
-        let command_cloned: ProofCommand;
-        match commands.get(step.1) {
-            Some(p) => {
-                command_cloned = p.clone();
-            }
+        let command_cloned: ProofCommand = match commands.get(step.1) {
+            Some(p) => p.clone(),
             None => panic!("The index is out of bounds."),
-        }
+        };
         let n = self.parts[part_ind].part_commands.len();
         self.parts[part_ind].part_commands.push(command_cloned);
         self.parts[part_ind].original_index.push(step);
+        self.parts[part_ind].inv_ind.insert(step, n);
         //self.update_inv_index(step, part_ind, n);
     }
 
-    fn update_inv_index(&mut self, step: (usize, usize), part_ind: usize, ind: usize) {
-        match &mut self.track_data.get_mut(&step) {
-            Some(a) => a.inv_index.insert(part_ind, ind),
-            None => panic!("track_data doesn't have a {:?}", step),
-        };
-    }
-
-    pub fn get_substitute<'a>(
+    /*pub fn get_substitute<'a>(
         &'a self,
         current: &'a ProofCommand,
         location: &mut (usize, usize),
         part: &'a DisjointPart,
     ) -> &'a ProofCommand {
+        println!("subs table {:?}", &part.subs_table);
         match part.substituted_by(*location) {
             Some(&subs_index) => {
                 *location = subs_index;
+                //println!("\n\n\ntrack {:?}", &self.track_data);
                 match self.track_data.get(location) {
                     None => panic!("This step {:?} is not being tracked", subs_index),
                     Some(tracker) => {
-                        let local_ind = *tracker.inv_index.get(&part.ind).unwrap();
-                        &part.part_commands[local_ind]
+                        let local_ind_opt = tracker.inv_index.get(&part.ind);
+                        match local_ind_opt {
+                            Some(local_ind) => &part.part_commands[*local_ind],
+                            None => {
+                                let ind = part.original_index.iter().position(|&x|x==subs_index).expect("Can't subtitute a step by something that is not even on the part");
+                                &part.part_commands[ind]
+                            }
+                        }
                     }
                 }
             }
             None => current,
         }
-    }
+    }*/
 
     pub fn counting_in_part(&self, step: (usize, usize), part_ind: usize) -> usize {
         //ok
@@ -138,16 +134,6 @@ impl PartTracker {
                 None => panic!("This step seems to be inside this part but wasn't counted."),
             },
             None => panic!("This step {:?} is not being tracked", step),
-        }
-    }
-
-    pub fn inverse_index(&self, step: &(usize, usize), part: &usize) -> usize {
-        match self.track_data.get(step) {
-            Some(a) => match a.inv_index.get(part) {
-                Some(b) => *b,
-                None => panic!("The inv_index of {:?} doesn't have {:?}", step, part),
-            },
-            None => panic!("track_data doesn't have a {:?}", step),
         }
     }
 
@@ -235,10 +221,6 @@ impl PartTracker {
         ans
     }
 
-    pub fn depth(&self) -> usize {
-        self.depth
-    }
-
     pub fn set_as_behaved(&mut self, step: (usize, usize), part_ind: usize) {
         let part = &mut self.parts[part_ind];
         part.behaved_steps.insert(step);
@@ -250,16 +232,7 @@ impl TrackerData {
         //ok
         let parts_belonged: HashSet<usize> = std::iter::once(first_part).collect();
         let part_count: HashMap<usize, usize> = std::iter::once((first_part, 1)).collect();
-        let inv_index: HashMap<usize, usize>;
-        match ind {
-            Some(k) => inv_index = std::iter::once((first_part, k)).collect(),
-            None => inv_index = HashMap::new(),
-        };
-        TrackerData {
-            parts_belonged,
-            part_count,
-            inv_index,
-        }
+        TrackerData { parts_belonged, part_count }
     }
 
     pub fn add_one_more_to_part(&mut self, part_ind: usize) {
