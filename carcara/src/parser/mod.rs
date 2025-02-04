@@ -767,12 +767,12 @@ impl<'a, R: BufRead> Parser<'a, R> {
 
         let mut constant_definitions = Vec::new();
 
-        // Some solvers print the satisfiability result (unsat) together with the proof. To save the
+        // Some solvers print the satisfiability result (unsat, holey or valid) together with the proof. To save the
         // user from having to remove this, we consume this first "unsat" token if it exists
-        if self.current_token == Token::Symbol("unsat".into()) {
-            self.next_token()?;
-        }
-        if self.current_token == Token::Symbol("valid".into()) {
+        if self.current_token == Token::Symbol("unsat".into())
+            || self.current_token == Token::Symbol("valid".into())
+            || self.current_token == Token::Symbol("holey".into())
+        {
             self.next_token()?;
         }
         while self.current_token != Token::Eof {
