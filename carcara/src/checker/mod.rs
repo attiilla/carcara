@@ -311,18 +311,14 @@ impl<'c> ProofChecker<'c> {
         };
 
         if step.rule == "sat_refutation" {
-            if let Some(checker) = self.config.rule_checkers.get(&step.rule) {
-                lia_generic::sat_refutation(rule_args, prelude, checker.clone())?;
-            } else {
-                return Err(CheckerError::UnknownRule);
-            }
-        }
-        else if step.rule == "sat_refutation_lemmas" {
-            if let Some(checker) = self.config.rule_checkers.get(&step.rule) {
-                lia_generic::sat_refutation_lemmas(rule_args, prelude, checker.clone())?;
-            } else {
-                return Err(CheckerError::UnknownRule);
-            }
+            let premises_steps: Vec<_> = step
+                .premises
+                .iter()
+                .map(|&p| {
+                    iter.get_premise(p)
+                })
+                .collect();
+            lia_generic::sat_refutation(rule_args, premises_steps, prelude)?;
         } else if let Some(checker) = self.config.rule_checkers.get(&step.rule) {
             lia_generic::external_checker(rule_args, checker.clone())?;
         } else {
