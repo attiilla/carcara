@@ -1,10 +1,7 @@
-use super::{PartTracker, ProofCommand, ProofCompressor, SubproofMeta};
+use super::{ProofCommand, SubproofMeta};
 use crate::ast::proof::*;
-use crate::ast::rc::Rc;
-use crate::ast::term::Term;
 use indexmap::IndexSet;
 use std::collections::{HashMap, HashSet};
-use std::fmt;
 
 #[derive(Debug)]
 pub struct DisjointPart {
@@ -18,6 +15,7 @@ pub struct DisjointPart {
     pub compressed: bool,
     pub ind: usize,
     pub subs_table: HashMap<(usize, usize), (usize, usize)>,
+    pub inv_ind: HashMap<(usize, usize), usize>,
     pub behaved_steps: IndexSet<(usize, usize)>,
     pub new_conclusion: Option<ProofCommand>,
 }
@@ -47,7 +45,7 @@ impl ProofCommand {
     }
 }
 
-impl DisjointPart {
+impl<'a> DisjointPart {
     pub fn new(is_resolution: bool, ind: usize) -> Self {
         Self {
             part_commands: vec![],
@@ -60,6 +58,7 @@ impl DisjointPart {
             compressed: false,
             ind,
             subs_table: HashMap::new(),
+            inv_ind: HashMap::new(),
             behaved_steps: IndexSet::new(),
             new_conclusion: None,
         }
@@ -177,6 +176,22 @@ impl DisjointPart {
         match &self.original_index.get(local_index) {
             Some(&global_index) => self.behaved_steps.contains(&global_index),
             None => panic!("Index out of bounds. The part is smaller than the index"),
+        }
+    }
+
+    pub fn get_substitute(
+        &'a self,
+        substituted: &'a ProofCommand,
+        old_index: (usize, usize),
+    ) -> &'a ProofCommand {
+        match self.subs_table.get(&old_index) {
+            None => substituted,
+            Some(substitute_ind) => {
+                let position = *self.inv_ind.get(substitute_ind).unwrap_or_else(|| {
+                    panic!("The step {:?} is not in the inverted index", substitute_ind)
+                });
+                &self.part_commands[position]
+            }
         }
     }
 }
