@@ -1,5 +1,6 @@
 use super::*;
 use crate::checker::error::LiaGenericError;
+use std::collections::HashMap;
 use std::process;
 use std::{
     fs::File,
@@ -89,16 +90,33 @@ pub fn sat_refutation(
                     }
                   }
         );
-
+    let mut clauses : String = "".to_string();
+    let mut lit_to_var : HashMap<&Rc<Term>, usize> = HashMap::new();
     let mut max_var = 0;
-    let mut lemma_id = 0;
-
-    // TODO collect unit clauses from premises
-    // TODO create the DIMACS string
-    // TODO create the first line of the DIMACS and print to file
+    let mut _lemma_id = 0;
+    println!("premise_clauses: {:?}", premise_clauses);
+    premise_clauses
+        .iter()
+        .for_each(|cl| {
+            cl.iter()
+                .for_each(|lit| {
+                    let (pol, lit) = lit.remove_all_negations_with_polarity();
+                    if !lit_to_var.contains_key(lit) {
+                        lit_to_var.insert(lit, max_var + 1);
+                        max_var += 1;
+                    }
+                    if !pol {
+                        clauses.push_str("-");
+                    }
+                    clauses.push_str(&lit_to_var[lit].to_string());
+                    clauses.push_str(" ");
+                }
+                );
+            clauses += "0\n";
+        });
+    println!("dimacs:\np cnf {} {}\n{}", max_var, premise_clauses.len(), clauses);
 
     // TODO add sanity check calling CaDiCaL? Nah
-
 
     // let string = format!("(\n{}\n{}\n{}\n)", smt2_prelude, term_str);
 
