@@ -1,6 +1,6 @@
 use super::*;
 use crate::checker::error::LiaGenericError;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::process;
 use std::{
     fs::File,
@@ -31,7 +31,9 @@ pub fn sat_refutation(
     // occur as arguments in others, which as a safer thing we also
     // add them as unit clauses with a literal corresponding to the
     // whole clause.
+    let mut lemmas : HashSet<Rc<Term>> = HashSet::new();
     let mut premise_clauses : Vec<Vec<_>> = Vec::new();
+    let mut clause_id_to_lemma : HashMap<usize, Rc<Term>> = HashMap::new();
     premise_steps
         .iter()
         .for_each(|p|
@@ -55,7 +57,10 @@ pub fn sat_refutation(
                                     _ => {
                                         premise_clauses.push(step.clause.clone());
                                     }
-                                }
+                                };
+                                let lemma = pool.add(Term::Op(Operator::RareList, step.clause.clone()));
+                                lemmas.insert(lemma.clone());
+                                clause_id_to_lemma.insert(premise_clauses.len()-1, lemma.clone());
                             }
                             else {
                                 match &step.clause[..] {
@@ -93,12 +98,17 @@ pub fn sat_refutation(
     let mut clauses : String = "".to_string();
     let mut lit_to_var : HashMap<&Rc<Term>, usize> = HashMap::new();
     let mut max_var = 0;
-    let mut _lemma_id = 0;
-    println!("premise_clauses: {:?}", premise_clauses);
-    premise_clauses
-        .iter()
-        .for_each(|cl| {
-            cl.iter()
+    let mut lemma_id = 0;
+    // println!("premise_clauses: {:?}", premise_clauses);
+    for i in 0..premise_clauses.len() {
+        if clause_id_to_lemma.contains_key(&i) {
+            clauses.push_str("@t");
+            clauses += &lemma_id.to_string();
+            clauses.push_str(" ");
+            lemma_id += 1;
+        }
+        premise_clauses[i]
+            .iter()
                 .for_each(|lit| {
                     let (pol, lit) = lit.remove_all_negations_with_polarity();
                     if !lit_to_var.contains_key(lit) {
@@ -113,7 +123,8 @@ pub fn sat_refutation(
                 }
                 );
             clauses += "0\n";
-        });
+    }
+
     println!("dimacs:\np cnf {} {}\n{}", max_var, premise_clauses.len(), clauses);
 
     // TODO add sanity check calling CaDiCaL? Nah
