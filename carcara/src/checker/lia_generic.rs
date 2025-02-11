@@ -1,6 +1,6 @@
 use super::*;
 use crate::checker::error::LiaGenericError;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::process;
 use std::{
     fs::File,
@@ -8,18 +8,85 @@ use std::{
     process::{Command, Stdio},
 };
 
+fn sat_refutation_external_check(
+    cnf_path: String,
+    prelude: &ProblemPrelude,
+    checker_path: String,
+    lemmas: &Vec<Rc<Term>>,
+) -> RuleResult {
+    let prelude_path = format!("prelude_{}.smt2", process::id());
+    write!(File::create(prelude_path.clone()).unwrap(), "{}", prelude).unwrap();
+
+    // transform each AND arg, if any, into a string and build a
+    // string "(and ... )" so that each lemma has its own names
+    let lemmas_as_str = if lemmas.len() == 1 {
+        let lemma_or = if let Some((Operator::RareList, lemma_lits)) = lemmas[0].as_op() {
+            Term::Op(Operator::Or, lemma_lits.to_vec())
+        } else {
+            unreachable!();
+        };
+        format!("{}", lemma_or)
+    } else {
+        let mut str_aux = String::new();
+        use std::fmt::Write;
+        write!(&mut str_aux, "(and").unwrap();
+        lemmas.iter().for_each(|lemma| {
+            let lemma_or = if let Some((Operator::RareList, lemma_lits)) = lemma.as_op() {
+                Term::Op(Operator::Or, lemma_lits.to_vec())
+            } else {
+                unreachable!();
+            };
+            write!(&mut str_aux, " {}", lemma_or).unwrap();
+        });
+        write!(&mut str_aux, ")").unwrap();
+        str_aux
+    };
+
+    let string = format!("(\n{}\n{}\n{}\n)", cnf_path, prelude_path, lemmas_as_str);
+    // this will make it expect this script from where you are running Carcara
+    let mut process = Command::new(checker_path.clone())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(LiaGenericError::FailedSpawnSolver)?;
+
+    process
+        .stdin
+        .take()
+        .expect("failed to open solver stdin")
+        .write_all(string.as_bytes())
+        .map_err(LiaGenericError::FailedWriteToSolverStdin)?;
+
+    let output = process
+        .wait_with_output()
+        .map_err(LiaGenericError::FailedWaitForSolver)?;
+
+    if !output.status.success() {
+        if let Ok(s) = std::str::from_utf8(&output.stderr) {
+            if s.contains("interrupted by timeout.") {
+                return Err(CheckerError::Unspecified);
+            }
+        }
+        return Err(CheckerError::Unspecified);
+    }
+    let res = output.stdout.as_slice();
+
+    if res == b"true\n" {
+        return Ok(());
+    }
+    return Err(CheckerError::Explanation(format!(
+        "External checker {} did not validate step",
+        checker_path
+    )));
+}
+
 pub fn sat_refutation(
     RuleArgs { pool, .. }: RuleArgs,
-    premise_steps : Vec<&ProofCommand>,
-    prelude: &ProblemPrelude
+    premise_steps: Vec<&ProofCommand>,
+    prelude: &ProblemPrelude,
+    checker_path: Option<String>,
 ) -> RuleResult {
-    // This should be done now for each premise that is a hole, given
-    // that they show up in the trimmed input
-
-    // let smt2_prelude = format!("prelude_{}.smt2", process::id());
-    // let mut f = File::create(smt2_prelude.clone()).unwrap();
-    // write!(f, "{}", prelude).unwrap();
-
     // Create the DIMACS file from the premises and the lemmas.
     //
     // Lemmas (i.e., conclusions of "hole") are non-unit clauses if
@@ -31,59 +98,43 @@ pub fn sat_refutation(
     // occur as arguments in others, which as a safer thing we also
     // add them as unit clauses with a literal corresponding to the
     // whole clause.
-    let mut lemmas : HashSet<Rc<Term>> = HashSet::new();
-    let mut premise_clauses : Vec<Vec<_>> = Vec::new();
-    let mut clause_id_to_lemma : HashMap<usize, Rc<Term>> = HashMap::new();
-    premise_steps
-        .iter()
-        .for_each(|p|
-                  { match p
-                    {
-                        ProofCommand::Step(step) => {
-                            // holes are assumed to be theory lemmas, where if they
-                            // are OR nodes then they are non-unit, otherwise
-                            // unities. If they are not singleton clauses, we add the
-                            // whole clause as a clause
-                            if step.rule == "hole" {
-                                match &step.clause[..] {
-                                    [term] => {
-                                        match term.as_ref() {
-                                            Term::Op(Operator::Or, or_args) => {
-                                                premise_clauses.push(or_args.to_vec());
-                                            }
-                                            _ => {premise_clauses.push(vec![term.clone()]);}
-                                        }
-                                    }
-                                    _ => {
-                                        premise_clauses.push(step.clause.clone());
-                                    }
-                                };
-                                let lemma = pool.add(Term::Op(Operator::RareList, step.clause.clone()));
-                                lemmas.insert(lemma.clone());
-                                clause_id_to_lemma.insert(premise_clauses.len()-1, lemma.clone());
+    let mut lemmas: Vec<Rc<Term>> = Vec::new();
+    let mut premise_clauses: Vec<Vec<_>> = Vec::new();
+    let mut clause_id_to_lemma: HashMap<usize, Rc<Term>> = HashMap::new();
+    premise_steps.iter().for_each(|p| {
+        match p {
+            ProofCommand::Step(step) => {
+                // holes are assumed to be theory lemmas, where if they
+                // are OR nodes then they are non-unit, otherwise
+                // unities. If they are not singleton clauses, we add the
+                // whole clause as a clause
+                if step.rule == "hole" {
+                    match &step.clause[..] {
+                        [term] => match term.as_ref() {
+                            Term::Op(Operator::Or, or_args) => {
+                                premise_clauses.push(or_args.to_vec());
+                                lemmas
+                                    .push(pool.add(Term::Op(Operator::RareList, or_args.to_vec())));
                             }
-                            else {
-                                match &step.clause[..] {
-                                    // singletons are always added as unities and as clauses, if OR nodes
-                                    [term] => {
-                                        match term.as_ref() {
-                                            Term::Op(Operator::Or, or_args) => {
-                                                premise_clauses.push(or_args.to_vec());
-                                            }
-                                            _ => {}
-                                        }
-                                        premise_clauses.push(vec![term.clone()]);
-                                    }
-                                    _ => {
-                                        premise_clauses.push(step.clause.clone());
-                                    }
-                                }
+                            _ => {
+                                premise_clauses.push(vec![term.clone()]);
+                                lemmas.push(
+                                    pool.add(Term::Op(Operator::RareList, vec![term.clone()])),
+                                );
                             }
+                        },
+                        _ => {
+                            premise_clauses.push(step.clause.clone());
+                            lemmas
+                                .push(pool.add(Term::Op(Operator::RareList, step.clause.clone())));
                         }
-                        ProofCommand::Subproof(_) => {}
-                        ProofCommand::Assume { term, .. } => {
-                            // if OR, collect as clause, but also always generate as
-                            // literal
+                    };
+                    clause_id_to_lemma
+                        .insert(premise_clauses.len() - 1, lemmas[lemmas.len() - 1].clone());
+                } else {
+                    match &step.clause[..] {
+                        // singletons are always added as unities and as clauses, if OR nodes
+                        [term] => {
                             match term.as_ref() {
                                 Term::Op(Operator::Or, or_args) => {
                                     premise_clauses.push(or_args.to_vec());
@@ -92,83 +143,60 @@ pub fn sat_refutation(
                             }
                             premise_clauses.push(vec![term.clone()]);
                         }
+                        _ => {
+                            premise_clauses.push(step.clause.clone());
+                        }
                     }
-                  }
-        );
-    let mut clauses : String = "".to_string();
-    let mut lit_to_var : HashMap<&Rc<Term>, usize> = HashMap::new();
+                }
+            }
+            ProofCommand::Subproof(_) => {}
+            ProofCommand::Assume { term, .. } => {
+                // if OR, collect as clause, but also always generate as
+                // literal
+                match term.as_ref() {
+                    Term::Op(Operator::Or, or_args) => {
+                        premise_clauses.push(or_args.to_vec());
+                    }
+                    _ => {}
+                }
+                premise_clauses.push(vec![term.clone()]);
+            }
+        }
+    });
+    let mut clauses: String = "".to_string();
+    let mut lit_to_var: HashMap<&Rc<Term>, usize> = HashMap::new();
     let mut max_var = 0;
     let mut lemma_id = 0;
-    // println!("premise_clauses: {:?}", premise_clauses);
     for i in 0..premise_clauses.len() {
         if clause_id_to_lemma.contains_key(&i) {
-            clauses.push_str("@t");
-            clauses += &lemma_id.to_string();
-            clauses.push_str(" ");
+            clauses += &format!("@l{} ", lemma_id).to_owned();
             lemma_id += 1;
         }
-        premise_clauses[i]
-            .iter()
-                .for_each(|lit| {
-                    let (pol, lit) = lit.remove_all_negations_with_polarity();
-                    if !lit_to_var.contains_key(lit) {
-                        lit_to_var.insert(lit, max_var + 1);
-                        max_var += 1;
-                    }
-                    if !pol {
-                        clauses.push_str("-");
-                    }
-                    clauses.push_str(&lit_to_var[lit].to_string());
-                    clauses.push_str(" ");
-                }
-                );
-            clauses += "0\n";
+        premise_clauses[i].iter().for_each(|lit| {
+            let (pol, lit) = lit.remove_all_negations_with_polarity();
+            if !lit_to_var.contains_key(lit) {
+                lit_to_var.insert(lit, max_var + 1);
+                max_var += 1;
+            }
+            clauses += &format!("{}{} ", if !pol { "-" } else { "" }, lit_to_var[lit]).to_owned();
+        });
+        clauses += "0\n";
     }
 
-    println!("dimacs:\np cnf {} {}\n{}", max_var, premise_clauses.len(), clauses);
+    let dimacs = format!("p cnf {} {}\n{}", max_var, premise_clauses.len(), clauses);
+    let cnf_path = format!("{}.cnf", process::id());
+    write!(File::create(cnf_path.clone()).unwrap(), "{}", dimacs).unwrap();
 
-    // TODO add sanity check calling CaDiCaL? Nah
-
-    // let string = format!("(\n{}\n{}\n{}\n)", smt2_prelude, term_str);
-
-    // // this will make it expect this script from where you are running Carcara
-    // let mut process = Command::new(checker_path.clone())
-    //     .stdin(Stdio::piped())
-    //     .stdout(Stdio::piped())
-    //     .stderr(Stdio::piped())
-    //     .spawn()
-    //     .map_err(LiaGenericError::FailedSpawnSolver)?;
-
-    // process
-    //     .stdin
-    //     .take()
-    //     .expect("failed to open solver stdin")
-    //     .write_all(string.as_bytes())
-    //     .map_err(LiaGenericError::FailedWriteToSolverStdin)?;
-
-    // let output = process
-    //     .wait_with_output()
-    //     .map_err(LiaGenericError::FailedWaitForSolver)?;
-
-    // if !output.status.success() {
-    //     if let Ok(s) = std::str::from_utf8(&output.stderr) {
-    //         if s.contains("interrupted by timeout.") {
-    //             return Err(CheckerError::Unspecified);
-    //         }
-    //     }
-    //     return Err(CheckerError::Unspecified);
-    // }
-    // let res = output.stdout.as_slice();
-
-    // if res == b"true\n" {
-    //     return Ok(());
-    // }
-    // return Err(CheckerError::Explanation(format!(
-    //     "External checker {} did not validate step",
-    //     checker_path
-    // )));
-
-    return Ok(());
+    match checker_path {
+        Some(checker_path) => {
+            sat_refutation_external_check(cnf_path, prelude, checker_path, &lemmas)
+        }
+        None => {
+            return Err(CheckerError::Explanation(
+                "No external checker to validate step".to_string(),
+            ));
+        }
+    }
 }
 
 pub fn external_checker(RuleArgs { args, .. }: RuleArgs, checker_path: String) -> RuleResult {
