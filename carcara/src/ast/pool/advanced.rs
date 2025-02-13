@@ -2,6 +2,7 @@ use super::super::{Rc, Term};
 use super::{DatatypeDef, PrimitivePool, TermPool};
 use indexmap::IndexSet;
 use std::sync::{Arc, RwLock};
+use std::any::Any;
 
 pub struct ContextPool {
     pub(crate) global_pool: Arc<PrimitivePool>,
@@ -68,6 +69,10 @@ impl TermPool for ContextPool {
 
     fn dt_def(&self, sort: &Rc<Term>) -> &DatatypeDef {
         self.global_pool.dt_def(sort)
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
     }
 }
 
@@ -141,4 +146,9 @@ impl TermPool for LocalPool {
     fn dt_def(&self, sort: &Rc<Term>) -> &DatatypeDef {
         self.inner.dt_def(sort)
     }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
 }

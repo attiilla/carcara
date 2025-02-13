@@ -8,6 +8,8 @@ use crate::ast::{Constant, ParamOperator};
 use indexmap::{IndexMap, IndexSet};
 use rug::Integer;
 use storage::Storage;
+use std::any::Any;
+
 // pub use substitution::{Substitution, SubstitutionError};
 
 /// A `step` command.
@@ -57,6 +59,8 @@ pub trait TermPool {
     fn free_vars(&mut self, term: &Rc<Term>) -> IndexSet<Rc<Term>>;
 
     fn dt_def(&self, sort: &Rc<Term>) -> &DatatypeDef;
+
+    fn as_any_mut(&mut self) -> &mut dyn Any;
 }
 
 /// A structure to store and manage all allocated terms.
@@ -452,4 +456,9 @@ impl TermPool for PrimitivePool {
         }
         &self.dt_defs[sort]
     }
+
+    fn as_any_mut(&mut self) -> &mut dyn Any {
+        self
+    }
+
 }
