@@ -1,8 +1,8 @@
 use super::super::{Rc, Term};
 use super::{DatatypeDef, PrimitivePool, TermPool};
 use indexmap::IndexSet;
-use std::sync::{Arc, RwLock};
 use std::any::Any;
+use std::sync::{Arc, RwLock};
 
 pub struct ContextPool {
     pub(crate) global_pool: Arc<PrimitivePool>,
@@ -150,5 +150,4 @@ impl TermPool for LocalPool {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
-
 }

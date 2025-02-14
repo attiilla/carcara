@@ -1,4 +1,5 @@
 use super::*;
+use crate::{checker, parser, CarcaraResult};
 use crate::checker::error::LiaGenericError;
 use std::collections::HashMap;
 use std::fs;
@@ -30,6 +31,76 @@ fn get_problem_string(
     writeln!(&mut problem, "(exit)").unwrap();
 
     problem
+}
+
+fn parse_and_check_solver_proof(
+    pool: &mut PrimitivePool,
+    problem: &[u8],
+    proof: &[u8],
+) -> CarcaraResult<(Vec<ProofCommand>, bool)> {
+    let config = parser::Config {
+        apply_function_defs: false,
+        expand_lets: true,
+        allow_int_real_subtyping: true,
+        strict: false,
+        parse_hole_args: false,
+    };
+
+    let (problem, proof) = parser::parse_instance_with_pool(problem, proof, config, pool)?;
+
+    let config = checker::Config::new();
+    let res = checker::ProofChecker::new(pool, config).check(&problem, &proof)?;
+    Ok((proof.commands, res))
+}
+
+fn get_solver_proof(
+    pool: &mut PrimitivePool,
+    problem: String,
+) -> Result<(Vec<ProofCommand>, bool), LiaGenericError> {
+    let mut process = Command::new("/home/hbarbosa/cvc5/wt-diff/prod/bin/cvc5")
+        .arg("--proof-format=alethe".to_string())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(LiaGenericError::FailedSpawnSolver)?;
+
+    process
+        .stdin
+        .take()
+        .expect("failed to open solver stdin")
+        .write_all(problem.as_bytes())
+        .map_err(LiaGenericError::FailedWriteToSolverStdin)?;
+
+    let output = process
+        .wait_with_output()
+        .map_err(LiaGenericError::FailedWaitForSolver)?;
+
+    if !output.status.success() {
+        if let Ok(s) = std::str::from_utf8(&output.stderr) {
+            if s.contains("interrupted by timeout.") {
+                return Err(LiaGenericError::SolverTimeout);
+            }
+        }
+        return Err(LiaGenericError::NonZeroExitCode(output.status.code()));
+    }
+
+    let mut proof = output.stdout.as_slice();
+    let mut first_line = String::new();
+
+    proof
+        .read_line(&mut first_line)
+        .map_err(|_| LiaGenericError::SolverGaveInvalidOutput)?;
+
+    if first_line.trim_end() != "unsat" {
+        return Err(LiaGenericError::OutputNotUnsat);
+    }
+
+    println!("{}", problem);
+    println!("{}", std::str::from_utf8(&output.stdout).unwrap());
+
+    parse_and_check_solver_proof(pool, problem.as_bytes(), proof)
+        .map_err(|e| LiaGenericError::InnerProofError(Box::new(e)))
 }
 
 /// Given a string "(-)?[0-9]+" returns a pair with the polarity (true if no leading minus) and the digit string
@@ -154,7 +225,7 @@ pub fn sat_refutation(
     RuleArgs { pool, .. }: RuleArgs,
     premise_steps: Vec<&ProofCommand>,
     prelude: &ProblemPrelude,
-    checker_path: Option<String>
+    checker_path: Option<String>,
 ) -> RuleResult {
     // Create the DIMACS file from the premises and the lemmas.
     //
@@ -272,10 +343,10 @@ pub fn sat_refutation(
                 .wait_with_output()
                 .map_err(LiaGenericError::FailedWaitForSolver)?;
 
-            // for reasons I do not understand, the output does not
-            // have a successful status even when CaDiCaL has solved
-            // the problem. So the test here directly checks stdout to
-            // see if the problem is found unsat.
+            // CaDiCaL's exit code when successful is 10/20 (for
+            // sat/unsat), so this will not lead to a successful
+            // output according to Rust. So the test here directly
+            // checks stdout to see if the problem is found unsat.
             if let Ok(stdout) = std::str::from_utf8(&output.stdout) {
                 if !stdout.contains("s UNSATISFIABLE") {
                     return Err(CheckerError::LiaGeneric(LiaGenericError::OutputNotUnsat));
@@ -303,14 +374,8 @@ pub fn sat_refutation(
             let output_drattrim = drattrim_process
                 .wait_with_output()
                 .map_err(LiaGenericError::FailedWaitForSolver)?;
-            if let Ok(stdout) = std::str::from_utf8(&output_drattrim.stdout) {
-                if !stdout.contains("s VERIFIED") {
-                    return Err(CheckerError::LiaGeneric(LiaGenericError::OutputNotUnsat));
-                }
-            } else {
-                return Err(CheckerError::LiaGeneric(
-                    LiaGenericError::SolverGaveInvalidOutput,
-                ));
+            if !output_drattrim.status.success() {
+                return Err(CheckerError::LiaGeneric(LiaGenericError::OutputNotUnsat));
             }
 
             let var_to_term: HashMap<&usize, &Rc<Term>> =
@@ -335,17 +400,12 @@ pub fn sat_refutation(
                         .collect();
                     let clause = pool.add(Term::Op(Operator::RareList, clause_lits.clone()));
                     let is_lemma = lemmas
-                            .iter()
-                            .find(|lemma| lemma.clone().clone() == clause)
-                            .is_some();
+                        .iter()
+                        .find(|lemma| lemma.clone().clone() == clause)
+                        .is_some();
                     println!(
                         "{}{} : {:?}",
-                        if is_lemma
-                        {
-                            "(lemma) "
-                        } else {
-                            ""
-                        },
+                        if is_lemma { "(lemma) " } else { "" },
                         l,
                         clause_lits
                     );
@@ -355,68 +415,28 @@ pub fn sat_refutation(
                 });
 
             let mut dunno = Box::new(pool);
-            let crazy_pool : &mut PrimitivePool = match dunno.as_any_mut().downcast_mut::<PrimitivePool>() {
-                Some(b) => b,
-                None => panic!("&a isn't a B!"),
-            };
+            let crazy_pool: &mut PrimitivePool =
+                match dunno.as_any_mut().downcast_mut::<PrimitivePool>() {
+                    Some(b) => b,
+                    None => panic!("&a isn't a B!"),
+                };
             // for each core lemma, we will run cvc5, parse the proof in, and check it
+            let mut unchecked_lemmas = Vec::new();
             core_lemmas.iter().for_each(|lemma| {
                 let problem = get_problem_string(crazy_pool, &prelude, lemma);
-                // println!("{}", problem);
 
- let mut cvc_process = Command::new("/home/hbarbosa/cvc5/wt-diff/prod/bin/cvc5")
-        .args(["--dump-proofs".to_string(), "--proof-format=alethe".to_string()])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn();
-        // .map_err(LiaGenericError::FailedSpawnSolver)?;
-
-    cvc_process
-        .stdin
-        .take()
-        .expect("failed to open solver stdin")
-        .write_all(problem.as_bytes());
-        // .map_err(LiaGenericError::FailedWriteToSolverStdin)?;
-
-    let output = cvc_process
-        .wait_with_output();
-        // .map_err(LiaGenericError::FailedWaitForSolver)?;
-
-    if !output.status.success() {
-        if let Ok(s) = std::str::from_utf8(&output.stderr) {
-            if s.contains("interrupted by timeout.") {
-                return Err(LiaGenericError::SolverTimeout);
-            }
-        }
-        return Err(LiaGenericError::NonZeroExitCode(output.status.code()));
-    }
-
-    let mut proof = output.stdout.as_slice();
-    let mut first_line = String::new();
-
-    proof
-        .read_line(&mut first_line)
-        .map_err(|_| LiaGenericError::SolverGaveInvalidOutput)?;
-
-    if first_line.trim_end() != "unsat" {
-        return Err(LiaGenericError::OutputNotUnsat);
-    }
-
-                println!("opa!");
-
+                if let Err(_) = get_solver_proof(crazy_pool, problem.clone()) {
+                    unchecked_lemmas.push(lemma);
+                }
             });
-
-            // let core = fs::read_to_string("proof.core")
-            //     .expect("Should have been able to read the file");
-            // println!("{}",core);
+            if !unchecked_lemmas.is_empty() {
+                return Err(CheckerError::LiaGeneric(LiaGenericError::OutputNotUnsat));
+            }
+            Ok(())
 
             // fs::remove_file(cnf_path);
             // fs::remove_file("proof.drat");
 
-            return Err(CheckerError::Explanation(
-                "No external checker to validate step".to_string(),
-            ));
         }
     }
 }

@@ -7,8 +7,8 @@ use super::{Binder, Operator, Rc, Sort, Substitution, Term};
 use crate::ast::{Constant, ParamOperator};
 use indexmap::{IndexMap, IndexSet};
 use rug::Integer;
-use storage::Storage;
 use std::any::Any;
+use storage::Storage;
 
 // pub use substitution::{Substitution, SubstitutionError};
 
@@ -460,5 +460,4 @@ impl TermPool for PrimitivePool {
     fn as_any_mut(&mut self) -> &mut dyn Any {
         self
     }
-
 }
