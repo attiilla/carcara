@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use std::fs;
 use std::process;
 use std::{
-    any::Any,
     fs::File,
     io::{BufRead, Write},
     process::{Command, Stdio},
@@ -96,26 +95,26 @@ fn get_solver_proof(
         return Err(LiaGenericError::OutputNotUnsat);
     }
 
-    println!("{}", problem);
-    println!("{}", std::str::from_utf8(&output.stdout).unwrap());
+    // println!("{}", problem);
+    // println!("{}", std::str::from_utf8(&output.stdout).unwrap());
 
     parse_and_check_solver_proof(pool, problem.as_bytes(), proof)
         .map_err(|e| LiaGenericError::InnerProofError(Box::new(e)))
 }
 
 /// Given a string "(-)?[0-9]+" returns a pair with the polarity (true if no leading minus) and the digit string
-pub fn get_pol_var(lit: String) -> (bool, usize) {
+pub fn _get_pol_var(lit: String) -> (bool, i32) {
     if lit.starts_with("-") {
-        (false, lit[1..lit.len()].parse::<usize>().unwrap())
+        (false, lit[1..lit.len()].parse::<i32>().unwrap())
     } else {
-        (true, lit.parse::<usize>().unwrap())
+        (true, lit.parse::<i32>().unwrap())
     }
 }
 
 fn gen_dimacs<'a>(
     premise_clauses: &'a Vec<Vec<Rc<Term>>>,
     clause_id_to_lemma: &HashMap<usize, Rc<Term>>,
-    term_to_var: &mut HashMap<&'a Rc<Term>, usize>,
+    sat_clause_to_lemma: &mut HashMap<Vec<i32>, Rc<Term>>,
     mark_lemmas: bool,
 ) -> String {
     let mut clauses: String = "".to_string();
@@ -124,19 +123,28 @@ fn gen_dimacs<'a>(
 
     use std::fmt::Write;
 
+    let mut term_to_var: HashMap<&Rc<Term>, i32> = HashMap::new();
+
     for i in 0..premise_clauses.len() {
-        if mark_lemmas && clause_id_to_lemma.contains_key(&i) {
-            clauses += &format!("@l{} ", lemma_id).to_owned();
-            lemma_id += 1;
+        let is_lemma = clause_id_to_lemma.contains_key(&i);
+        if mark_lemmas && is_lemma {
+                clauses += &format!("@l{} ", lemma_id).to_owned();
+                lemma_id += 1;
         }
+        let mut clause_lits = Vec::new();
         premise_clauses[i].iter().for_each(|lit| {
             let (pol, term) = lit.remove_all_negations_with_polarity();
             if !term_to_var.contains_key(term) {
                 term_to_var.insert(term, max_var + 1);
                 max_var += 1;
             }
-            clauses += &format!("{}{} ", if !pol { "-" } else { "" }, term_to_var[term]).to_owned();
+            clause_lits.push(if !pol { -term_to_var[term] } else { term_to_var[term] });
+            clauses += &format!("{} ", clause_lits[clause_lits.len()-1]).to_owned();
         });
+        if is_lemma {
+            clause_lits.sort();
+            sat_clause_to_lemma.insert(clause_lits, clause_id_to_lemma[&i].clone());
+        }
         writeln!(&mut clauses, "0").unwrap();
     }
     let mut dimacs = String::new();
@@ -303,14 +311,15 @@ pub fn sat_refutation(
             }
         }
     });
+    println!("CNF with {} clauses of which {} are lemmas", premise_clauses.len(), lemmas.len());
 
-    let mut term_to_var: HashMap<&Rc<Term>, usize> = HashMap::new();
+    let mut sat_clause_to_lemma: HashMap<Vec<i32>, Rc<Term>> = HashMap::new();
     match checker_path {
         Some(checker_path) => {
             let cnf_path = gen_dimacs(
                 &premise_clauses,
                 &clause_id_to_lemma,
-                &mut term_to_var,
+                &mut sat_clause_to_lemma,
                 true,
             );
             sat_refutation_external_check(cnf_path, prelude, checker_path, &lemmas)
@@ -319,7 +328,7 @@ pub fn sat_refutation(
             let cnf_path = gen_dimacs(
                 &premise_clauses,
                 &clause_id_to_lemma,
-                &mut term_to_var,
+                &mut sat_clause_to_lemma,
                 false,
             );
 
@@ -342,6 +351,7 @@ pub fn sat_refutation(
             let output = cadical_process
                 .wait_with_output()
                 .map_err(LiaGenericError::FailedWaitForSolver)?;
+            println!("Checking CNF {} with CaDiCaL", cnf_path);
 
             // CaDiCaL's exit code when successful is 10/20 (for
             // sat/unsat), so this will not lead to a successful
@@ -371,6 +381,7 @@ pub fn sat_refutation(
             .spawn()
             .map_err(LiaGenericError::FailedSpawnSolver)?;
 
+            println!("Checking DRAT with DRAT-trim");
             let output_drattrim = drattrim_process
                 .wait_with_output()
                 .map_err(LiaGenericError::FailedWaitForSolver)?;
@@ -378,55 +389,46 @@ pub fn sat_refutation(
                 return Err(CheckerError::LiaGeneric(LiaGenericError::OutputNotUnsat));
             }
 
-            let var_to_term: HashMap<&usize, &Rc<Term>> =
-                term_to_var.iter().map(|(k, v)| (v, k.clone())).collect();
             let mut core_lemmas: Vec<Vec<Rc<Term>>> = Vec::new();
             fs::read_to_string("proof.core")
                 .unwrap() // panic on possible file-reading errors
                 .lines() // split the string into an iterator of string slices
                 .skip(1)
                 .for_each(|l| {
-                    let clause_lits: Vec<Rc<Term>> = String::from(l)
+                    let mut sat_clause_lits : Vec<i32> = String::from(l)
                         .split(" ")
-                        .filter(|lit| lit != &"0")
-                        .map(|lit| {
-                            let (pol, var) = get_pol_var(lit.to_string());
-                            if pol {
-                                var_to_term[&var].clone()
-                            } else {
-                                pool.add(Term::Op(Operator::Not, vec![var_to_term[&var].clone()]))
-                            }
+                        .filter_map(|lit| match lit.parse::<i32>() {
+                            Ok(lit) if lit != 0 => Some(lit),
+                            _ => None
                         })
                         .collect();
-                    let clause = pool.add(Term::Op(Operator::RareList, clause_lits.clone()));
-                    let is_lemma = lemmas
-                        .iter()
-                        .find(|lemma| lemma.clone().clone() == clause)
-                        .is_some();
-                    println!(
-                        "{}{} : {:?}",
-                        if is_lemma { "(lemma) " } else { "" },
-                        l,
-                        clause_lits
-                    );
-                    if is_lemma {
-                        core_lemmas.push(clause_lits.clone());
+                    sat_clause_lits.sort();
+                    if let Some(lemma) = sat_clause_to_lemma.get(&sat_clause_lits) {
+                        if let Some((Operator::RareList, lemma_lits)) = lemma.as_op() {
+                            core_lemmas.push(lemma_lits.to_vec().clone());
+                        }
                     }
                 });
 
-            let mut dunno = Box::new(pool);
-            let crazy_pool: &mut PrimitivePool =
-                match dunno.as_any_mut().downcast_mut::<PrimitivePool>() {
+            println!("{} lemmas in core", core_lemmas.len());
+            let borrowed_term_pool = pool;
+            let primitive_pool: &mut PrimitivePool =
+                match borrowed_term_pool.as_any_mut().downcast_mut::<PrimitivePool>() {
                     Some(b) => b,
                     None => panic!("&a isn't a B!"),
                 };
             // for each core lemma, we will run cvc5, parse the proof in, and check it
             let mut unchecked_lemmas = Vec::new();
             core_lemmas.iter().for_each(|lemma| {
-                let problem = get_problem_string(crazy_pool, &prelude, lemma);
+                // println!("\tCheck lemma {:?}", lemma);
+                let problem = get_problem_string(primitive_pool, &prelude, lemma);
 
-                if let Err(_) = get_solver_proof(crazy_pool, problem.clone()) {
+                if let Err(_) = get_solver_proof(primitive_pool, problem.clone()) {
                     unchecked_lemmas.push(lemma);
+                    println!("\t\tFailed: {:?}", lemma);
+                }
+                else {
+                    // println!("\t\tChecked");
                 }
             });
             if !unchecked_lemmas.is_empty() {
