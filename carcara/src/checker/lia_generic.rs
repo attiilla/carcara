@@ -1,6 +1,6 @@
 use super::*;
-use crate::{checker, parser, CarcaraResult};
 use crate::checker::error::LiaGenericError;
+use crate::{checker, parser, CarcaraResult};
 use std::collections::HashMap;
 use std::fs;
 use std::process;
@@ -128,8 +128,8 @@ fn gen_dimacs<'a>(
     for i in 0..premise_clauses.len() {
         let is_lemma = clause_id_to_lemma.contains_key(&i);
         if mark_lemmas && is_lemma {
-                clauses += &format!("@l{} ", lemma_id).to_owned();
-                lemma_id += 1;
+            clauses += &format!("@l{} ", lemma_id).to_owned();
+            lemma_id += 1;
         }
         let mut clause_lits = Vec::new();
         premise_clauses[i].iter().for_each(|lit| {
@@ -138,8 +138,12 @@ fn gen_dimacs<'a>(
                 term_to_var.insert(term, max_var + 1);
                 max_var += 1;
             }
-            clause_lits.push(if !pol { -term_to_var[term] } else { term_to_var[term] });
-            clauses += &format!("{} ", clause_lits[clause_lits.len()-1]).to_owned();
+            clause_lits.push(if !pol {
+                -term_to_var[term]
+            } else {
+                term_to_var[term]
+            });
+            clauses += &format!("{} ", clause_lits[clause_lits.len() - 1]).to_owned();
         });
         if is_lemma {
             clause_lits.sort();
@@ -249,6 +253,7 @@ pub fn sat_refutation(
     let mut lemmas: Vec<Rc<Term>> = Vec::new();
     let mut premise_clauses: Vec<Vec<_>> = Vec::new();
     let mut clause_id_to_lemma: HashMap<usize, Rc<Term>> = HashMap::new();
+    let mut _or_lits : Vec<Rc<Term>> = Vec::new();
     premise_steps.iter().for_each(|p| {
         match p {
             ProofCommand::Step(step) => {
@@ -263,18 +268,57 @@ pub fn sat_refutation(
                                 premise_clauses.push(or_args.to_vec());
                                 lemmas
                                     .push(pool.add(Term::Op(Operator::RareList, or_args.to_vec())));
+                                // or_args.iter().for_each(|lit| {
+                                //     match lit.as_op() {
+                                //         Some((Operator::Or, _)) => { or_lits.push(lit.clone()); },
+                                //         Some((Operator::Not, not_args)) => {
+                                //             if let Some((Operator::Or, _)) = not_args[0].as_op() {
+                                //                 or_lits.push(not_args[0].clone());
+                                //             }
+
+                                //         },
+                                //         _ => {}
+                                //     }
+                                // }
+                                // );
                             }
                             _ => {
                                 premise_clauses.push(vec![term.clone()]);
                                 lemmas.push(
                                     pool.add(Term::Op(Operator::RareList, vec![term.clone()])),
                                 );
+                                // step.clause.iter().for_each(|lit| {
+                                //     match lit.as_op() {
+                                //         Some((Operator::Or, _)) => { or_lits.push(lit.clone()); },
+                                //         Some((Operator::Not, not_args)) => {
+                                //             if let Some((Operator::Or, _)) = not_args[0].as_op() {
+                                //                 or_lits.push(not_args[0].clone());
+                                //             }
+
+                                //         },
+                                //         _ => {}
+                                //     }
+                                // }
+                                // );
                             }
                         },
                         _ => {
                             premise_clauses.push(step.clause.clone());
                             lemmas
                                 .push(pool.add(Term::Op(Operator::RareList, step.clause.clone())));
+                            // step.clause.iter().for_each(|lit| {
+                            //         match lit.as_op() {
+                            //             Some((Operator::Or, _)) => { or_lits.push(lit.clone()); },
+                            //             Some((Operator::Not, not_args)) => {
+                            //                 if let Some((Operator::Or, _)) = not_args[0].as_op() {
+                            //                     or_lits.push(not_args[0].clone());
+                            //                 }
+
+                            //             },
+                            //             _ => {}
+                            //         }
+                            //     }
+                            //     );
                         }
                     };
                     clause_id_to_lemma
@@ -285,7 +329,21 @@ pub fn sat_refutation(
                         [term] => {
                             match term.as_ref() {
                                 Term::Op(Operator::Or, or_args) => {
+                                    // add as a non-singleton clause
                                     premise_clauses.push(or_args.to_vec());
+                                    // or_args.iter().for_each(|lit| {
+                                    // match lit.as_op() {
+                                    //     Some((Operator::Or, _)) => { or_lits.push(lit.clone()); },
+                                    //     Some((Operator::Not, not_args)) => {
+                                    //         if let Some((Operator::Or, _)) = not_args[0].as_op() {
+                                    //             or_lits.push(not_args[0].clone());
+                                    //         }
+
+                                    //     },
+                                    //     _ => {}
+                                    // }
+                                    // }
+                                    // );
                                 }
                                 _ => {}
                             }
@@ -293,6 +351,19 @@ pub fn sat_refutation(
                         }
                         _ => {
                             premise_clauses.push(step.clause.clone());
+                            // step.clause.iter().for_each(|lit| {
+                            //         match lit.as_op() {
+                            //             Some((Operator::Or, _)) => { or_lits.push(lit.clone()); },
+                            //             Some((Operator::Not, not_args)) => {
+                            //                 if let Some((Operator::Or, _)) = not_args[0].as_op() {
+                            //                     or_lits.push(not_args[0].clone());
+                            //                 }
+
+                            //             },
+                            //             _ => {}
+                            //         }
+                            //     }
+                            //     );
                         }
                     }
                 }
@@ -311,7 +382,12 @@ pub fn sat_refutation(
             }
         }
     });
-    println!("CNF with {} clauses of which {} are lemmas", premise_clauses.len(), lemmas.len());
+    println!(
+        "CNF with {} clauses of which {} are lemmas",
+        premise_clauses.len(),
+        lemmas.len()
+    );
+    // println!("Or lits found: {}", or_lits.len());
 
     let mut sat_clause_to_lemma: HashMap<Vec<i32>, Rc<Term>> = HashMap::new();
     match checker_path {
@@ -395,11 +471,11 @@ pub fn sat_refutation(
                 .lines() // split the string into an iterator of string slices
                 .skip(1)
                 .for_each(|l| {
-                    let mut sat_clause_lits : Vec<i32> = String::from(l)
+                    let mut sat_clause_lits: Vec<i32> = String::from(l)
                         .split(" ")
                         .filter_map(|lit| match lit.parse::<i32>() {
                             Ok(lit) if lit != 0 => Some(lit),
-                            _ => None
+                            _ => None,
                         })
                         .collect();
                     sat_clause_lits.sort();
@@ -412,11 +488,13 @@ pub fn sat_refutation(
 
             println!("{} lemmas in core", core_lemmas.len());
             let borrowed_term_pool = pool;
-            let primitive_pool: &mut PrimitivePool =
-                match borrowed_term_pool.as_any_mut().downcast_mut::<PrimitivePool>() {
-                    Some(b) => b,
-                    None => panic!("&a isn't a B!"),
-                };
+            let primitive_pool: &mut PrimitivePool = match borrowed_term_pool
+                .as_any_mut()
+                .downcast_mut::<PrimitivePool>()
+            {
+                Some(b) => b,
+                None => panic!("&a isn't a B!"),
+            };
             // for each core lemma, we will run cvc5, parse the proof in, and check it
             let mut unchecked_lemmas = Vec::new();
             core_lemmas.iter().for_each(|lemma| {
@@ -426,8 +504,7 @@ pub fn sat_refutation(
                 if let Err(_) = get_solver_proof(primitive_pool, problem.clone()) {
                     unchecked_lemmas.push(lemma);
                     println!("\t\tFailed: {:?}", lemma);
-                }
-                else {
+                } else {
                     // println!("\t\tChecked");
                 }
             });
@@ -438,7 +515,6 @@ pub fn sat_refutation(
 
             // fs::remove_file(cnf_path);
             // fs::remove_file("proof.drat");
-
         }
     }
 }

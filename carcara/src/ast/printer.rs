@@ -50,6 +50,25 @@ pub fn write_lia_smt_instance(
     printer.write_lia_smt_instance(clause)
 }
 
+/// Given a set of assertions and a prelude, write them as an SMT problem instance to `dest`.
+pub fn write_smt_instance(
+    pool: &mut PrimitivePool,
+    prelude: &ProblemPrelude,
+    dest: &mut dyn io::Write,
+    assertions: &[Rc<Term>],
+    use_sharing: bool,
+) -> io::Result<()> {
+    let mut printer = AlethePrinter::new(pool, prelude, use_sharing, dest);
+    // We have to override the default prefix "@p_" because symbols starting with "@" are reserved
+    // in SMT-LIB.
+    printer.term_sharing_variable_prefix = "p_";
+    // Since we are printing an SMT-LIB problem, we have to be
+    // compliant. For Carcara, this means that arithmetic constants
+    // cannot use the GMP notation
+    printer.smt_lib_strict = true;
+    printer.write_assertions(assertions)
+}
+
 trait PrintProof {
     fn write_proof(&mut self, proof: &Proof) -> io::Result<()>;
 }
@@ -393,6 +412,16 @@ impl<'a> AlethePrinter<'a> {
         }
         Ok(())
     }
+
+    fn write_assertions(&mut self, assertions: &[Rc<Term>]) -> io::Result<()> {
+        for assertion in assertions.iter().dedup() {
+            write!(self.inner, "(assert ")?;
+            assertion.print_with_sharing(self)?;
+            writeln!(self.inner, ")")?;
+        }
+        Ok(())
+    }
+
 }
 
 fn write_s_expr<H, T>(f: &mut fmt::Formatter, head: H, tail: &[T]) -> fmt::Result
