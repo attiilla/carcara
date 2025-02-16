@@ -1,9 +1,8 @@
 use super::*;
-use crate::checker::error::LiaGenericError;
+use crate::ast::*;
 use crate::{checker, parser, CarcaraResult};
 use std::collections::HashMap;
 use std::fs;
-use std::process;
 use std::{
     fs::File,
     io::{BufRead, Write},
@@ -13,12 +12,32 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum ExternalError {
+    #[error("failed to spawn solver process")]
+    FailedSpawnSolver(io::Error),
+
+    #[error("failed to write to solver stdin")]
+    FailedWriteToSolverStdin(io::Error),
+
+    #[error("error while waiting for solver to exit")]
+    FailedWaitForSolver(io::Error),
+
+    #[error("solver gave invalid output")]
+    SolverGaveInvalidOutput,
+
+    #[error("solver output not unsat")]
+    OutputNotUnsat,
+
+    #[error("solver timed out when solving problem")]
+    SolverTimeout,
+
+    #[error("error in inner proof: {0}")]
+    InnerProofError(Box<crate::Error>),
+
     #[error("couldn't check lemma: '{0}'")]
     LemmaNotChecked(Rc<Term>),
 }
 
-
-fn get_problem_string(
+pub fn get_problem_string(
     pool: &mut PrimitivePool,
     prelude: &ProblemPrelude,
     conclusion: &[Rc<Term>],
@@ -40,7 +59,7 @@ fn get_problem_string(
     problem
 }
 
-fn parse_and_check_solver_proof(
+pub fn parse_and_check_solver_proof(
     pool: &mut PrimitivePool,
     problem: &[u8],
     proof: &[u8],
@@ -60,36 +79,36 @@ fn parse_and_check_solver_proof(
     Ok((proof.commands, res))
 }
 
-fn get_solver_proof(
+pub fn get_solver_proof(
     pool: &mut PrimitivePool,
     problem: String,
-) -> Result<(Vec<ProofCommand>, bool), LiaGenericError> {
+) -> Result<(Vec<ProofCommand>, bool), ExternalError> {
     let mut process = Command::new("/home/hbarbosa/cvc5/wt-diff/prod/bin/cvc5")
         .arg("--proof-format=alethe".to_string())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(LiaGenericError::FailedSpawnSolver)?;
+        .map_err(ExternalError::FailedSpawnSolver)?;
 
     process
         .stdin
         .take()
         .expect("failed to open solver stdin")
         .write_all(problem.as_bytes())
-        .map_err(LiaGenericError::FailedWriteToSolverStdin)?;
+        .map_err(ExternalError::FailedWriteToSolverStdin)?;
 
     let output = process
         .wait_with_output()
-        .map_err(LiaGenericError::FailedWaitForSolver)?;
+        .map_err(ExternalError::FailedWaitForSolver)?;
 
     if !output.status.success() {
         if let Ok(s) = std::str::from_utf8(&output.stderr) {
             if s.contains("interrupted by timeout.") {
-                return Err(LiaGenericError::SolverTimeout);
+                return Err(ExternalError::SolverTimeout);
             }
         }
-        return Err(LiaGenericError::NonZeroExitCode(output.status.code()));
+        return Err(ExternalError::SolverGaveInvalidOutput);
     }
 
     let mut proof = output.stdout.as_slice();
@@ -97,17 +116,17 @@ fn get_solver_proof(
 
     proof
         .read_line(&mut first_line)
-        .map_err(|_| LiaGenericError::SolverGaveInvalidOutput)?;
+        .map_err(|_| ExternalError::SolverGaveInvalidOutput)?;
 
     if first_line.trim_end() != "unsat" {
-        return Err(LiaGenericError::OutputNotUnsat);
+        return Err(ExternalError::OutputNotUnsat);
     }
 
     // println!("{}", problem);
     // println!("{}", std::str::from_utf8(&output.stdout).unwrap());
 
     parse_and_check_solver_proof(pool, problem.as_bytes(), proof)
-        .map_err(|e| LiaGenericError::InnerProofError(Box::new(e)))
+        .map_err(|e| ExternalError::InnerProofError(Box::new(e)))
 }
 
 /// Given a string "(-)?[0-9]+" returns a pair with the polarity (true if no leading minus) and the digit string
@@ -119,7 +138,7 @@ pub fn _get_pol_var(lit: String) -> (bool, i32) {
     }
 }
 
-fn gen_dimacs<'a>(
+pub fn gen_dimacs<'a>(
     premise_clauses: &'a Vec<Vec<Rc<Term>>>,
     clause_id_to_lemma: &HashMap<usize, Rc<Term>>,
     sat_clause_to_lemma: &mut HashMap<Vec<i32>, Rc<Term>>,
@@ -169,13 +188,13 @@ fn gen_dimacs<'a>(
 }
 
 pub fn collect_premise_clauses(
-    pool : &mut dyn TermPool,
+    pool: &mut dyn TermPool,
     premise_steps: &Vec<&ProofCommand>,
-    lemmas : &mut Vec<Rc<Term>>,
-    clause_id_to_lemma: &mut HashMap<usize, Rc<Term>>
+    lemmas: &mut Vec<Rc<Term>>,
+    clause_id_to_lemma: &mut HashMap<usize, Rc<Term>>,
 ) -> Vec<Vec<Rc<Term>>> {
     let mut premise_clauses: Vec<Vec<_>> = Vec::new();
-    let mut _or_lits : Vec<Rc<Term>> = Vec::new();
+    let mut _or_lits: Vec<Rc<Term>> = Vec::new();
     premise_steps.iter().for_each(|p| {
         match p {
             ProofCommand::Step(step) => {
@@ -313,15 +332,14 @@ pub fn collect_premise_clauses(
 }
 
 pub fn get_core_lemmas(
-    cnf_path : String,
+    cnf_path: String,
     sat_clause_to_lemma: &HashMap<Vec<i32>, Rc<Term>>,
-) -> {
+) -> Result<Vec<Vec<Rc<Term>>>, ExternalError> {
     // not gonna pass input via stdin because in that case
     // CaDiCaL gets confused with receiving the name of the
     // proof file as an argument. If we could get the proof in
     // stdout then there would be no need to write a CNF file nor a DRAT file
-    let cadical_process =
-        Command::new("/home/hbarbosa/carcara/wt-cvc5/cadical/build/cadical")
+    let cadical_process = Command::new("/home/hbarbosa/carcara/wt-cvc5/cadical/build/cadical")
         .args([
             cnf_path.clone(),
             "proof.drat".to_string(),
@@ -330,11 +348,11 @@ pub fn get_core_lemmas(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(LiaGenericError::FailedSpawnSolver)?;
+        .map_err(ExternalError::FailedSpawnSolver)?;
 
     let output = cadical_process
         .wait_with_output()
-        .map_err(LiaGenericError::FailedWaitForSolver)?;
+        .map_err(ExternalError::FailedWaitForSolver)?;
     println!("Checking CNF {} with CaDiCaL", cnf_path);
 
     // CaDiCaL's exit code when successful is 10/20 (for
@@ -343,34 +361,31 @@ pub fn get_core_lemmas(
     // checks stdout to see if the problem is found unsat.
     if let Ok(stdout) = std::str::from_utf8(&output.stdout) {
         if !stdout.contains("s UNSATISFIABLE") {
-            return Err(CheckerError::LiaGeneric(LiaGenericError::OutputNotUnsat));
+            return Err(ExternalError::OutputNotUnsat);
         }
     } else {
-        return Err(CheckerError::LiaGeneric(
-            LiaGenericError::SolverGaveInvalidOutput,
-        ));
+        return Err(ExternalError::SolverGaveInvalidOutput);
     }
     // pass cnf + proof to drat-trim
-    let drattrim_process = Command::new(
-        "/home/hbarbosa/carcara/wt-cvc5/SMT-theory-trim/theory-trim/drat-trim",
-    )
-        .args([
-            cnf_path.clone(),
-            "proof.drat".to_string(),
-            "-c".to_string(),
-            "proof.core".to_string(),
-        ])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(LiaGenericError::FailedSpawnSolver)?;
+    let drattrim_process =
+        Command::new("/home/hbarbosa/carcara/wt-cvc5/SMT-theory-trim/theory-trim/drat-trim")
+            .args([
+                cnf_path.clone(),
+                "proof.drat".to_string(),
+                "-c".to_string(),
+                "proof.core".to_string(),
+            ])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(ExternalError::FailedSpawnSolver)?;
 
     println!("Checking DRAT with DRAT-trim");
     let output_drattrim = drattrim_process
         .wait_with_output()
-        .map_err(LiaGenericError::FailedWaitForSolver)?;
+        .map_err(ExternalError::FailedWaitForSolver)?;
     if !output_drattrim.status.success() {
-        return Err(CheckerError::LiaGeneric(LiaGenericError::OutputNotUnsat));
+        return Err(ExternalError::OutputNotUnsat);
     }
 
     let mut core_lemmas: Vec<Vec<Rc<Term>>> = Vec::new();
@@ -395,5 +410,5 @@ pub fn get_core_lemmas(
         });
     println!("{} lemmas in core", core_lemmas.len());
 
-    core_lemmas
+    Ok(core_lemmas)
 }

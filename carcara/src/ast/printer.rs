@@ -421,7 +421,6 @@ impl<'a> AlethePrinter<'a> {
         }
         Ok(())
     }
-
 }
 
 fn write_s_expr<H, T>(f: &mut fmt::Formatter, head: H, tail: &[T]) -> fmt::Result
