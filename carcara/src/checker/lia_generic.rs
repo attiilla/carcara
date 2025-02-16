@@ -1,13 +1,11 @@
 use super::*;
 use crate::checker::error::LiaGenericError;
 use crate::external::*;
-use crate::{checker, parser, CarcaraResult};
 use std::collections::HashMap;
-use std::fs;
 use std::process;
 use std::{
     fs::File,
-    io::{BufRead, Write},
+    io::{Write},
     process::{Command, Stdio},
 };
 

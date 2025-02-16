@@ -38,6 +38,7 @@ pub enum ElaborationStep {
     Uncrowd,
     Reordering,
     Hole,
+    SatRefutation,
 }
 
 /// The options that control how `lia_generic` steps are elaborated using an external solver.
@@ -132,6 +133,14 @@ impl<'e> Elaborator<'e> {
                         })
                     }
                 }
+                ElaborationStep::SatRefutation => mutate(&current, |_, node| match node.as_ref() {
+                    ProofNode::Step(s)
+                        if (s.rule == "sat_refutation") =>
+                    {
+                        hole::hole(self, s).unwrap_or_else(|| node.clone())
+                    }
+                    _ => node.clone(),
+                }),
             };
             durations.push(time.elapsed());
         }
