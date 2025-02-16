@@ -496,21 +496,15 @@ pub fn sat_refutation(
                 None => panic!("&a isn't a B!"),
             };
             // for each core lemma, we will run cvc5, parse the proof in, and check it
-            let mut unchecked_lemmas = Vec::new();
-            core_lemmas.iter().for_each(|lemma| {
+            for i in 0..core_lemmas.len() {
                 // println!("\tCheck lemma {:?}", lemma);
-                let problem = get_problem_string(primitive_pool, &prelude, lemma);
+                let problem = get_problem_string(primitive_pool, &prelude, &core_lemmas[i][..]);
 
                 if let Err(_) = get_solver_proof(primitive_pool, problem.clone()) {
-                    unchecked_lemmas.push(lemma);
-                    println!("\t\tFailed: {:?}", lemma);
-                } else {
-                    // println!("\t\tChecked");
+                    println!("\t\tFailed: {:?}", core_lemmas[i]);
+                    return Err(CheckerError::LiaGeneric(LiaGenericError::OutputNotUnsat));
                 }
-            });
-            if !unchecked_lemmas.is_empty() {
-                return Err(CheckerError::LiaGeneric(LiaGenericError::OutputNotUnsat));
-            }
+            };
             Ok(())
 
             // fs::remove_file(cnf_path);
