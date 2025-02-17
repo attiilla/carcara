@@ -124,30 +124,30 @@ pub fn sat_refutation(
                 false,
             );
 
-            if let Ok(core_lemmas) = get_core_lemmas(cnf_path, &sat_clause_to_lemma) {
-                let borrowed_term_pool = pool;
-                let primitive_pool: &mut PrimitivePool = match borrowed_term_pool
-                    .as_any_mut()
-                    .downcast_mut::<PrimitivePool>()
-                {
-                    Some(b) => b,
-                    None => panic!("&a isn't a B!"),
-                };
-                // for each core lemma, we will run cvc5, parse the proof in, and check it
-                for i in 0..core_lemmas.len() {
-                    // println!("\tCheck lemma {:?}", lemma);
-                    let problem = get_problem_string(primitive_pool, &prelude, &core_lemmas[i][..]);
+            match get_core_lemmas(cnf_path, &sat_clause_to_lemma) {
+                Ok(core_lemmas) => {
+                    let borrowed_term_pool = pool;
+                    let primitive_pool: &mut PrimitivePool = match borrowed_term_pool
+                        .as_any_mut()
+                        .downcast_mut::<PrimitivePool>()
+                    {
+                        Some(b) => b,
+                        None => panic!("&a isn't a B!"),
+                    };
+                    // for each core lemma, we will run cvc5, parse the proof in, and check it
+                    for i in 0..core_lemmas.len() {
+                        // println!("\tCheck lemma {:?}", lemma);
+                        let problem = get_problem_string(primitive_pool, &prelude, &core_lemmas[i][..]);
 
-                    if let Err(_) = get_solver_proof(primitive_pool, problem.clone()) {
-                        println!("\t\tFailed: {:?}", core_lemmas[i]);
-                        return Err(CheckerError::LiaGeneric(LiaGenericError::OutputNotUnsat));
+                        if let Err(_) = get_solver_proof(primitive_pool, problem.clone()) {
+                            println!("\t\tFailed: {:?}", core_lemmas[i]);
+                            return Err(CheckerError::LiaGeneric(LiaGenericError::OutputNotUnsat));
+                        }
                     }
-                }
-                return Ok(());
+                    return Ok(());
+                },
+                Err(e) => return Err(CheckerError::External(e))
             }
-            return Err(CheckerError::Explanation(
-                "Could not retrieve a set of core lemmas".to_string(),
-            ));
         }
     }
 }

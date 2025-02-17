@@ -224,6 +224,7 @@ enum ElaborationStep {
     Uncrowd,
     Reordering,
     Hole,
+    SatRefutation
 }
 
 #[derive(Args, Clone)]
@@ -283,6 +284,7 @@ impl From<ElaborationOptions> for (elaborator::Config, Vec<elaborator::Elaborati
                 ElaborationStep::Uncrowd => elaborator::ElaborationStep::Uncrowd,
                 ElaborationStep::Reordering => elaborator::ElaborationStep::Reordering,
                 ElaborationStep::Hole => elaborator::ElaborationStep::Hole,
+                ElaborationStep::SatRefutation => elaborator::ElaborationStep::SatRefutation,
             })
             .collect();
         let lia_options = val.lia_solver.map(|solver| elaborator::LiaGenericOptions {

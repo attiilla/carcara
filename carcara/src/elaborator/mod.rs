@@ -259,7 +259,7 @@ pub fn add_refl_step(
 type ElaborationFunc =
     fn(&mut PrimitivePool, &mut ContextStack, &StepNode) -> Result<Rc<ProofNode>, CheckerError>;
 
-fn mutate<F>(root: &Rc<ProofNode>, mut mutate_func: F) -> Rc<ProofNode>
+pub fn mutate<F>(root: &Rc<ProofNode>, mut mutate_func: F) -> Rc<ProofNode>
 where
     F: FnMut(&mut ContextStack, &Rc<ProofNode>) -> Rc<ProofNode>,
 {
@@ -345,20 +345,20 @@ where
     cache[root].clone()
 }
 
-struct IdHelper {
+pub struct IdHelper {
     root: String,
     stack: Vec<usize>,
 }
 
 impl IdHelper {
-    fn new(root: &str) -> Self {
+    pub fn new(root: &str) -> Self {
         Self {
             root: root.to_owned(),
             stack: vec![0],
         }
     }
 
-    fn next_id(&mut self) -> String {
+    pub fn next_id(&mut self) -> String {
         use std::fmt::Write;
 
         let mut current = self.root.clone();
@@ -369,11 +369,11 @@ impl IdHelper {
         current
     }
 
-    fn push(&mut self) {
+    pub fn push(&mut self) {
         self.stack.push(0);
     }
 
-    fn pop(&mut self) {
+    pub fn pop(&mut self) {
         assert!(self.stack.len() >= 2, "can't pop last frame from the stack");
         self.stack.pop();
     }

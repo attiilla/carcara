@@ -6,6 +6,7 @@ use crate::{
 use rug::{Integer, Rational};
 use std::{fmt, io};
 use thiserror::Error;
+use crate::external::ExternalError;
 
 #[derive(Debug, Error)]
 pub enum LiaGenericError {
@@ -66,6 +67,9 @@ pub enum CheckerError {
 
     #[error(transparent)]
     LiaGeneric(#[from] LiaGenericError),
+
+    #[error(transparent)]
+    External(#[from] ExternalError),
 
     #[error(transparent)]
     Subproof(#[from] SubproofError),
