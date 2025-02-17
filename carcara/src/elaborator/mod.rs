@@ -4,6 +4,7 @@ mod polyeq;
 mod reflexivity;
 mod reordering;
 mod resolution;
+mod sat_refutation;
 mod transitivity;
 mod uncrowding;
 
@@ -134,10 +135,8 @@ impl<'e> Elaborator<'e> {
                     }
                 }
                 ElaborationStep::SatRefutation => mutate(&current, |_, node| match node.as_ref() {
-                    ProofNode::Step(s)
-                        if (s.rule == "sat_refutation") =>
-                    {
-                        hole::hole(self, s).unwrap_or_else(|| node.clone())
+                    ProofNode::Step(s) if (s.rule == "sat_refutation") => {
+                        sat_refutation::sat_refutation(self, s).unwrap_or_else(|| node.clone())
                     }
                     _ => node.clone(),
                 }),
