@@ -224,7 +224,7 @@ enum ElaborationStep {
     Uncrowd,
     Reordering,
     Hole,
-    SatRefutation
+    SatRefutation,
 }
 
 #[derive(Args, Clone)]

@@ -1,6 +1,6 @@
 use super::*;
 use crate::ast::*;
-use crate::elaborator::{IdHelper, mutate};
+use crate::elaborator::{mutate, IdHelper};
 use crate::{checker, parser, CarcaraResult};
 use std::collections::HashMap;
 use std::fs;
@@ -191,7 +191,7 @@ pub fn gen_dimacs<'a>(
 pub fn collect_premise_clauses(
     pool: &mut dyn TermPool,
     premise_steps: &Vec<&ProofCommand>,
-    lemmas: &mut Vec<Rc<Term>>,
+    lemmas_to_step_ids: &mut HashMap<Rc<Term>, String>,
     clause_id_to_lemma: &mut HashMap<usize, Rc<Term>>,
 ) -> Vec<Vec<Rc<Term>>> {
     let mut premise_clauses: Vec<Vec<_>> = Vec::new();
@@ -204,12 +204,13 @@ pub fn collect_premise_clauses(
                 // unities. If they are not singleton clauses, we add the
                 // whole clause as a clause
                 if step.rule == "hole" {
-                    match &step.clause[..] {
+                    let lemma = match &step.clause[..] {
                         [term] => match term.as_ref() {
                             Term::Op(Operator::Or, or_args) => {
                                 premise_clauses.push(or_args.to_vec());
-                                lemmas
-                                    .push(pool.add(Term::Op(Operator::RareList, or_args.to_vec())));
+                                let lemma =
+                                    pool.add(Term::Op(Operator::RareList, or_args.to_vec()));
+                                lemmas_to_step_ids.insert(lemma.clone(), step.id.clone());
                                 // or_args.iter().for_each(|lit| {
                                 //     match lit.as_op() {
                                 //         Some((Operator::Or, _)) => { or_lits.push(lit.clone()); },
@@ -223,12 +224,13 @@ pub fn collect_premise_clauses(
                                 //     }
                                 // }
                                 // );
+                                lemma
                             }
                             _ => {
                                 premise_clauses.push(vec![term.clone()]);
-                                lemmas.push(
-                                    pool.add(Term::Op(Operator::RareList, vec![term.clone()])),
-                                );
+                                let lemma =
+                                    pool.add(Term::Op(Operator::RareList, vec![term.clone()]));
+                                lemmas_to_step_ids.insert(lemma.clone(), step.id.clone());
                                 // step.clause.iter().for_each(|lit| {
                                 //     match lit.as_op() {
                                 //         Some((Operator::Or, _)) => { or_lits.push(lit.clone()); },
@@ -242,12 +244,13 @@ pub fn collect_premise_clauses(
                                 //     }
                                 // }
                                 // );
+                                lemma
                             }
                         },
                         _ => {
                             premise_clauses.push(step.clause.clone());
-                            lemmas
-                                .push(pool.add(Term::Op(Operator::RareList, step.clause.clone())));
+                            let lemma = pool.add(Term::Op(Operator::RareList, step.clause.clone()));
+                            lemmas_to_step_ids.insert(lemma.clone(), step.id.clone());
                             // step.clause.iter().for_each(|lit| {
                             //         match lit.as_op() {
                             //             Some((Operator::Or, _)) => { or_lits.push(lit.clone()); },
@@ -261,10 +264,10 @@ pub fn collect_premise_clauses(
                             //         }
                             //     }
                             //     );
+                            lemma
                         }
                     };
-                    clause_id_to_lemma
-                        .insert(premise_clauses.len() - 1, lemmas[lemmas.len() - 1].clone());
+                    clause_id_to_lemma.insert(premise_clauses.len() - 1, lemma.clone());
                 } else {
                     match &step.clause[..] {
                         // singletons are always added as unities and as clauses, if OR nodes
@@ -327,7 +330,7 @@ pub fn collect_premise_clauses(
     println!(
         "CNF with {} clauses of which {} are lemmas",
         premise_clauses.len(),
-        lemmas.len()
+        lemmas_to_step_ids.len()
     );
     premise_clauses
 }
@@ -452,8 +455,18 @@ pub fn insert_solver_proof(
 
     clause.push(pool.bool_false());
 
-    let proof = increase_subproof_depth(&proof, depth + 1, root_id);
-    let subproof_assumptions = proof.get_assumptions_of_depth(depth + 1);
+    let proof = increase_subproof_depth(&proof, depth + 1, &subproof_id);
+    let term_to_subproof_assumption: HashMap<Rc<Term>, Rc<ProofNode>> = proof
+        .get_assumptions_of_depth(depth + 1)
+        .iter()
+        .map(|p| {
+            if let Some((_, _, term)) = p.as_assume() {
+                (term.clone(), p.clone())
+            } else {
+                unreachable!();
+            }
+        })
+        .collect();
 
     let last_step = Rc::new(ProofNode::Step(StepNode {
         id: subproof_id,
@@ -462,7 +475,16 @@ pub fn insert_solver_proof(
         rule: "subproof".to_owned(),
         premises: Vec::new(),
         args: Vec::new(),
-        discharge: subproof_assumptions,
+        // we have to make sure the assumptions are given in the right order as the conclusion
+        discharge: (0..clause.len() - 1)
+            .map(|i| {
+                if let Some(t) = match_term!((not t) = &clause[i]) {
+                    term_to_subproof_assumption[t].clone()
+                } else {
+                    unreachable!();
+                }
+            })
+            .collect(),
         previous_step: Some(proof),
     }));
 

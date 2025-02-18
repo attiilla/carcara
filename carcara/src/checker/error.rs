@@ -1,3 +1,4 @@
+use crate::external::ExternalError;
 use crate::{
     ast::*,
     checker::rules::linear_arithmetic::LinearComb,
@@ -6,7 +7,6 @@ use crate::{
 use rug::{Integer, Rational};
 use std::{fmt, io};
 use thiserror::Error;
-use crate::external::ExternalError;
 
 #[derive(Debug, Error)]
 pub enum LiaGenericError {

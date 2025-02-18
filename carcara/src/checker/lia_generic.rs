@@ -100,10 +100,14 @@ pub fn sat_refutation(
     // add them as unit clauses with a literal corresponding to the
     // whole clause.
 
-    let mut lemmas: Vec<Rc<Term>> = Vec::new();
+    let mut lemmas_to_step_ids: HashMap<Rc<Term>, String> = HashMap::new();
     let mut clause_id_to_lemma: HashMap<usize, Rc<Term>> = HashMap::new();
-    let premise_clauses =
-        collect_premise_clauses(pool, &premise_steps, &mut lemmas, &mut clause_id_to_lemma);
+    let premise_clauses = collect_premise_clauses(
+        pool,
+        &premise_steps,
+        &mut lemmas_to_step_ids,
+        &mut clause_id_to_lemma,
+    );
 
     let mut sat_clause_to_lemma: HashMap<Vec<i32>, Rc<Term>> = HashMap::new();
     match checker_path {
@@ -114,6 +118,10 @@ pub fn sat_refutation(
                 &mut sat_clause_to_lemma,
                 true,
             );
+            let lemmas = lemmas_to_step_ids
+                .iter()
+                .map(|(lemma, _)| lemma.clone())
+                .collect();
             sat_refutation_external_check(cnf_path, prelude, checker_path, &lemmas)
         }
         None => {
@@ -137,7 +145,8 @@ pub fn sat_refutation(
                     // for each core lemma, we will run cvc5, parse the proof in, and check it
                     for i in 0..core_lemmas.len() {
                         // println!("\tCheck lemma {:?}", lemma);
-                        let problem = get_problem_string(primitive_pool, &prelude, &core_lemmas[i][..]);
+                        let problem =
+                            get_problem_string(primitive_pool, &prelude, &core_lemmas[i][..]);
 
                         if let Err(_) = get_solver_proof(primitive_pool, problem.clone()) {
                             println!("\t\tFailed: {:?}", core_lemmas[i]);
@@ -145,8 +154,8 @@ pub fn sat_refutation(
                         }
                     }
                     return Ok(());
-                },
-                Err(e) => return Err(CheckerError::External(e))
+                }
+                Err(e) => return Err(CheckerError::External(e)),
             }
         }
     }
