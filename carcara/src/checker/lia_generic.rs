@@ -110,12 +110,14 @@ pub fn sat_refutation(
     );
 
     let mut sat_clause_to_lemma: HashMap<Vec<i32>, Rc<Term>> = HashMap::new();
+    let mut term_to_var: HashMap<&Rc<Term>, i32> = HashMap::new();
     match checker_path {
         Some(checker_path) => {
             let cnf_path = gen_dimacs(
                 &premise_clauses,
                 &clause_id_to_lemma,
                 &mut sat_clause_to_lemma,
+                &mut term_to_var,
                 true,
             );
             let lemmas = lemmas_to_step_ids
@@ -129,6 +131,7 @@ pub fn sat_refutation(
                 &premise_clauses,
                 &clause_id_to_lemma,
                 &mut sat_clause_to_lemma,
+                &mut term_to_var,
                 false,
             );
 

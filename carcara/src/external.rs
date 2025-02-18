@@ -130,12 +130,12 @@ pub fn get_solver_proof(
         .map_err(|e| ExternalError::InnerProofError(Box::new(e)))
 }
 
-/// Given a string "(-)?[0-9]+" returns a pair with the polarity (true if no leading minus) and the digit string
-pub fn _get_pol_var(lit: String) -> (bool, i32) {
-    if lit.starts_with("-") {
-        (false, lit[1..lit.len()].parse::<i32>().unwrap())
+/// Given an integer returns a pair with the polarity (true if no leading minus) and the absolute value
+pub fn get_pol_var(lit: i32) -> (bool, i32) {
+    if lit < 0 {
+        (false, lit.abs())
     } else {
-        (true, lit.parse::<i32>().unwrap())
+        (true, lit)
     }
 }
 
@@ -143,6 +143,7 @@ pub fn gen_dimacs<'a>(
     premise_clauses: &'a Vec<Vec<Rc<Term>>>,
     clause_id_to_lemma: &HashMap<usize, Rc<Term>>,
     sat_clause_to_lemma: &mut HashMap<Vec<i32>, Rc<Term>>,
+    term_to_var: &mut HashMap<&'a Rc<Term>, i32>,
     mark_lemmas: bool,
 ) -> String {
     let mut clauses: String = "".to_string();
@@ -150,8 +151,6 @@ pub fn gen_dimacs<'a>(
     let mut lemma_id = 0;
 
     use std::fmt::Write;
-
-    let mut term_to_var: HashMap<&Rc<Term>, i32> = HashMap::new();
 
     for i in 0..premise_clauses.len() {
         let is_lemma = clause_id_to_lemma.contains_key(&i);
@@ -175,7 +174,7 @@ pub fn gen_dimacs<'a>(
         });
         if is_lemma {
             clause_lits.sort();
-            sat_clause_to_lemma.insert(clause_lits, clause_id_to_lemma[&i].clone());
+            sat_clause_to_lemma.insert(clause_lits.clone(), clause_id_to_lemma[&i].clone());
         }
         writeln!(&mut clauses, "0").unwrap();
     }
@@ -468,6 +467,26 @@ pub fn insert_solver_proof(
         })
         .collect();
 
+    let last_assumption_id_prefix = format!("{}.a", subproof_id);
+
+    // We use the length of the clause to guarantee this id will not clash with
+    // the id of some existing assumption. It does not suffice to get the number
+    // of assumptions in `term_to_subproof_assumption` as a baseline because we
+    // may have fewer assumptions there than the total number of literals in
+    // clause however some of them may be with a higher index (e.g. 3
+    // assumptions there, but one of them has id "...a5").
+    let mut next_assumption_id = clause.len() + 1;
+    // println!(
+    //     "Got assumptions {:?}",
+    //     term_to_subproof_assumption
+    //         .iter()
+    //         .map(|(t, _)| t.clone())
+    //         .collect::<Vec<Rc<Term>>>()
+    // );
+    // println!("Clause {:?}", clause);
+    // println!("term to subproof assumptions {:?}", term_to_subproof_assumption);
+    // println!("Last assumption id: {}", last_assumption_id);
+
     let last_step = Rc::new(ProofNode::Step(StepNode {
         id: subproof_id,
         depth: depth + 1,
@@ -475,11 +494,29 @@ pub fn insert_solver_proof(
         rule: "subproof".to_owned(),
         premises: Vec::new(),
         args: Vec::new(),
-        // we have to make sure the assumptions are given in the right order as the conclusion
+        // we have to make sure the assumptions are given in the right order as
+        // the conclusion
         discharge: (0..clause.len() - 1)
             .map(|i| {
                 if let Some(t) = match_term!((not t) = &clause[i]) {
-                    term_to_subproof_assumption[t].clone()
+                    if let Some(a) = term_to_subproof_assumption.get(t) {
+                        a.clone()
+                    } else {
+                        // this marks the case in which the assumption
+                        // corresponding to this literal was not necessary for
+                        // deriving unsat, i.e., the validity of the initial
+                        // clause does not depend on it. Regardless, to produce
+                        // the necessary clause as conclusion, so the whole
+                        // proof is properly connected, we must generate an
+                        // assumption for this literal
+                        let assumption = Rc::new(ProofNode::Assume {
+                            id: format!("{}{}", last_assumption_id_prefix, next_assumption_id),
+                            depth: depth + 1,
+                            term: t.clone(),
+                        });
+                        next_assumption_id += 1;
+                        assumption
+                    }
                 } else {
                     unreachable!();
                 }

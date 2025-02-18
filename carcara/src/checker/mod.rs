@@ -311,6 +311,7 @@ impl<'c> ProofChecker<'c> {
         };
 
         if step.rule == "sat_refutation" {
+            // return Ok(());
             let premises_steps: Vec<_> =
                 step.premises.iter().map(|&p| iter.get_premise(p)).collect();
             if let Some(checker) = self.config.rule_checkers.get(&step.rule) {
