@@ -1,11 +1,9 @@
 use super::*;
 use crate::external::*;
+pub use printer::print_proof;
 use std::collections::HashMap;
 use std::fs;
-use std::{
-    process::{Command, Stdio},
-};
-pub use printer::print_proof;
+use std::process::{Command, Stdio};
 
 fn proof_node_to_command(node: &Rc<ProofNode>) -> ProofCommand {
     match node.as_ref() {
@@ -30,34 +28,42 @@ fn proof_node_to_command(node: &Rc<ProofNode>) -> ProofCommand {
     }
 }
 
-fn build_res_step(clause_id : &usize, res_steps: &HashMap<usize, (Vec<Rc<Term>>, Vec<usize>)>, ids : &mut IdHelper, clause_id_to_proof: &mut HashMap<usize, Rc<ProofNode>>) -> Rc<ProofNode> {
+fn build_res_step(
+    clause_id: &usize,
+    res_steps: &HashMap<usize, (Vec<Rc<Term>>, Vec<usize>)>,
+    ids: &mut IdHelper,
+    clause_id_to_proof: &mut HashMap<usize, Rc<ProofNode>>,
+) -> Rc<ProofNode> {
     let res_step = &res_steps[&clause_id];
-    let premises : Vec<Rc<ProofNode>> = res_step.1.iter().map(|i|
+    let premises: Vec<Rc<ProofNode>> = res_step
+        .1
+        .iter()
+        .map(|i| {
             if let Some(pf) = clause_id_to_proof.get(i) {
                 pf.clone()
-            }
-            else {
+            } else {
                 let pf = build_res_step(i, res_steps, ids, clause_id_to_proof);
                 clause_id_to_proof.insert(i.clone(), pf.clone());
                 pf.clone()
             }
-        ).collect();
+        })
+        .collect();
     Rc::new(ProofNode::Step(StepNode {
         id: ids.next_id(),
-        depth : 0,
+        depth: 0,
         clause: res_step.0.clone(),
-        rule : "resolution".to_owned(),
+        rule: "resolution".to_owned(),
         premises,
-
         ..Default::default()
     }))
 }
 
 fn get_resolution_refutation(
     pool: &mut PrimitivePool,
+    step: &StepNode,
+    premise_to_proof: &HashMap<Rc<Term>, Rc<ProofNode>>,
     cnf_path: String,
     term_to_var: &HashMap<&Rc<Term>, i32>,
-    root_id: &str,
 ) -> Result<Rc<ProofNode>, ExternalError> {
     // not gonna pass input via stdin because in that case
     // CaDiCaL gets confused with receiving the name of the
@@ -90,28 +96,74 @@ fn get_resolution_refutation(
         return Err(ExternalError::SolverGaveInvalidOutput);
     }
 
-    let var_to_term: HashMap<i32, &Rc<Term>> =
-        term_to_var.iter().map(|(k, v)| (v.clone(), k.clone())).collect();
+    let var_to_term: HashMap<i32, &Rc<Term>> = term_to_var
+        .iter()
+        .map(|(k, v)| (v.clone(), k.clone()))
+        .collect();
     let mut id = 0;
+    let mut ids = IdHelper::new(&step.id);
+    println!("Premises to proofs: {:?}", premise_to_proof);
     let mut clause_id_to_proof: HashMap<usize, Rc<ProofNode>> = fs::read_to_string(cnf_path)
         .unwrap()
         .lines()
         .skip(1)
-        .map(|l| {
+        .filter_map(|l| {
             id += 1;
-            let sat_clause_lits : Vec<Rc<Term>> = String::from(l)
+            let sat_clause_lits: Vec<Rc<Term>> = String::from(l)
                 .split(" ")
                 .filter_map(|lit| match lit.parse::<i32>() {
                     Ok(lit) if lit != 0 => {
                         let (pol, var) = get_pol_var(lit);
                         let term = var_to_term[&var].clone();
-                        Some(if pol { term } else { build_term!(pool, (not {term})) })
-                    },
+                        Some(if pol {
+                            term
+                        } else {
+                            build_term!(pool, (not { term }))
+                        })
+                    }
                     _ => None,
                 })
                 .collect();
-            let term = if sat_clause_lits.len() == 1 { sat_clause_lits[0].clone() } else { pool.add(Term::Op(Operator::Or, sat_clause_lits.clone())) };
-            (id, Rc::new(ProofNode::Assume { id: format!("a{}", id), depth: 0, term}))
+            // We *must* find a proof for this clause in `premise_to_proof`. The
+            // one detail are the singleton clauses that we may have
+            // introduced. Also, the lemmas will be clauses in the SAT proof but
+            // OR nodes. So we must search for both.
+            match &sat_clause_lits[..] {
+                [term] => {
+                    let cl = pool.add(Term::Op(Operator::RareList, vec![term.clone()]));
+                    Some((id, premise_to_proof[&cl].clone()))
+                }
+                _ => {
+                    let cl = pool.add(Term::Op(Operator::RareList, sat_clause_lits.clone()));
+                    if let Some(pf) = premise_to_proof.get(&cl) {
+                        Some((id, pf.clone()))
+                    } else {
+                        // we will try to find a proof then for (rare-list (or
+                        // ...)), and we will need to add an OR step between
+                        // that premise and the resolution proof. If we do not
+                        // find it, it means this is a lemma that does not show
+                        // up in the core
+                        let or = pool.add(Term::Op(Operator::Or, sat_clause_lits.clone()));
+                        let or_cl = pool.add(Term::Op(Operator::RareList, vec![or.clone()]));
+                        if let Some(pf) = premise_to_proof.get(&or_cl) {
+                            Some((
+                                id,
+                                Rc::new(ProofNode::Step(StepNode {
+                                    id: ids.next_id(),
+                                    depth: 0,
+                                    clause: sat_clause_lits.clone(),
+                                    rule: "or".to_owned(),
+                                    premises: vec![pf.clone()],
+                                    ..Default::default()
+                                })),
+                            ))
+                        } else {
+                            None
+                        }
+                    }
+                }
+            }
+            // (id, Rc::new(ProofNode::Assume { id: format!("a{}", id), depth: 0, term}))
         })
         .collect();
 
@@ -124,14 +176,14 @@ fn get_resolution_refutation(
         .rev()
         .filter_map(|l| {
             let string = String::from(l);
-            let strings : Vec<&str> = string.split(" ").collect();
+            let strings: Vec<&str> = string.split(" ").collect();
             let id = strings[0].parse::<usize>().unwrap();
             // ignore deletion
             if strings[1] == "d" {
                 return None;
             }
             let mut i = 1;
-            let mut sat_clause_lits : Vec<Rc<Term>> = Vec::new();
+            let mut sat_clause_lits: Vec<Rc<Term>> = Vec::new();
             // parse clause
             loop {
                 let sat_lit = strings[i].parse::<i32>().unwrap();
@@ -140,7 +192,11 @@ fn get_resolution_refutation(
                 }
                 let (pol, var) = get_pol_var(sat_lit);
                 let term = var_to_term[&var].clone();
-                let lit = if pol { term } else { build_term!(pool, (not {term})) };
+                let lit = if pol {
+                    term
+                } else {
+                    build_term!(pool, (not { term }))
+                };
                 sat_clause_lits.push(lit);
                 i += 1;
             }
@@ -148,7 +204,9 @@ fn get_resolution_refutation(
                 empty_clause_id = id;
             }
             // parse premises
-            let premises : Vec<usize> = strings.iter().skip(i)
+            let premises: Vec<usize> = strings
+                .iter()
+                .skip(i)
                 .filter_map(|premise| match premise.parse::<usize>() {
                     Ok(premise) if premise != 0 => Some(premise),
                     _ => None,
@@ -160,10 +218,13 @@ fn get_resolution_refutation(
 
     println!("Res steps: {:?}", res_steps);
 
-    let mut ids = IdHelper::new(root_id);
-    Ok(build_res_step(&empty_clause_id, &res_steps, &mut ids, &mut clause_id_to_proof))
+    Ok(build_res_step(
+        &empty_clause_id,
+        &res_steps,
+        &mut ids,
+        &mut clause_id_to_proof,
+    ))
 }
-
 
 pub fn sat_refutation(elaborator: &mut Elaborator, step: &StepNode) -> Option<Rc<ProofNode>> {
     // Get commands out of step children. See proof_node_to_list
@@ -233,8 +294,43 @@ pub fn sat_refutation(elaborator: &mut Elaborator, step: &StepNode) -> Option<Rc
             // TODO insert solver proof
             step_id_to_lemma_proof.insert(step_id.clone(), Some(proof_node));
         }
-        let res_refutation = get_resolution_refutation(elaborator.pool, cnf_path, &term_to_var, &step.id).ok()?;
-        let test = Proof { constant_definitions : Vec::new(), commands : res_refutation.into_commands() };
+        let premise_to_proof: HashMap<Rc<Term>, Rc<ProofNode>> = step
+            .premises
+            .iter()
+            .filter_map(|premise| {
+                let id = premise.id();
+                if !step_id_to_lemma_proof.contains_key(id) {
+                    Some((
+                        elaborator
+                            .pool
+                            .add(Term::Op(Operator::RareList, premise.clause().to_vec())),
+                        premise.clone(),
+                    ))
+                } else if let Some(proof) = &step_id_to_lemma_proof[id] {
+                    Some((
+                        elaborator
+                            .pool
+                            .add(Term::Op(Operator::RareList, proof.clause().to_vec())),
+                        proof.clone(),
+                    ))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let res_refutation = get_resolution_refutation(
+            elaborator.pool,
+            step,
+            &premise_to_proof,
+            cnf_path,
+            &term_to_var,
+        )
+        .ok()?;
+        let test = Proof {
+            constant_definitions: Vec::new(),
+            commands: res_refutation.into_commands(),
+        };
         let _ = print_proof(elaborator.pool, &elaborator.problem.prelude, &test, false);
 
         Some(Rc::new(ProofNode::Step(StepNode {
