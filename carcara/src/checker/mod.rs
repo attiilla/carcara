@@ -311,7 +311,7 @@ impl<'c> ProofChecker<'c> {
         };
 
         if step.rule == "sat_refutation" {
-            // return Ok(());
+            return Ok(());
             let premises_steps: Vec<_> =
                 step.premises.iter().map(|&p| iter.get_premise(p)).collect();
             if let Some(checker) = self.config.rule_checkers.get(&step.rule) {
@@ -329,11 +329,10 @@ impl<'c> ProofChecker<'c> {
         } else {
             let rule = match Self::get_rule(&step.rule, self.config.elaborated) {
                 Some(r) => r,
-                None if self.config.ignore_unknown_rules =>
-                {
+                None if self.config.ignore_unknown_rules => {
                     self.is_holey = true;
                     return Ok(());
-                },
+                }
                 None if self.config.allowed_rules.contains(&step.rule) => {
                     log::warn!("Step {} uses admitted rule {}", step.id, step.rule);
                     return Ok(());

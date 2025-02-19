@@ -375,7 +375,7 @@ pub fn get_core_lemmas(
                 "-c".to_string(),
                 "proof.core".to_string(),
                 "-L".to_string(),
-                "proof.lrat".to_string()
+                "proof.lrat".to_string(),
             ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

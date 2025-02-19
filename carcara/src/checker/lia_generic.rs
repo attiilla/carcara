@@ -108,9 +108,11 @@ pub fn sat_refutation(
         &mut lemmas_to_step_ids,
         &mut clause_id_to_lemma,
     );
-    log::info!("[sat_refutation check] Premises yield {} clauses of which {} are lemmas",
+    log::info!(
+        "[sat_refutation check] Premises yield {} clauses of which {} are lemmas",
         premise_clauses.len(),
-        lemmas_to_step_ids.len());
+        lemmas_to_step_ids.len()
+    );
 
     let mut sat_clause_to_lemma: HashMap<Vec<i32>, Rc<Term>> = HashMap::new();
     let mut term_to_var: HashMap<&Rc<Term>, i32> = HashMap::new();
@@ -140,7 +142,10 @@ pub fn sat_refutation(
 
             match get_core_lemmas(cnf_path, &sat_clause_to_lemma) {
                 Ok(core_lemmas) => {
-                    log::info!("[sat_refutation check] Check {} core lemmas", core_lemmas.len());
+                    log::info!(
+                        "[sat_refutation check] Check {} core lemmas",
+                        core_lemmas.len()
+                    );
                     let borrowed_term_pool = pool;
                     let primitive_pool: &mut PrimitivePool = match borrowed_term_pool
                         .as_any_mut()
@@ -160,6 +165,7 @@ pub fn sat_refutation(
                             return Err(CheckerError::External(e));
                         }
                     }
+                    log::info!("[sat_refutation check] All successfully checked");
                     return Ok(());
                 }
                 Err(e) => return Err(CheckerError::External(e)),

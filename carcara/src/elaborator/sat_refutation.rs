@@ -33,28 +33,38 @@ fn build_res_step(
     ids: &mut IdHelper,
     clause_id_to_proof: &mut HashMap<usize, Rc<ProofNode>>,
 ) -> Rc<ProofNode> {
-    let res_step = &res_steps[&clause_id];
-    let premises: Vec<Rc<ProofNode>> = res_step
-        .1
-        .iter()
-        .map(|i| {
-            if let Some(pf) = clause_id_to_proof.get(i) {
-                pf.clone()
-            } else {
-                let pf = build_res_step(i, res_steps, ids, clause_id_to_proof);
-                clause_id_to_proof.insert(i.clone(), pf.clone());
-                pf.clone()
-            }
-        })
-        .collect();
-    Rc::new(ProofNode::Step(StepNode {
-        id: ids.next_id(),
-        depth: 0,
-        clause: res_step.0.clone(),
-        rule: "resolution".to_owned(),
-        premises,
-        ..Default::default()
-    }))
+    if let Some(res_step) = &res_steps.get(&clause_id) {
+        // DRAT-trim may generate weakening steps
+        let rule = if res_step.1.len() == 1 {
+            "weakening".to_string()
+        } else {
+            "resolution".to_string()
+        };
+        let premises: Vec<Rc<ProofNode>> = res_step
+            .1
+            .iter()
+            .map(|i| {
+                if let Some(pf) = clause_id_to_proof.get(i) {
+                    pf.clone()
+                } else {
+                    let pf = build_res_step(i, res_steps, ids, clause_id_to_proof);
+                    clause_id_to_proof.insert(i.clone(), pf.clone());
+                    pf.clone()
+                }
+            })
+            .collect();
+        Rc::new(ProofNode::Step(StepNode {
+            id: ids.next_id(),
+            depth: 0,
+            clause: res_step.0.clone(),
+            rule,
+            premises,
+            ..Default::default()
+        }))
+    } else {
+        log::error!("Could not find id {} in res_steps", clause_id);
+        unreachable!();
+    }
 }
 
 fn get_resolution_refutation(
@@ -70,9 +80,10 @@ fn get_resolution_refutation(
         .collect();
     let mut id = 0;
     let mut ids = IdHelper::new(&step.id);
-    // First we will parse the CNF that we got an LRAT proof for from DRAT-trim
-    // when getting the core lemmas, so that we can have the IDs in the clauses
-    // of the CNF mapped to the proofs coming from the original step's premises
+    // First we will parse the CNF that we got an LRAT proof for from DRAT-trim when getting the
+    // core lemmas, so that we can have the IDs in the clauses of the CNF mapped to the proofs
+    // coming from the original step's premises. Note that we must use the LRAT from DRAT-trim so
+    // that we start from the same core.
     let mut clause_id_to_proof: HashMap<usize, Rc<ProofNode>> = fs::read_to_string(cnf_path)
         .unwrap()
         .lines()
@@ -127,6 +138,7 @@ fn get_resolution_refutation(
                                 })),
                             ))
                         } else {
+                            // println!("Did not find a proof for clause {} : {:?}", id, sat_clause_lits);
                             None
                         }
                     }
@@ -185,7 +197,10 @@ fn get_resolution_refutation(
         })
         .collect();
 
-    log::info!("[sat_refutation elab] Collected {} resolutions from DRAT-trim's LRAT", res_steps.len());
+    log::info!(
+        "[sat_refutation elab] Collected {} resolutions from DRAT-trim's LRAT",
+        res_steps.len()
+    );
 
     Ok(build_res_step(
         &empty_clause_id,
@@ -203,6 +218,7 @@ pub fn sat_refutation(elaborator: &mut Elaborator, step: &StepNode) -> Option<Rc
         commands.push(proof_node_to_command(premise));
     });
     let command_refs = commands.iter().map(|c| c).collect();
+    log::info!("[sat_refutation elab] Start elaboration");
 
     let mut lemmas_to_step_ids: HashMap<Rc<Term>, String> = HashMap::new();
     let mut clause_id_to_lemma: HashMap<usize, Rc<Term>> = HashMap::new();
@@ -223,7 +239,10 @@ pub fn sat_refutation(elaborator: &mut Elaborator, step: &StepNode) -> Option<Rc
         false,
     );
     if let Ok(core_lemmas) = get_core_lemmas(cnf_path.clone(), &sat_clause_to_lemma) {
-        log::info!("[sat_refutation elab] Get proofs of {} core lemmas", core_lemmas.len());
+        log::info!(
+            "[sat_refutation elab] Get proofs for {} core lemmas",
+            core_lemmas.len()
+        );
         let mut step_id_to_lemma_proof: HashMap<String, Option<Rc<ProofNode>>> = lemmas_to_step_ids
             .iter()
             .map(|(_, id)| (id.clone(), None))
@@ -231,7 +250,6 @@ pub fn sat_refutation(elaborator: &mut Elaborator, step: &StepNode) -> Option<Rc
 
         // for each core lemma, we will run cvc5, parse the proof in, and check it
         for i in 0..core_lemmas.len() {
-            // println!("\tCheck (to elab) lemma {:?}", core_lemmas[i]);
             let problem = get_problem_string(
                 elaborator.pool,
                 &elaborator.problem.prelude.clone(),
@@ -269,6 +287,9 @@ pub fn sat_refutation(elaborator: &mut Elaborator, step: &StepNode) -> Option<Rc
             .filter_map(|premise| {
                 let id = premise.id();
                 if !step_id_to_lemma_proof.contains_key(id) {
+                    // println!("Storing proof for {}", elaborator
+                    //         .pool
+                    //         .add(Term::Op(Operator::RareList, premise.clause().to_vec())));
                     Some((
                         elaborator
                             .pool
@@ -276,6 +297,9 @@ pub fn sat_refutation(elaborator: &mut Elaborator, step: &StepNode) -> Option<Rc
                         premise.clone(),
                     ))
                 } else if let Some(proof) = &step_id_to_lemma_proof[id] {
+                    // println!("Storing proof for {}", elaborator
+                    //         .pool
+                    //         .add(Term::Op(Operator::RareList, proof.clause().to_vec())));
                     Some((
                         elaborator
                             .pool
@@ -295,7 +319,10 @@ pub fn sat_refutation(elaborator: &mut Elaborator, step: &StepNode) -> Option<Rc
             cnf_path,
             &term_to_var,
         ) {
-            Ok(pf) => Some(pf),
+            Ok(pf) => {
+                log::info!("[sat_refutation elab] Finished elaboration.");
+                Some(pf)
+            }
             Err(e) => {
                 log::warn!("failed to elaborate propositional part: {}", e);
                 return None;
