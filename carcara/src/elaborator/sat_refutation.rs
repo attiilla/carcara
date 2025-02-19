@@ -1,9 +1,8 @@
 use super::*;
 use crate::external::*;
-pub use printer::print_proof;
+// pub use printer::print_proof;
 use std::collections::HashMap;
 use std::fs;
-use std::process::{Command, Stdio};
 
 fn proof_node_to_command(node: &Rc<ProofNode>) -> ProofCommand {
     match node.as_ref() {
@@ -65,44 +64,15 @@ fn get_resolution_refutation(
     cnf_path: String,
     term_to_var: &HashMap<&Rc<Term>, i32>,
 ) -> Result<Rc<ProofNode>, ExternalError> {
-    // not gonna pass input via stdin because in that case
-    // CaDiCaL gets confused with receiving the name of the
-    // proof file as an argument. If we could get the proof in
-    // stdout then there would be no need to write a CNF file nor a DRAT file
-    let cadical_process = Command::new("/home/hbarbosa/carcara/wt-cvc5/cadical/build/cadical")
-        .args([
-            cnf_path.clone(),
-            "proof.lrat".to_string(),
-            "--no-binary".to_string(),
-            "--lrat".to_string(),
-        ])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(ExternalError::FailedSpawnSolver)?;
-
-    let output = cadical_process
-        .wait_with_output()
-        .map_err(ExternalError::FailedWaitForSolver)?;
-    // CaDiCaL's exit code when successful is 10/20 (for
-    // sat/unsat), so this will not lead to a successful
-    // output according to Rust. So the test here directly
-    // checks stdout to see if the problem is found unsat.
-    if let Ok(stdout) = std::str::from_utf8(&output.stdout) {
-        if !stdout.contains("s UNSATISFIABLE") {
-            return Err(ExternalError::OutputNotUnsat);
-        }
-    } else {
-        return Err(ExternalError::SolverGaveInvalidOutput);
-    }
-
     let var_to_term: HashMap<i32, &Rc<Term>> = term_to_var
         .iter()
         .map(|(k, v)| (v.clone(), k.clone()))
         .collect();
     let mut id = 0;
     let mut ids = IdHelper::new(&step.id);
-    println!("Premises to proofs: {:?}", premise_to_proof);
+    // First we will parse the CNF that we got an LRAT proof for from DRAT-trim
+    // when getting the core lemmas, so that we can have the IDs in the clauses
+    // of the CNF mapped to the proofs coming from the original step's premises
     let mut clause_id_to_proof: HashMap<usize, Rc<ProofNode>> = fs::read_to_string(cnf_path)
         .unwrap()
         .lines()
@@ -138,11 +108,10 @@ fn get_resolution_refutation(
                     if let Some(pf) = premise_to_proof.get(&cl) {
                         Some((id, pf.clone()))
                     } else {
-                        // we will try to find a proof then for (rare-list (or
-                        // ...)), and we will need to add an OR step between
-                        // that premise and the resolution proof. If we do not
-                        // find it, it means this is a lemma that does not show
-                        // up in the core
+                        // we will try to find a proof then for (rare-list (or ...)), and we will
+                        // need to add an OR step between that premise and the resolution proof. If
+                        // we do not find it, it means this is a lemma that does not show up in the
+                        // core
                         let or = pool.add(Term::Op(Operator::Or, sat_clause_lits.clone()));
                         let or_cl = pool.add(Term::Op(Operator::RareList, vec![or.clone()]));
                         if let Some(pf) = premise_to_proof.get(&or_cl) {
@@ -163,12 +132,11 @@ fn get_resolution_refutation(
                     }
                 }
             }
-            // (id, Rc::new(ProofNode::Assume { id: format!("a{}", id), depth: 0, term}))
         })
         .collect();
-
-    // println!("Input {:?}", clause_id_to_proof);
-
+    // We traverse the LRAT proof in reverse. Since it is comming from DRAT-trim, all clauses must
+    // be useful, which should be guaranteed by the construction downstream of the proof for the
+    // empty clause.
     let mut empty_clause_id = 0;
     let res_steps: HashMap<usize, (Vec<Rc<Term>>, Vec<usize>)> = fs::read_to_string("proof.lrat")
         .unwrap()
@@ -202,6 +170,7 @@ fn get_resolution_refutation(
             }
             if sat_clause_lits.len() == 0 {
                 empty_clause_id = id;
+                sat_clause_lits.push(pool.bool_false())
             }
             // parse premises
             let premises: Vec<usize> = strings
@@ -216,7 +185,7 @@ fn get_resolution_refutation(
         })
         .collect();
 
-    println!("Res steps: {:?}", res_steps);
+    log::info!("[sat_refutation elab] Collected {} resolutions from DRAT-trim's LRAT", res_steps.len());
 
     Ok(build_res_step(
         &empty_clause_id,
@@ -254,6 +223,7 @@ pub fn sat_refutation(elaborator: &mut Elaborator, step: &StepNode) -> Option<Rc
         false,
     );
     if let Ok(core_lemmas) = get_core_lemmas(cnf_path.clone(), &sat_clause_to_lemma) {
+        log::info!("[sat_refutation elab] Get proofs of {} core lemmas", core_lemmas.len());
         let mut step_id_to_lemma_proof: HashMap<String, Option<Rc<ProofNode>>> = lemmas_to_step_ids
             .iter()
             .map(|(_, id)| (id.clone(), None))
@@ -290,10 +260,9 @@ pub fn sat_refutation(elaborator: &mut Elaborator, step: &StepNode) -> Option<Rc
                 step_id,
                 0,
             );
-            // println!("\tGot proof {:?}", proof_node);
-            // TODO insert solver proof
             step_id_to_lemma_proof.insert(step_id.clone(), Some(proof_node));
         }
+        // map premise clauses to their proof nodes, already replacing the theory lemma hole by the found proof
         let premise_to_proof: HashMap<Rc<Term>, Rc<ProofNode>> = step
             .premises
             .iter()
@@ -319,41 +288,25 @@ pub fn sat_refutation(elaborator: &mut Elaborator, step: &StepNode) -> Option<Rc
             })
             .collect();
 
-        let res_refutation = get_resolution_refutation(
+        match get_resolution_refutation(
             elaborator.pool,
             step,
             &premise_to_proof,
             cnf_path,
             &term_to_var,
-        )
-        .ok()?;
-        let test = Proof {
-            constant_definitions: Vec::new(),
-            commands: res_refutation.into_commands(),
-        };
-        let _ = print_proof(elaborator.pool, &elaborator.problem.prelude, &test, false);
+        ) {
+            Ok(pf) => Some(pf),
+            Err(e) => {
+                log::warn!("failed to elaborate propositional part: {}", e);
+                return None;
+            }
+        }
 
-        Some(Rc::new(ProofNode::Step(StepNode {
-            id: step.id.clone(),
-            depth: step.depth,
-            clause: step.clause.clone(),
-            rule: step.rule.clone(),
-            premises: step
-                .premises
-                .iter()
-                .filter_map(|premise| {
-                    let id = premise.id();
-                    if !step_id_to_lemma_proof.contains_key(id) {
-                        Some(premise.clone())
-                    } else if let Some(proof) = &step_id_to_lemma_proof[id] {
-                        Some(proof.clone())
-                    } else {
-                        None
-                    }
-                })
-                .collect(),
-            ..Default::default()
-        })))
+        // let test = Proof {
+        //     constant_definitions: Vec::new(),
+        //     commands: res_refutation.into_commands(),
+        // };
+        // let _ = print_proof(elaborator.pool, &elaborator.problem.prelude, &test, true);
     } else {
         None
     }

@@ -74,8 +74,7 @@ pub fn parse_and_check_solver_proof(
     };
 
     let (problem, proof) = parser::parse_instance_with_pool(problem, proof, config, pool)?;
-
-    let config = checker::Config::new();
+    let config = checker::Config::new().ignore_unknown_rules(true);
     let res = checker::ProofChecker::new(pool, config).check(&problem, &proof)?;
     Ok((proof.commands, res))
 }
@@ -85,7 +84,10 @@ pub fn get_solver_proof(
     problem: String,
 ) -> Result<(Vec<ProofCommand>, bool), ExternalError> {
     let mut process = Command::new("/home/hbarbosa/cvc5/wt-diff/prod/bin/cvc5")
-        .arg("--proof-format=alethe".to_string())
+        .args([
+            "--proof-format=alethe".to_string(),
+            "--no-symmetry-breaker".to_string(),
+        ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -326,11 +328,6 @@ pub fn collect_premise_clauses(
             }
         }
     });
-    println!(
-        "CNF with {} clauses of which {} are lemmas",
-        premise_clauses.len(),
-        lemmas_to_step_ids.len()
-    );
     premise_clauses
 }
 
@@ -356,7 +353,7 @@ pub fn get_core_lemmas(
     let output = cadical_process
         .wait_with_output()
         .map_err(ExternalError::FailedWaitForSolver)?;
-    println!("Checking CNF {} with CaDiCaL", cnf_path);
+    log::info!("[get_core_lemmas] Checking CNF {} with CaDiCaL", cnf_path);
 
     // CaDiCaL's exit code when successful is 10/20 (for
     // sat/unsat), so this will not lead to a successful
@@ -377,13 +374,15 @@ pub fn get_core_lemmas(
                 "proof.drat".to_string(),
                 "-c".to_string(),
                 "proof.core".to_string(),
+                "-L".to_string(),
+                "proof.lrat".to_string()
             ])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
             .map_err(ExternalError::FailedSpawnSolver)?;
 
-    println!("Checking DRAT with DRAT-trim");
+    log::info!("[get_core_lemmas] Checking DRAT with DRAT-trim, extracting core");
     let output_drattrim = drattrim_process
         .wait_with_output()
         .map_err(ExternalError::FailedWaitForSolver)?;
@@ -411,8 +410,7 @@ pub fn get_core_lemmas(
                 }
             }
         });
-    println!("{} lemmas in core", core_lemmas.len());
-
+    log::info!("[get_core_lemmas] {} lemmas in core", core_lemmas.len());
     Ok(core_lemmas)
 }
 

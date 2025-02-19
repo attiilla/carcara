@@ -51,7 +51,7 @@ pub fn write_lia_smt_instance(
 }
 
 /// Given a set of assertions and a prelude, write them as an SMT problem instance to `dest`.
-pub fn write_smt_instance(
+pub fn _write_smt_instance(
     pool: &mut PrimitivePool,
     prelude: &ProblemPrelude,
     dest: &mut dyn io::Write,
@@ -66,7 +66,7 @@ pub fn write_smt_instance(
     // compliant. For Carcara, this means that arithmetic constants
     // cannot use the GMP notation
     printer.smt_lib_strict = true;
-    printer.write_assertions(assertions)
+    printer._write_assertions(assertions)
 }
 
 trait PrintProof {
@@ -413,7 +413,7 @@ impl<'a> AlethePrinter<'a> {
         Ok(())
     }
 
-    fn write_assertions(&mut self, assertions: &[Rc<Term>]) -> io::Result<()> {
+    fn _write_assertions(&mut self, assertions: &[Rc<Term>]) -> io::Result<()> {
         for assertion in assertions.iter().dedup() {
             write!(self.inner, "(assert ")?;
             assertion.print_with_sharing(self)?;
