@@ -329,10 +329,13 @@ impl<'c> ProofChecker<'c> {
         } else {
             let rule = match Self::get_rule(&step.rule, self.config.elaborated) {
                 Some(r) => r,
-                None if self.config.ignore_unknown_rules
-                    || self.config.allowed_rules.contains(&step.rule) =>
+                None if self.config.ignore_unknown_rules =>
                 {
                     self.is_holey = true;
+                    return Ok(());
+                },
+                None if self.config.allowed_rules.contains(&step.rule) => {
+                    log::warn!("Step {} uses admitted rule {}", step.id, step.rule);
                     return Ok(());
                 }
                 None => return Err(CheckerError::UnknownRule),
