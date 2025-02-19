@@ -57,10 +57,16 @@ pub fn weakening(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult 
     assert_num_premises(premises, 1)?;
     let premise = premises[0].clause;
     assert_clause_len(conclusion, premise.len()..)?;
-    for (t, u) in premise.iter().zip(conclusion) {
-        assert_eq(t, u)?;
+
+    let premise_set: IndexSet<_> = premise.iter().collect();
+    let conclusion_set: IndexSet<_> = conclusion.iter().collect();
+    if premise_set.is_subset(&conclusion_set) {
+        Ok(())
+    } else {
+        Err(CheckerError::Explanation(
+            "Premise is not a subset of conclusion".to_string(),
+        ))
     }
-    Ok(())
 }
 
 pub fn bind_let(
@@ -301,11 +307,11 @@ mod tests {
 
                 "(step t1 (cl) :rule hole)
                 (step t2 (cl a b) :rule weakening :premises (t1))": true,
+
+                "(step t1 (cl a b) :rule hole)
+                (step t2 (cl a c b) :rule weakening :premises (t1))": true,
             }
             "Failing examples" {
-                "(step t1 (cl a b) :rule hole)
-                (step t2 (cl a c b) :rule weakening :premises (t1))": false,
-
                 "(step t1 (cl a b c) :rule hole)
                 (step t2 (cl a b) :rule weakening :premises (t1))": false,
             }
