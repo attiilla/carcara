@@ -477,7 +477,8 @@ pub fn insert_solver_proof(
     // assumptions there, but one of them has id "...a5").
     let mut next_assumption_id = clause.len() + 1;
     // println!(
-    //     "Got assumptions {:?}",
+    //     "Subproof {}. Assumptions {:?}",
+    //     subproof_id,
     //     term_to_subproof_assumption
     //         .iter()
     //         .map(|(t, _)| t.clone())
@@ -485,7 +486,6 @@ pub fn insert_solver_proof(
     // );
     // println!("Clause {:?}", clause);
     // println!("term to subproof assumptions {:?}", term_to_subproof_assumption);
-    // println!("Last assumption id: {}", last_assumption_id);
 
     let last_step = Rc::new(ProofNode::Step(StepNode {
         id: subproof_id,
@@ -502,6 +502,20 @@ pub fn insert_solver_proof(
                     if let Some(a) = term_to_subproof_assumption.get(t) {
                         a.clone()
                     } else {
+                        // we will see if this term could have matched modulo
+                        // polyeq with any of the assumptions. Only if that
+                        // fails we create a new assumption
+                        let mut assumption_opt : Option<Rc<ProofNode>> = None;
+                        term_to_subproof_assumption.iter().for_each(|(assume, pf)| {
+                            if Polyeq::new().mod_reordering(false).eq(t, assume) {
+                                // println!("\t[should match] Term {} with assumption {}", t, assume);
+                                assumption_opt = Some(pf.clone());
+                            }
+                        } );
+                        if assumption_opt.is_some() {
+                            return assumption_opt.unwrap();
+                        }
+                        // println!("\t[didn't match] Term {}", t);
                         // this marks the case in which the assumption
                         // corresponding to this literal was not necessary for
                         // deriving unsat, i.e., the validity of the initial
