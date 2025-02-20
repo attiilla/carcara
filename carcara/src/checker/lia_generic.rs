@@ -87,6 +87,9 @@ pub fn sat_refutation(
     premise_steps: Vec<&ProofCommand>,
     prelude: &ProblemPrelude,
     checker_path: Option<String>,
+    cadical_path: Option<String>,
+    drattrim_path: Option<String>,
+    cvc5_path: Option<String>,
 ) -> RuleResult {
     // Create the DIMACS file from the premises and the lemmas.
     //
@@ -140,7 +143,12 @@ pub fn sat_refutation(
                 false,
             );
 
-            match get_core_lemmas(cnf_path, &sat_clause_to_lemma) {
+            match get_core_lemmas(
+                cnf_path,
+                &sat_clause_to_lemma,
+                cadical_path.unwrap(),
+                drattrim_path.unwrap(),
+            ) {
                 Ok(core_lemmas) => {
                     log::info!(
                         "[sat_refutation check] Check {} core lemmas",
@@ -154,13 +162,16 @@ pub fn sat_refutation(
                         Some(b) => b,
                         None => panic!("&a isn't a B!"),
                     };
+                    let cvc5_path = cvc5_path.unwrap();
                     // for each core lemma, we will run cvc5, parse the proof in, and check it
                     for i in 0..core_lemmas.len() {
                         // println!("\tCheck lemma {:?}", lemma);
                         let problem =
                             get_problem_string(primitive_pool, &prelude, &core_lemmas[i][..]);
 
-                        if let Err(e) = get_solver_proof(primitive_pool, problem.clone()) {
+                        if let Err(e) =
+                            get_solver_proof(primitive_pool, problem.clone(), &cvc5_path)
+                        {
                             println!("\t\tFailed: {:?}", core_lemmas[i]);
                             return Err(CheckerError::External(e));
                         }

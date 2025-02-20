@@ -82,8 +82,9 @@ pub fn parse_and_check_solver_proof(
 pub fn get_solver_proof(
     pool: &mut PrimitivePool,
     problem: String,
+    cvc5_path: &String,
 ) -> Result<(Vec<ProofCommand>, bool), ExternalError> {
-    let mut process = Command::new("/home/hbarbosa/cvc5/wt-diff/prod/bin/cvc5")
+    let mut process = Command::new(cvc5_path)
         .args([
             "--proof-format=alethe".to_string(),
             "--no-symmetry-breaker".to_string(),
@@ -334,12 +335,14 @@ pub fn collect_premise_clauses(
 pub fn get_core_lemmas(
     cnf_path: String,
     sat_clause_to_lemma: &HashMap<Vec<i32>, Rc<Term>>,
+    cadical_path: String,
+    drattrim_path: String,
 ) -> Result<Vec<Vec<Rc<Term>>>, ExternalError> {
     // not gonna pass input via stdin because in that case
     // CaDiCaL gets confused with receiving the name of the
     // proof file as an argument. If we could get the proof in
     // stdout then there would be no need to write a CNF file nor a DRAT file
-    let cadical_process = Command::new("/home/hbarbosa/carcara/wt-cvc5/cadical/build/cadical")
+    let cadical_process = Command::new(cadical_path)
         .args([
             cnf_path.clone(),
             "proof.drat".to_string(),
@@ -367,20 +370,19 @@ pub fn get_core_lemmas(
         return Err(ExternalError::SolverGaveInvalidOutput);
     }
     // pass cnf + proof to drat-trim
-    let drattrim_process =
-        Command::new("/home/hbarbosa/carcara/wt-cvc5/SMT-theory-trim/theory-trim/drat-trim")
-            .args([
-                cnf_path.clone(),
-                "proof.drat".to_string(),
-                "-c".to_string(),
-                "proof.core".to_string(),
-                "-L".to_string(),
-                "proof.lrat".to_string(),
-            ])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(ExternalError::FailedSpawnSolver)?;
+    let drattrim_process = Command::new(drattrim_path)
+        .args([
+            cnf_path.clone(),
+            "proof.drat".to_string(),
+            "-c".to_string(),
+            "proof.core".to_string(),
+            "-L".to_string(),
+            "proof.lrat".to_string(),
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(ExternalError::FailedSpawnSolver)?;
 
     log::info!("[get_core_lemmas] Checking DRAT with DRAT-trim, extracting core");
     let output_drattrim = drattrim_process

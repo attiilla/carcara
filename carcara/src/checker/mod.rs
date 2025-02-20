@@ -61,6 +61,8 @@ pub struct Config {
     pub allowed_rules: HashSet<String>,
 
     pub rule_checkers: IndexMap<String, String>,
+
+    pub external_tools: IndexMap<String, String>,
 }
 
 impl Config {
@@ -80,6 +82,11 @@ impl Config {
 
     pub fn rule_checkers(mut self, value: IndexMap<String, String>) -> Self {
         self.rule_checkers = value;
+        self
+    }
+
+    pub fn external_tools(mut self, value: IndexMap<String, String>) -> Self {
+        self.external_tools = value;
         self
     }
 }
@@ -311,7 +318,7 @@ impl<'c> ProofChecker<'c> {
         };
 
         if step.rule == "sat_refutation" {
-            return Ok(());
+            // return Ok(());
             let premises_steps: Vec<_> =
                 step.premises.iter().map(|&p| iter.get_premise(p)).collect();
             if let Some(checker) = self.config.rule_checkers.get(&step.rule) {
@@ -320,9 +327,30 @@ impl<'c> ProofChecker<'c> {
                     premises_steps,
                     prelude,
                     Some(checker.to_string()),
+                    None,
+                    None,
+                    None,
                 )?;
             } else {
-                lia_generic::sat_refutation(rule_args, premises_steps, prelude, None)?;
+                match (
+                    self.config.external_tools.get("sat-solver"),
+                    self.config.external_tools.get("drat-checker"),
+                    self.config.external_tools.get("smt-solver"),
+                ) {
+                    (Some(cadical), Some(drattrim), Some(cvc5)) => lia_generic::sat_refutation(
+                        rule_args,
+                        premises_steps,
+                        prelude,
+                        None,
+                        Some(cadical.to_string()),
+                        Some(drattrim.to_string()),
+                        Some(cvc5.to_string()),
+                    )?,
+                    _ => {
+                        return Err(CheckerError::Explanation("The `sat_refutation` rule checking requires paths to be given for a SAT solver (`sat-solver`), DRAT checker (`drat-checker`), and an SMT solver (`smt-solver`) via the external-tools option".to_string(),
+                        ))
+                    }
+                }
             }
         } else if let Some(checker) = self.config.rule_checkers.get(&step.rule) {
             lia_generic::external_checker(rule_args, checker.clone())?;

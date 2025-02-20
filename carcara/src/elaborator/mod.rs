@@ -29,6 +29,8 @@ pub struct Config {
     pub uncrowd_rotation: bool,
 
     pub hole_options: Option<HoleOptions>,
+
+    pub sat_refutation_options: Option<SatRefutationOptions>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -62,6 +64,26 @@ pub struct HoleOptions {
 
     /// The arguments to pass to the solver.
     pub arguments: Vec<Box<str>>,
+}
+
+/// The options that control how `hole` steps are elaborated using an external solver.
+#[derive(Debug, Clone)]
+pub struct SatRefutationOptions {
+    /// The external SAT solver path. The solver should be a binary that can read DIMACS and output a DRAT proof..
+    pub sat_solver: Box<str>,
+    /// The arguments to pass to CaDiCaL
+    pub sat_arguments: Vec<Box<str>>,
+
+    /// The external DRAT checker/trimmer path. The tool should be a binary that can read DRAT from stdin and output a proof core and an LRAT.
+    pub drat_checker: Box<str>,
+    /// The arguments to pass to CaDiCaL
+    pub drat_arguments: Vec<Box<str>>,
+
+    /// The external SMT solver path. The solver should be a binary that can read SMT-LIB from stdin and
+    /// output an Alethe proof to stdout.
+    pub smt_solver: Box<str>,
+    /// The arguments to pass to the solver.
+    pub smt_arguments: Vec<Box<str>>,
 }
 
 pub struct Elaborator<'e> {
@@ -134,12 +156,19 @@ impl<'e> Elaborator<'e> {
                         })
                     }
                 }
-                ElaborationStep::SatRefutation => mutate(&current, |_, node| match node.as_ref() {
-                    ProofNode::Step(s) if (s.rule == "sat_refutation") => {
-                        sat_refutation::sat_refutation(self, s).unwrap_or_else(|| node.clone())
+                ElaborationStep::SatRefutation => {
+                    if self.config.sat_refutation_options.is_none() {
+                        current.clone()
+                    } else {
+                        mutate(&current, |_, node| match node.as_ref() {
+                            ProofNode::Step(s) if (s.rule == "sat_refutation") => {
+                                sat_refutation::sat_refutation(self, s)
+                                    .unwrap_or_else(|| node.clone())
+                            }
+                            _ => node.clone(),
+                        })
                     }
-                    _ => node.clone(),
-                }),
+                }
             };
             durations.push(time.elapsed());
         }

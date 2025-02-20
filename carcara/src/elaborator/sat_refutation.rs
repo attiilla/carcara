@@ -238,7 +238,9 @@ pub fn sat_refutation(elaborator: &mut Elaborator, step: &StepNode) -> Option<Rc
         &mut term_to_var,
         false,
     );
-    if let Ok(core_lemmas) = get_core_lemmas(cnf_path.clone(), &sat_clause_to_lemma) {
+    let options = elaborator.config.sat_refutation_options.as_ref().unwrap();
+
+    if let Ok(core_lemmas) = get_core_lemmas(cnf_path.clone(), &sat_clause_to_lemma, options.sat_solver.as_ref().to_string(), options.drat_checker.as_ref().to_string()) {
         log::info!(
             "[sat_refutation elab] Get proofs for {} core lemmas",
             core_lemmas.len()
@@ -248,6 +250,7 @@ pub fn sat_refutation(elaborator: &mut Elaborator, step: &StepNode) -> Option<Rc
             .map(|(_, id)| (id.clone(), None))
             .collect();
 
+        let smt_solver = options.smt_solver.as_ref().to_string();
         // for each core lemma, we will run cvc5, parse the proof in, and check it
         for i in 0..core_lemmas.len() {
             let problem = get_problem_string(
@@ -256,7 +259,7 @@ pub fn sat_refutation(elaborator: &mut Elaborator, step: &StepNode) -> Option<Rc
                 &core_lemmas[i][..],
             );
 
-            let solver_proof_commands = match get_solver_proof(elaborator.pool, problem.clone()) {
+            let solver_proof_commands = match get_solver_proof(elaborator.pool, problem.clone(), &smt_solver) {
                 Ok((c, _)) => c,
                 Err(e) => {
                     log::warn!(
