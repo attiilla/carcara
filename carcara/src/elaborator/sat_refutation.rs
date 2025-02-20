@@ -240,7 +240,12 @@ pub fn sat_refutation(elaborator: &mut Elaborator, step: &StepNode) -> Option<Rc
     );
     let options = elaborator.config.sat_refutation_options.as_ref().unwrap();
 
-    if let Ok(core_lemmas) = get_core_lemmas(cnf_path.clone(), &sat_clause_to_lemma, options.sat_solver.as_ref().to_string(), options.drat_checker.as_ref().to_string()) {
+    if let Ok(core_lemmas) = get_core_lemmas(
+        cnf_path.clone(),
+        &sat_clause_to_lemma,
+        options.sat_solver.as_ref().to_string(),
+        options.drat_checker.as_ref().to_string(),
+    ) {
         log::info!(
             "[sat_refutation elab] Get proofs for {} core lemmas",
             core_lemmas.len()
@@ -259,17 +264,18 @@ pub fn sat_refutation(elaborator: &mut Elaborator, step: &StepNode) -> Option<Rc
                 &core_lemmas[i][..],
             );
 
-            let solver_proof_commands = match get_solver_proof(elaborator.pool, problem.clone(), &smt_solver) {
-                Ok((c, _)) => c,
-                Err(e) => {
-                    log::warn!(
-                        "failed to elaborate theory lemma {:?}: {}",
-                        core_lemmas[i],
-                        e
-                    );
-                    return None;
-                }
-            };
+            let solver_proof_commands =
+                match get_solver_proof(elaborator.pool, problem.clone(), &smt_solver) {
+                    Ok((c, _)) => c,
+                    Err(e) => {
+                        log::warn!(
+                            "failed to elaborate theory lemma {:?}: {}",
+                            core_lemmas[i],
+                            e
+                        );
+                        return None;
+                    }
+                };
             let lemma = elaborator
                 .pool
                 .add(Term::Op(Operator::RareList, core_lemmas[i].clone()));
