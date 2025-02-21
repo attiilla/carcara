@@ -263,13 +263,13 @@ pub fn sat_refutation(elaborator: &mut Elaborator, step: &StepNode) -> Option<Rc
                 &elaborator.problem.prelude.clone(),
                 &core_lemmas[i][..],
             );
-
+            log::debug!("\tGet proof for lemma {}", i);
             let solver_proof_commands =
                 match get_solver_proof(elaborator.pool, problem.clone(), &smt_solver) {
                     Ok((c, _)) => c,
                     Err(e) => {
                         log::warn!(
-                            "failed to elaborate theory lemma {:?}: {}",
+                            "\t\tfailed to elaborate theory lemma {:?}: {}",
                             core_lemmas[i],
                             e
                         );
@@ -320,7 +320,9 @@ pub fn sat_refutation(elaborator: &mut Elaborator, step: &StepNode) -> Option<Rc
                 }
             })
             .collect();
-
+        log::info!(
+            "[sat_refutation elab] Elaborate propositional proof"
+        );
         match get_resolution_refutation(
             elaborator.pool,
             step,
