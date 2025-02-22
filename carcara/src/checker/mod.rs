@@ -317,6 +317,10 @@ impl<'c> ProofChecker<'c> {
             polyeq_time: &mut polyeq_time,
         };
 
+        if self.config.allowed_rules.contains(&step.rule) {
+            log::warn!("Step {} uses admitted rule {}", step.id, step.rule);
+            return Ok(());
+        }
         if step.rule == "sat_refutation" {
             // return Ok(());
             let premises_steps: Vec<_> =
@@ -359,10 +363,6 @@ impl<'c> ProofChecker<'c> {
                 Some(r) => r,
                 None if self.config.ignore_unknown_rules => {
                     self.is_holey = true;
-                    return Ok(());
-                }
-                None if self.config.allowed_rules.contains(&step.rule) => {
-                    log::warn!("Step {} uses admitted rule {}", step.id, step.rule);
                     return Ok(());
                 }
                 None => return Err(CheckerError::UnknownRule),
@@ -455,6 +455,7 @@ impl<'c> ProofChecker<'c> {
             "trans" => transitivity::trans,
             "cong" => congruence::cong,
             "ho_cong" => congruence::ho_cong,
+            "and_intro" => extras::and_intro,
             "and" => clausification::and,
             "tautology" => resolution::tautology,
             "not_or" => clausification::not_or,
