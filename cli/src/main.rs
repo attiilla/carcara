@@ -500,7 +500,7 @@ enum LogLevel {
     Error,
     Warn,
     Info,
-    Debug
+    Debug,
 }
 
 impl From<LogLevel> for log::LevelFilter {

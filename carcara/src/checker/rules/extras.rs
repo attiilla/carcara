@@ -81,7 +81,9 @@ pub fn and_intro(RuleArgs { conclusion, premises, pool, .. }: RuleArgs) -> RuleR
     for i in 0..and_contents.len() {
         let and_arg = &and_contents[i];
         match &premises[i].clause[..] {
-            [term] => {assert_eq(and_arg, term)?;},
+            [term] => {
+                assert_eq(and_arg, term)?;
+            }
             _ => {
                 let premise_as_or = pool.add(Term::Op(Operator::Or, premises[i].clause.to_vec()));
                 assert_eq(and_arg, &premise_as_or)?;

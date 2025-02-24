@@ -497,15 +497,15 @@ impl PolyeqComparable for Term {
     fn eq(comp: &mut Polyeq, a: &Self, b: &Self) -> bool {
         // println!("Compare {} / {}", a, b);
         let res = match (a, b) {
-            (Term::Const(a1), Term::Const(b1)) =>
-                match (a1, b1) {
-                    (Constant::Real(r1), Constant::Integer(i2))
-                        if r1.is_integer() =>
-                        r1.numer().clone() == i2.clone()
-                    ,
-                    (Constant::Integer(i1), Constant::Real(r2)) if r2.is_integer() => i1.clone() == r2.numer().clone(),
-                    _ => a == b,
-            }
+            (Term::Const(a1), Term::Const(b1)) => match (a1, b1) {
+                (Constant::Real(r1), Constant::Integer(i2)) if r1.is_integer() => {
+                    r1.numer().clone() == i2.clone()
+                }
+                (Constant::Integer(i1), Constant::Real(r2)) if r2.is_integer() => {
+                    i1.clone() == r2.numer().clone()
+                }
+                _ => a == b,
+            },
             (Term::Var(a, a_sort), Term::Var(b, b_sort)) if comp.de_bruijn_map.is_some() => {
                 // If we are checking for alpha-equivalence, and we encounter two variables, we
                 // check that they are equivalent using the De Bruijn map

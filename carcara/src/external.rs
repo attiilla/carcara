@@ -207,70 +207,46 @@ pub fn collect_premise_clauses(
                 // unities. If they are not singleton clauses, we add the
                 // whole clause as a clause
                 if step.rule == "hole" {
-                    let lemma = match &step.clause[..] {
+                    let lemma_opt = match &step.clause[..] {
                         [term] => match term.as_ref() {
                             Term::Op(Operator::Or, or_args) => {
-                                premise_clauses.push(or_args.to_vec());
                                 let lemma =
                                     pool.add(Term::Op(Operator::RareList, or_args.to_vec()));
-                                lemmas_to_step_ids.insert(lemma.clone(), step.id.clone());
-                                // or_args.iter().for_each(|lit| {
-                                //     match lit.as_op() {
-                                //         Some((Operator::Or, _)) => { or_lits.push(lit.clone()); },
-                                //         Some((Operator::Not, not_args)) => {
-                                //             if let Some((Operator::Or, _)) = not_args[0].as_op() {
-                                //                 or_lits.push(not_args[0].clone());
-                                //             }
-
-                                //         },
-                                //         _ => {}
-                                //     }
-                                // }
-                                // );
-                                lemma
+                                if !lemmas_to_step_ids.contains_key(&lemma) {
+                                    lemmas_to_step_ids.insert(lemma.clone(), step.id.clone());
+                                    premise_clauses.push(or_args.to_vec());
+                                    Some(lemma)
+                                } else {
+                                    None
+                                }
                             }
                             _ => {
-                                premise_clauses.push(vec![term.clone()]);
                                 let lemma =
                                     pool.add(Term::Op(Operator::RareList, vec![term.clone()]));
-                                lemmas_to_step_ids.insert(lemma.clone(), step.id.clone());
-                                // step.clause.iter().for_each(|lit| {
-                                //     match lit.as_op() {
-                                //         Some((Operator::Or, _)) => { or_lits.push(lit.clone()); },
-                                //         Some((Operator::Not, not_args)) => {
-                                //             if let Some((Operator::Or, _)) = not_args[0].as_op() {
-                                //                 or_lits.push(not_args[0].clone());
-                                //             }
-
-                                //         },
-                                //         _ => {}
-                                //     }
-                                // }
-                                // );
-                                lemma
+                                if !lemmas_to_step_ids.contains_key(&lemma) {
+                                    lemmas_to_step_ids.insert(lemma.clone(), step.id.clone());
+                                    premise_clauses.push(vec![term.clone()]);
+                                    Some(lemma)
+                                } else {
+                                    None
+                                }
                             }
                         },
                         _ => {
-                            premise_clauses.push(step.clause.clone());
                             let lemma = pool.add(Term::Op(Operator::RareList, step.clause.clone()));
-                            lemmas_to_step_ids.insert(lemma.clone(), step.id.clone());
-                            // step.clause.iter().for_each(|lit| {
-                            //         match lit.as_op() {
-                            //             Some((Operator::Or, _)) => { or_lits.push(lit.clone()); },
-                            //             Some((Operator::Not, not_args)) => {
-                            //                 if let Some((Operator::Or, _)) = not_args[0].as_op() {
-                            //                     or_lits.push(not_args[0].clone());
-                            //                 }
-
-                            //             },
-                            //             _ => {}
-                            //         }
-                            //     }
-                            //     );
-                            lemma
+                            if !lemmas_to_step_ids.contains_key(&lemma) {
+                                lemmas_to_step_ids.insert(lemma.clone(), step.id.clone());
+                                premise_clauses.push(step.clause.clone());
+                                Some(lemma)
+                            } else {
+                                None
+                            }
                         }
                     };
-                    clause_id_to_lemma.insert(premise_clauses.len() - 1, lemma.clone());
+                    if lemma_opt.is_some() {
+                        clause_id_to_lemma
+                            .insert(premise_clauses.len() - 1, lemma_opt.unwrap().clone());
+                    }
                 } else {
                     match &step.clause[..] {
                         // singletons are always added as unities and as clauses, if OR nodes
@@ -506,13 +482,13 @@ pub fn insert_solver_proof(
                         // we will see if this term could have matched modulo
                         // polyeq with any of the assumptions. Only if that
                         // fails we create a new assumption
-                        let mut assumption_opt : Option<Rc<ProofNode>> = None;
+                        let mut assumption_opt: Option<Rc<ProofNode>> = None;
                         term_to_subproof_assumption.iter().for_each(|(assume, pf)| {
                             if Polyeq::new().mod_reordering(false).eq(t, assume) {
                                 // println!("\t[should match] Term {} with assumption {}", t, assume);
                                 assumption_opt = Some(pf.clone());
                             }
-                        } );
+                        });
                         if assumption_opt.is_some() {
                             return assumption_opt.unwrap();
                         }

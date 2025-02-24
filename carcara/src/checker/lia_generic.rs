@@ -128,10 +128,27 @@ pub fn sat_refutation(
                 &mut term_to_var,
                 true,
             );
-            let lemmas = lemmas_to_step_ids
-                .iter()
-                .map(|(lemma, _)| lemma.clone())
+            // Note that I have to get these lemmas aligned with the
+            // order in which they are printed in the CNF, which is
+            // guaranteed if I follow the same order of
+            // premise_clauses
+            let lemmas: Vec<Rc<Term>> = (0..premise_clauses.len())
+                .filter_map(|i| {
+                    if let Some(lemma) = clause_id_to_lemma.get(&i) {
+                        Some(lemma.clone())
+                    } else {
+                        None
+                    }
+                })
                 .collect();
+
+            if clause_id_to_lemma.len() != lemmas.len() {
+                return Err(CheckerError::Explanation(format!(
+                    "{} lemmas in CNF but {} lemma terms",
+                    clause_id_to_lemma.len(),
+                    lemmas.len()
+                )));
+            }
             sat_refutation_external_check(cnf_path, prelude, checker_path, &lemmas)
         }
         None => {

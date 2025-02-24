@@ -320,9 +320,7 @@ pub fn sat_refutation(elaborator: &mut Elaborator, step: &StepNode) -> Option<Rc
                 }
             })
             .collect();
-        log::info!(
-            "[sat_refutation elab] Elaborate propositional proof"
-        );
+        log::info!("[sat_refutation elab] Elaborate propositional proof");
         match get_resolution_refutation(
             elaborator.pool,
             step,
