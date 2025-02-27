@@ -187,7 +187,9 @@ pub fn gen_dimacs<'a>(
     write!(&mut dimacs, "{}", clauses).unwrap();
     // let cnf_path = format!("{}.cnf", process::id());
     let cnf_path = "proof.cnf".to_string();
+    log::info!("[sat_refutation check] Print CNF {}", cnf_path);
     write!(File::create(cnf_path.clone()).unwrap(), "{}", dimacs).unwrap();
+
     cnf_path
 }
 

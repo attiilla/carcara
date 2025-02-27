@@ -16,6 +16,7 @@ fn sat_refutation_external_check(
     lemmas: &Vec<Rc<Term>>,
 ) -> RuleResult {
     let prelude_path = format!("prelude_{}.smt2", process::id());
+    log::info!("[sat_refutation check] Print prelude file {}", prelude_path);
     write!(File::create(prelude_path.clone()).unwrap(), "{}", prelude).unwrap();
 
     // transform each AND arg, if any, into a string and build a
@@ -42,8 +43,17 @@ fn sat_refutation_external_check(
         write!(&mut str_aux, ")").unwrap();
         str_aux
     };
+    let lemmas_path = format!("lemmas_{}.smt2", process::id());
+    log::info!("[sat_refutation check] Print lemmas file {}", lemmas_path);
+    write!(
+        File::create(lemmas_path.clone()).unwrap(),
+        "{}",
+        lemmas_as_str
+    )
+    .unwrap();
+    log::info!("[sat_refutation check] Invoke oracle");
 
-    let string = format!("(\n{}\n{}\n{}\n)", cnf_path, prelude_path, lemmas_as_str);
+    let string = format!("(\n{}\n{}\n{}\n)", cnf_path, prelude_path, lemmas_path);
     // this will make it expect this script from where you are running Carcara
     let mut process = Command::new(checker_path.clone())
         .stdin(Stdio::piped())
