@@ -1,0 +1,18 @@
+
+Part 1
+0 - Step "t28" "resolution": []; prem: [(0, 12), (0, 28), (0, 33)]; arg: [@a0, true, @a1, false]; (0, 34)
+1 - Step "t27" "resolution": [@a1]; prem: [(0, 29), (0, 32), (0, 4)]; arg: [@a2, false, @a3, false]; (0, 33)
+2 - Step "t26" "trans": [@a2]; prem: [(0, 30), (0, 31)]; arg: []; (0, 32)
+3 - Step "t23" "equiv_pos2": [(not (!(= @a3 @a1) :named @a2)), (not @a3), @a1]; prem: []; arg: []; (0, 29)
+4 - Step "t22" "resolution": [(not @a0)]; prem: [(0, 14), (0, 23), (0, 20), (0, 22), (0, 25), (0, 26), (0, 27)]; arg: [@a4, true, @a5, false, @a6, false, @a7, false, @a8, false, @a9, false]; (0, 28)
+5 - Step "t21" "and": [@a9]; prem: [(0, 21)]; arg: [1]; (0, 27)
+6 - Step "t20" "and": [@a8]; prem: [(0, 24)]; arg: [1]; (0, 26)
+7 - Step "t19" "and": [@a7]; prem: [(0, 24)]; arg: [0]; (0, 25)
+8 - Step "t17" "resolution": [(not @a4)]; prem: [(0, 19), (0, 20), (0, 22)]; arg: [@a5, false, @a6, false]; (0, 23)
+9 - Step "t16" "and": [@a6]; prem: [(0, 21)]; arg: [0]; (0, 22)
+10 - Step "t14" "and": [@a5]; prem: [(0, 3)]; arg: [0]; (0, 20)
+11 - Step "t13" "not_and": [(not @a5), (not @a6), (not @a4)]; prem: [(0, 18)]; arg: []; (0, 19)
+12 - Step "t8" "reordering": [@a4, (not @a5), (not @a6), (not @a7), (not @a8), (not @a9), (not @a0)]; prem: [(0, 13)]; arg: []; (0, 14)
+13 - Step "t6" "implies": [(not @a1), (! (or (not (! (wary$ arity_sym$ arity_var$ (worst_chain$ uu$ uua$ (minus$ (plus$ i$ k2$) one$))):named @a5)) (not (! (wary$ arity_sym$ arity_var$ (worst_chain$ uu$ uua$ (plus$ i$ k2$))) :named @a7)) (not (! (wary$ arity_sym$ arity_var$ u$) :named @a6)) (not (! (gt$ ground_heads_var$ gt_sym$ delta$ extf$ arity_sym$ wt_sym$ (worst_chain$ uu$ uua$ (minus$ (plus$ i$ k2$) one$)) (worst_chain$ uu$ uua$ (plus$ i$ k2$))) :named @a8)) (not (! (gt$ ground_heads_var$ gt_sym$ delta$ extf$ arity_sym$ wt_sym$ (worst_chain$ uu$ uua$ (plus$ i$ k2$)) u$) :named @a9)) (!(gt$ ground_heads_var$ gt_sym$ delta$ extf$ arity_sym$ wt_sym$ (worst_chain$ uu$ uua$ (minus$ (plus$ i$ k2$) one$)) u$) :named @a4)) :named @a0)]; prem: [(0, 11)]; arg: []; (0, 12)
+14 - Assume "a4": (! (forall ((?v0 S_v_tm$) (?v1 S_v_tm$) (?v2 S_v_tm$)) (=> (and (wary$ arity_sym$ arity_var$ ?v0) (and (wary$ arity_sym$ arity_var$ ?v1) (and (wary$ arity_sym$ arity_var$ ?v2) (and (gt$ ground_heads_var$ gt_sym$ delta$ extf$ arity_sym$ wt_sym$ ?v0 ?v1) (gt$ ground_heads_var$ gt_sym$ delta$ extf$ arity_sym$ wt_sym$ ?v1 ?v2))))) (gt$ ground_heads_var$ gt_sym$ delta$ extf$ arity_sym$ wt_sym$ ?v0 ?v2))) :named @a3); (0, 4)
+Collected: {(0, 22), (0, 20)}
