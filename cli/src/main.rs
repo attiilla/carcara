@@ -719,8 +719,6 @@ fn compress_command(
     options: CompressCommandOptions,
 ) -> CliResult<(ast::Problem, ast::Proof, ast::PrimitivePool)> {    
     let (problem, proof) = get_instance(&options.input)?;
-
-    let (elab_config, pipeline) = options.elaboration.into();
     compress(
         problem,
         proof,

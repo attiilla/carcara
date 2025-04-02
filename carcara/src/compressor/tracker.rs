@@ -168,7 +168,7 @@ impl PartTracker {
                 } else {
                     proof_pool.bool_true()
                 };
-                let args = (ProofArg::Term(atom.clone()), ProofArg::Term(bool_constant));
+                let args = (atom.clone(), bool_constant);
                 part.units_queue.insert(step);
                 part.queue_local.insert(position);
                 part.args_queue.insert(args);

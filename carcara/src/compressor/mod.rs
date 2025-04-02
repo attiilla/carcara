@@ -6,6 +6,7 @@ mod tracker;
 mod disjoints;
 mod error;
 use crate::ast::term::Term;
+use crate::ast::rc::Rc;
 use crate::checker::rules::Premise;
 use crate::compressor::error::*;
 use crate::ast::proof::*;
@@ -17,7 +18,6 @@ use std::{mem, vec};
 //use crate::checker::rules::Premise;
 use crate::checker::rules::resolution::{apply_generic_resolution, unremove_all_negations};
 use crate::checker::error::CheckerError;
-use crate::ast::rc::Rc;
 use disjoints::*;
 use indexmap::IndexSet;
 use std::env;
@@ -690,7 +690,7 @@ impl<'a> ProofCompressor{
             if p.compressible && !queue.is_empty(){
                 let queue_local = &p.queue_local;
                 let args_queue = &p.args_queue;
-                let mut args: Vec<ProofArg> = Vec::new();
+                let mut args: Vec<Rc<Term>> = Vec::new();
                 let mut premises: Vec<Premise<'_>>=  Vec::new();
                 
                 // The part was constructed traversing the proof bottom-up
@@ -1002,10 +1002,10 @@ impl<'a> ProofCompressor{
         }
     }
 
-    fn command_args<'b>(&'b self,pc: &'b ProofCommand) -> &'b Vec<ProofArg>{
+    fn command_args<'b>(&'b self,pc: &'b ProofCommand) -> &'b Vec<Rc<Term>>{
         match pc {
             ProofCommand::Assume {..} => {
-                static NO_ARGS: Vec<ProofArg> = Vec::new();
+                static NO_ARGS: Vec<Rc<Term>> = Vec::new();
                 &NO_ARGS
             },
             ProofCommand::Step(s) => &s.args,
@@ -1220,7 +1220,7 @@ impl<'a> ProofCompressor{
         global_to_local: &HashMap<(usize,usize),usize>,
         proof_pool: &mut PrimitivePool,
     ) -> 
-    (Vec<Rc<Term>>,Vec<(usize,usize)>,Vec<ProofArg>){
+    (Vec<Rc<Term>>,Vec<(usize,usize)>,Vec<Rc<Term>>){
         let sp_stack: &Vec<SubproofMeta> = &self.subproofs;
         let mut remaining: Vec<(usize, usize)> = part.remaining_premises(sp_stack, index);
         //println!("Remaining {:?}",&remaining);
@@ -1348,8 +1348,8 @@ impl<'a> ProofCompressor{
         ans
     }    
 
-    fn build_args(&self, part: &DisjointPart, remaining: &[(usize, usize)], index: usize) -> Vec<ProofArg>{ // ok
-        let mut ans: Vec<ProofArg> = vec![];
+    fn build_args(&self, part: &DisjointPart, remaining: &[(usize, usize)], index: usize) -> Vec<Rc<Term>>{ // ok
+        let mut ans: Vec<Rc<Term>> = vec![];
         let sp_stack = &self.subproofs;
         let data = &part.part_commands[index];
         let remaining_set: HashSet<_> = remaining.iter().copied().collect();

@@ -3,6 +3,7 @@
 /sample
 scripts/*
 !scripts/generate_proofs.sh
+!scripts/check_folder.sh
 /fetch.sh
 /debug.sh
 /resolve.sh

@@ -1,5 +1,7 @@
 use super::{ProofCommand, SubproofMeta};
 use crate::ast::proof::*;
+use crate::ast::term::Term;
+use crate::ast::rc::Rc;
 use indexmap::IndexSet;
 use std::collections::{HashMap, HashSet};
 
@@ -9,7 +11,7 @@ pub struct DisjointPart {
     pub original_index: Vec<(usize, usize)>,
     pub units_queue: IndexSet<(usize, usize)>,
     pub queue_local: IndexSet<usize>,
-    pub args_queue: IndexSet<(ProofArg, ProofArg)>,
+    pub args_queue: IndexSet<(Rc<Term>, Rc<Term>)>,
     pub marked_for_deletion: IndexSet<(usize, usize)>,
     pub compressible: bool,
     pub compressed: bool,
