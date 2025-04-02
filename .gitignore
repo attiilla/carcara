@@ -1,7 +1,8 @@
 /target
 /benchmarks
 /sample
-/scripts
+scripts/*
+!scripts/generate_proofs.sh
 /fetch.sh
 /debug.sh
 /resolve.sh
