@@ -26,7 +26,7 @@ process_file() {
     output=$(./target/debug/carcara check -i --allow-int-real-subtyping --expand-let-bindings "${base_name}.Calethe" "$smt2_file" 2>/dev/null)
     if [ $? -ne 0 ]; then
         echo "Failed on checking the compressed proof ${base_name}.Calethe"
-        rm "${base_name}.Calethe"
+        #rm "${base_name}.Calethe"
         return 3
     fi
 
