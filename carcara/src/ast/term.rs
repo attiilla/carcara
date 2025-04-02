@@ -1,5 +1,6 @@
 use super::{PrimitivePool, Rc, TermPool};
 use crate::CheckerError;
+use indexmap::{map::Entry, IndexMap};
 use rug::{Integer, Rational};
 use std::{collections::HashSet, hash::Hash, ops::Deref};
 
@@ -30,6 +31,11 @@ pub enum Term {
     /// A `let` binder term.
     Let(BindingList, Rc<Term>),
 
+    /// A `match' term, consisting of a term to be matched and a
+    /// sequence of (pattern,result) pairs, where each each pattern
+    /// binds a number of variables
+    Match(Rc<Term>, Vec<(BindingList, Rc<Term>, Rc<Term>)>),
+
     /// A parameterized operation term, that is, an operation term whose operator receives extra
     /// parameters.
     ///
@@ -38,6 +44,7 @@ pub enum Term {
     ///   syntax. In this case, the operator parameters must be constants.
     /// - A `qualified` operation term, that uses a qualified operator denoted by the `(as ...)`
     ///   syntax. In this case, the single operator parameter must be a sort.
+    /// - A `tester` of a datatype constructor `C`, denoted by `(_ is C)`.
     ParamOp {
         op: ParamOperator,
         op_args: Vec<Rc<Term>>,
@@ -59,6 +66,9 @@ pub enum Sort {
     /// The associated string is the sort name, and the associated terms are the sort arguments for
     /// this sort.
     Atom(String, Vec<Rc<Term>>),
+
+    // A sort variable
+    Var(String),
 
     /// The `Bool` primitive sort.
     Bool,
@@ -84,6 +94,13 @@ pub enum Sort {
     /// The associated term is the BV width of this sort.
     BitVec(Integer),
 
+    /// A datatype sort only has its name and its type parameters
+    Datatype(String, Vec<Rc<Term>>),
+
+    // TODO delete this and incorporate it to function sort?
+    /// A parametric sort, with a set of sort variables that can appear in the second argument.
+    ParamSort(Vec<Rc<Term>>, Rc<Term>),
+
     /// The sort of RARE lists.
     RareList,
 
@@ -106,6 +123,7 @@ pub enum Constant {
     /// A string literal term.
     String(String),
 
+    /// A bitvector literal term.
     BitVec(Integer, Integer),
 }
 
@@ -352,6 +370,7 @@ pub enum Operator {
     BvSLe,
     BvSGt,
     BvSGe,
+    Bv2Nat,
     BvBbTerm,
 
     // Misc.
@@ -366,10 +385,18 @@ pub enum ParamOperator {
     BvBitOf,
     ZeroExtend,
     SignExtend,
+    RotateLeft,
+    RotateRight,
+    Repeat,
     BvConst,
+
+    Int2BV,
 
     RePower,
     ReLoop,
+
+    // Datatypes,
+    Tester,
 
     // Qualified operators
     ArrayConst,
@@ -471,20 +498,28 @@ impl_str_conversion_traits!(Operator {
     BvSLe: "bvsle",
     BvSGt: "bvsgt",
     BvSGe: "bvsge",
-    BvBbTerm: "bbterm",
+    Bv2Nat: "bv2nat",
+    BvBbTerm: "@bbT",
 
     RareList: "rare-list",
 });
 
 impl_str_conversion_traits!(ParamOperator {
     BvExtract: "extract",
-    BvBitOf: "bit_of",
+    BvBitOf: "@bitOf",
     ZeroExtend: "zero_extend",
     SignExtend: "sign_extend",
+    RotateLeft: "rotate_left",
+    RotateRight: "rotate_right",
+    Repeat: "repeat",
     BvConst: "bv",
+
+    Int2BV: "int2bv",
 
     RePower: "re.^",
     ReLoop: "re.loop",
+
+    Tester: "is",
 
     ArrayConst: "const",
 });
@@ -532,6 +567,85 @@ impl BindingList {
 impl From<SortedVar> for Term {
     fn from(var: SortedVar) -> Self {
         Term::Var(var.0, var.1)
+    }
+}
+
+impl Sort {
+    // Whether this sort can be unified with another. The map argument
+    // will be a substitution of sort variables to sorts
+    pub fn match_with(&self, target: &Sort, map: &mut IndexMap<String, Sort>) -> bool {
+        match (self, target) {
+            (Sort::Var(a), _) => {
+                // TODO check that target is compatible with value associated to a, if any
+                match map.entry(a.to_string()) {
+                    Entry::Vacant(e) => {
+                        e.insert(target.clone());
+                    }
+                    Entry::Occupied(e) => {
+                        return e.get() == target;
+                    }
+                }
+                true
+            }
+            (Sort::Atom(a, sorts_a), Sort::Atom(b, sorts_b)) => {
+                if a != b {
+                    false
+                } else {
+                    let matching = sorts_a
+                        .iter()
+                        .zip(sorts_b.iter())
+                        .filter(|&(t_a, t_b)| {
+                            let s_a = t_a.as_sort().unwrap();
+                            let s_b = t_b.as_sort().unwrap();
+                            s_a.match_with(s_b, map)
+                        })
+                        .count();
+                    matching == sorts_a.len() && matching == sorts_b.len()
+                }
+            }
+            (Sort::Function(sorts_a), Sort::Function(sorts_b)) => {
+                for (a_t, b_t) in sorts_a.iter().zip(sorts_b.iter()) {
+                    let a_s = a_t.as_sort().unwrap();
+                    let b_s = b_t.as_sort().unwrap();
+                    if !a_s.match_with(b_s, map) {
+                        return false;
+                    }
+                }
+                true
+            }
+            (Sort::Datatype(a, sorts_a), Sort::Datatype(b, sorts_b)) => {
+                if a != b {
+                    false
+                } else {
+                    let matching = sorts_a
+                        .iter()
+                        .zip(sorts_b.iter())
+                        .filter(|&(t_a, t_b)| {
+                            let s_a = t_a.as_sort().unwrap();
+                            let s_b = t_b.as_sort().unwrap();
+                            s_a.match_with(s_b, map)
+                        })
+                        .count();
+                    matching == sorts_a.len() && matching == sorts_b.len()
+                }
+            }
+            (Sort::Bool, Sort::Bool)
+            | (Sort::Int, Sort::Int)
+            | (Sort::Real, Sort::Real)
+            | (Sort::String, Sort::String)
+            | (Sort::RegLan, Sort::RegLan)
+            | (Sort::RareList, Sort::RareList)
+            | (Sort::Type, Sort::Type) => true,
+            (Sort::Array(x_a, y_a), Sort::Array(x_b, y_b)) => {
+                let s_x_a = x_a.as_sort().unwrap();
+                let s_y_a = y_a.as_sort().unwrap();
+                let s_x_b = x_b.as_sort().unwrap();
+                let s_y_b = y_b.as_sort().unwrap();
+                s_x_a.match_with(s_x_b, map) && s_y_a.match_with(s_y_b, map)
+            }
+            (Sort::BitVec(a), Sort::BitVec(b)) => a == b,
+            _ => false,
+        }
     }
 }
 
@@ -646,6 +760,15 @@ impl Term {
         }
     }
 
+    /// Tries to extract a `BitVec` from a term. Returns `Some` if the
+    /// term is a bitvector constant.
+    pub fn as_bitvector(&self) -> Option<(Integer, Integer)> {
+        match self {
+            Term::Const(Constant::BitVec(v, w)) => Some((v.clone(), w.clone())),
+            _ => None,
+        }
+    }
+
     /// Tries to extract a `Rational` from a term, allowing fractions. This method will return
     /// `Some` if the term is:
     ///
@@ -702,6 +825,20 @@ impl Term {
     /// Returns `true` if the term is a user defined sort with arity zero, or a sort variable.
     pub fn is_sort_var(&self) -> bool {
         matches!(self, Term::Sort(Sort::Atom(_, args)) if args.is_empty())
+    }
+
+    /// Returns `true` if the term is a user defined parametric sort
+    pub fn is_sort_parametric(&self) -> bool {
+        match self {
+            Term::Sort(Sort::ParamSort(_, _)) => true,
+            Term::Sort(Sort::Datatype(_, args)) if !args.is_empty() => true,
+            _ => false,
+        }
+    }
+
+    /// Returns `true` if the term is a user defined sort with arity zero, or a sort variable.
+    pub fn is_sort_dt(&self) -> bool {
+        matches!(self, Term::Sort(Sort::Datatype(_, _)))
     }
 
     /// Tries to unwrap an operation term, returning the `Operator` and the arguments. Returns

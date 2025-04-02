@@ -65,13 +65,33 @@ pub enum ParserError {
     #[error("expected bitvector sort, got '{0}'")]
     ExpectedBvSort(Sort),
 
+    /// Expected DatatypeSort
+    #[error("expected datatype sort, got '{0}'")]
+    ExpectedDTSort(Sort),
+
     // Expected Constant::Integer, got other Term
     #[error("expected integer constant, got '{0}'")]
     ExpectedIntegerConstant(Rc<Term>),
 
+    /// Pattern in match is not valid
+    #[error("invalid pattern '{0}'")]
+    InvalidPattern(Rc<Term>),
+
+    /// Results in match do not have the same type
+    #[error("invalid match results (different types) '{0} and {1}'")]
+    InvalidMatchResults(Rc<Term>, Rc<Term>),
+
+    /// Results in match do not have the same type
+    #[error("Patterns in match statement do not have variable or do not cover all constructors")]
+    InvalidPatterns,
+
     /// A term that is not a function was used as a function.
     #[error("'{0}' is not a function sort")]
     NotAFunction(Sort), // TODO: This should also carry the actual function term
+
+    /// A term that is not a function was used as a function.
+    #[error("'{0}' cannot be matched to '{1}'")]
+    IncompatibleSorts(Sort, Sort),
 
     /// The parser encountered an identifier that was not defined.
     #[error("identifier '{0}' is not defined")]
@@ -140,13 +160,13 @@ where
 }
 
 /// Returns an error if the value of `sequence` is not in the `expected` range.
-pub fn assert_indexed_op_args_value<R>(sequence: &[Constant], range: R) -> Result<(), ParserError>
+pub fn assert_indexed_op_args_value<R>(sequence: &[Rc<Term>], range: R) -> Result<(), ParserError>
 where
     R: Into<Range<Integer>>,
 {
     let range = range.into();
     for x in sequence {
-        if let Constant::Integer(i) = x {
+        if let Term::Const(Constant::Integer(i)) = x.as_ref() {
             if !range.contains(i.clone()) {
                 return Err(ParserError::WrongValueOfArgs(range, i.clone()));
             }

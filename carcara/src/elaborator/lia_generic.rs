@@ -59,9 +59,10 @@ fn get_problem_string(
 }
 
 pub fn lia_generic(elaborator: &mut Elaborator, step: &StepNode) -> Option<Rc<ProofNode>> {
-    let problem = get_problem_string(elaborator.pool, elaborator.prelude, &step.clause);
+    let problem_str =
+        get_problem_string(elaborator.pool, &elaborator.problem.prelude, &step.clause);
     let options = elaborator.config.lia_options.as_ref().unwrap();
-    let commands = match get_solver_proof(elaborator.pool, problem, options) {
+    let commands = match get_solver_proof(elaborator.pool, problem_str, options) {
         Ok(c) => c,
         Err(e) => {
             log::warn!("failed to elaborate `lia_generic` step: {}", e);
@@ -136,15 +137,12 @@ fn parse_and_check_solver_proof(
         expand_lets: true,
         allow_int_real_subtyping: true,
         strict: false,
+        parse_hole_args: false,
     };
-    let mut parser = parser::Parser::new(pool, config, problem)?;
-    let (_, premises) = parser.parse_problem()?;
-    parser.reset(proof)?;
-    let mut proof = parser.parse_proof()?;
-    proof.premises = premises;
+    let (problem, proof) = parser::parse_instance_with_pool(problem, proof, config, pool)?;
 
     let config = checker::Config::new().ignore_unknown_rules(true);
-    checker::ProofChecker::new(pool, config).check(&proof)?;
+    checker::ProofChecker::new(pool, config).check(&problem, &proof)?;
     Ok(proof.commands)
 }
 

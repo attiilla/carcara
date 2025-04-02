@@ -8,7 +8,7 @@ pub(super) struct PolyeqElaborator<'a> {
     ids: &'a mut IdHelper,
     root_depth: usize,
     cache: HashMapStack<(Rc<Term>, Rc<Term>), Rc<ProofNode>>,
-    checker: PolyeqComparator,
+    checker: Polyeq,
     context: Option<ContextStack>,
 }
 
@@ -18,7 +18,9 @@ impl<'a> PolyeqElaborator<'a> {
             ids: id_helper,
             root_depth,
             cache: HashMapStack::new(),
-            checker: PolyeqComparator::new(true, is_alpha_equivalence, false),
+            checker: Polyeq::new()
+                .mod_reordering(true)
+                .alpha_equiv(is_alpha_equivalence),
             context: is_alpha_equivalence.then(ContextStack::new),
         }
     }
@@ -149,8 +151,6 @@ impl<'a> PolyeqElaborator<'a> {
                     .map(|(name, value)| AnchorArg::Variable((name.clone(), pool.sort(value))))
                     .collect();
 
-                self.open_subproof();
-
                 // The values of the binding lists in the `let` terms may not be syntactically
                 // identical, in which case we need to prove their equality so the `bind_let` step
                 // is valid.
@@ -167,6 +167,7 @@ impl<'a> PolyeqElaborator<'a> {
                     })
                     .collect();
 
+                self.open_subproof();
                 let previous = self.create_bind_subproof(pool, (a_inner.clone(), b_inner.clone()));
                 let last_step = StepNode {
                     id: String::new(), // this will be overwritten later
@@ -207,8 +208,8 @@ impl<'a> PolyeqElaborator<'a> {
     /// application of the current context.
     fn polyeq(&mut self, pool: &mut dyn TermPool, a: &Rc<Term>, b: &Rc<Term>) -> bool {
         match &mut self.context {
-            Some(c) => Polyeq::eq(&mut self.checker, &c.apply(pool, a), b),
-            None => Polyeq::eq(&mut self.checker, a, b),
+            Some(c) => self.checker.eq(&c.apply(pool, a), b),
+            None => self.checker.eq(a, b),
         }
     }
 

@@ -1,4 +1,5 @@
 pub mod error;
+mod lia_generic;
 mod parallel;
 pub mod rules;
 
@@ -8,7 +9,7 @@ use crate::{
     CarcaraResult, Error,
 };
 use error::{CheckerError, SubproofError};
-use indexmap::IndexSet;
+use indexmap::{IndexMap, IndexSet};
 pub use parallel::{scheduler::Scheduler, ParallelProofChecker};
 use rules::{Premise, Rule, RuleArgs, RuleResult};
 use std::{
@@ -58,6 +59,10 @@ pub struct Config {
 
     /// A set of rule names that the checker will allow, considering them holes in the proof.
     pub allowed_rules: HashSet<String>,
+
+    pub rule_checkers: IndexMap<String, String>,
+
+    pub external_tools: IndexMap<String, String>,
 }
 
 impl Config {
@@ -72,6 +77,16 @@ impl Config {
 
     pub fn ignore_unknown_rules(mut self, value: bool) -> Self {
         self.ignore_unknown_rules = value;
+        self
+    }
+
+    pub fn rule_checkers(mut self, value: IndexMap<String, String>) -> Self {
+        self.rule_checkers = value;
+        self
+    }
+
+    pub fn external_tools(mut self, value: IndexMap<String, String>) -> Self {
+        self.external_tools = value;
         self
     }
 }
@@ -95,8 +110,9 @@ impl<'c> ProofChecker<'c> {
         }
     }
 
-    pub fn check(&mut self, proof: &Proof) -> CarcaraResult<bool> {
+    pub fn check(&mut self, problem: &Problem, proof: &Proof) -> CarcaraResult<bool> {
         self.check_impl(
+            problem,
             proof,
             None::<&mut CheckerStatistics<OnlineBenchmarkResults>>,
         )
@@ -104,14 +120,16 @@ impl<'c> ProofChecker<'c> {
 
     pub fn check_with_stats<CR: CollectResults + Send + Default>(
         &mut self,
+        problem: &Problem,
         proof: &Proof,
         stats: &mut CheckerStatistics<CR>,
     ) -> CarcaraResult<bool> {
-        self.check_impl(proof, Some(stats))
+        self.check_impl(problem, proof, Some(stats))
     }
 
     fn check_impl<CR: CollectResults + Send + Default>(
         &mut self,
+        problem: &Problem,
         proof: &Proof,
         mut stats: Option<&mut CheckerStatistics<CR>>,
     ) -> CarcaraResult<bool> {
@@ -134,7 +152,7 @@ impl<'c> ProofChecker<'c> {
                     } else {
                         None
                     };
-                    self.check_step(step, previous_command, &iter, &mut stats)
+                    self.check_step(step, previous_command, &iter, &mut stats, &problem.prelude)
                         .map_err(|e| Error::Checker {
                             inner: e,
                             rule: step.rule.clone(),
@@ -172,7 +190,7 @@ impl<'c> ProofChecker<'c> {
                     }
                 }
                 ProofCommand::Assume { id, term } => {
-                    if !self.check_assume(id, term, &proof.premises, &iter, &mut stats) {
+                    if !self.check_assume(id, term, &problem.premises, &iter, &mut stats) {
                         return Err(Error::Checker {
                             inner: CheckerError::Assume(term.clone()),
                             rule: "assume".into(),
@@ -227,8 +245,13 @@ impl<'c> ProofChecker<'c> {
 
         for p in premises {
             let mut this_polyeq_time = Duration::ZERO;
-            let (result, depth) = tracing_polyeq_mod_nary(term, p, &mut this_polyeq_time);
+
+            let mut comp = Polyeq::new().mod_reordering(true).mod_nary(true);
+            let result = comp.eq_with_time(term, p, &mut this_polyeq_time);
+            let depth = comp.max_depth();
+
             polyeq_time += this_polyeq_time;
+
             if let Some(s) = &mut stats {
                 s.results.add_polyeq_depth(depth);
             }
@@ -261,6 +284,7 @@ impl<'c> ProofChecker<'c> {
         previous_command: Option<Premise>,
         iter: &'i ProofIter<'i>,
         stats: &mut Option<&mut CheckerStatistics<CR>>,
+        prelude: &ProblemPrelude,
     ) -> RuleResult {
         let time = Instant::now();
         let mut polyeq_time = Duration::ZERO;
@@ -268,22 +292,6 @@ impl<'c> ProofChecker<'c> {
         if !step.discharge.is_empty() && step.rule != "subproof" {
             return Err(CheckerError::Subproof(SubproofError::DischargeInWrongRule));
         }
-
-        let rule = match Self::get_rule(&step.rule, self.config.elaborated) {
-            Some(r) => r,
-            None if self.config.ignore_unknown_rules
-                || self.config.allowed_rules.contains(&step.rule) =>
-            {
-                self.is_holey = true;
-                return Ok(());
-            }
-            None => return Err(CheckerError::UnknownRule),
-        };
-
-        if step.rule == "hole" || step.rule == "lia_generic" {
-            self.is_holey = true;
-        }
-
         let premises: Vec<_> = step
             .premises
             .iter()
@@ -309,7 +317,63 @@ impl<'c> ProofChecker<'c> {
             polyeq_time: &mut polyeq_time,
         };
 
-        rule(rule_args)?;
+        if self.config.allowed_rules.contains(&step.rule) {
+            log::warn!("Step {} uses admitted rule {}", step.id, step.rule);
+            return Ok(());
+        }
+        if step.rule == "sat_refutation" {
+            // return Ok(());
+            let premises_steps: Vec<_> =
+                step.premises.iter().map(|&p| iter.get_premise(p)).collect();
+            if let Some(checker) = self.config.rule_checkers.get(&step.rule) {
+                lia_generic::sat_refutation(
+                    rule_args,
+                    premises_steps,
+                    prelude,
+                    Some(checker.to_string()),
+                    None,
+                    None,
+                    None,
+                )?;
+            } else {
+                match (
+                    self.config.external_tools.get("sat-solver"),
+                    self.config.external_tools.get("drat-checker"),
+                    self.config.external_tools.get("smt-solver"),
+                ) {
+                    (Some(cadical), Some(drattrim), Some(cvc5)) => lia_generic::sat_refutation(
+                        rule_args,
+                        premises_steps,
+                        prelude,
+                        None,
+                        Some(cadical.to_string()),
+                        Some(drattrim.to_string()),
+                        Some(cvc5.to_string()),
+                    )?,
+                    _ => {
+                        return Err(CheckerError::Explanation("The `sat_refutation` rule checking requires paths to be given for a SAT solver (`sat-solver`), DRAT checker (`drat-checker`), and an SMT solver (`smt-solver`) via the external-tools option".to_string(),
+                        ))
+                    }
+                }
+            }
+        } else if let Some(checker) = self.config.rule_checkers.get(&step.rule) {
+            lia_generic::external_checker(rule_args, checker.clone())?;
+        } else {
+            let rule = match Self::get_rule(&step.rule, self.config.elaborated) {
+                Some(r) => r,
+                None if self.config.ignore_unknown_rules => {
+                    self.is_holey = true;
+                    return Ok(());
+                }
+                None => return Err(CheckerError::UnknownRule),
+            };
+
+            if step.rule == "hole" || step.rule == "lia_generic" {
+                self.is_holey = true;
+            }
+
+            rule(rule_args)?;
+        }
 
         if iter.is_end_step() {
             let subproof = iter.current_subproof().unwrap();
@@ -391,6 +455,7 @@ impl<'c> ProofChecker<'c> {
             "trans" => transitivity::trans,
             "cong" => congruence::cong,
             "ho_cong" => congruence::ho_cong,
+            "and_intro" => extras::and_intro,
             "and" => clausification::and,
             "tautology" => resolution::tautology,
             "not_or" => clausification::not_or,
@@ -450,9 +515,23 @@ impl<'c> ProofChecker<'c> {
             "la_mult_pos" => extras::la_mult_pos,
             "la_mult_neg" => extras::la_mult_neg,
             "mod_simplify" => extras::mod_simplify,
-            "bitblast_extract" => bitvectors::extract,
-            "bitblast_bvadd" => bitvectors::add,
-            "bitblast_ult" => bitvectors::ult,
+            "bv_bitblast_step_const" => bitvectors::value,
+            "bv_bitblast_step_var" => bitvectors::var,
+            "bv_bitblast_step_bvand" => bitvectors::and,
+            "bv_bitblast_step_bvor" => bitvectors::or,
+            "bv_bitblast_step_bvxor" => bitvectors::xor,
+            "bv_bitblast_step_bvxnor" => bitvectors::xnor,
+            "bv_bitblast_step_bvnot" => bitvectors::not,
+            "bv_bitblast_step_bvcomp" => bitvectors::comp,
+            "bv_bitblast_step_bvult" => bitvectors::ult,
+            "bv_bitblast_step_bvslt" => bitvectors::slt,
+            "bv_bitblast_step_bvadd" => bitvectors::add,
+            "bv_bitblast_step_bvmult" => bitvectors::mult,
+            "bv_bitblast_step_bvneg" => bitvectors::neg,
+            "bv_bitblast_step_bvequal" => bitvectors::equality,
+            "bv_bitblast_step_extract" => bitvectors::extract,
+            "bv_bitblast_step_concat" => bitvectors::concat,
+            "bv_bitblast_step_sign_extend" => bitvectors::sign_extend,
 
             "concat_eq" => strings::concat_eq,
             "concat_unify" => strings::concat_unify,
@@ -465,6 +544,15 @@ impl<'c> ProofChecker<'c> {
             "concat_lprop_suffix" => strings::concat_lprop_suffix,
             "concat_cprop_prefix" => strings::concat_cprop_prefix,
             "concat_cprop_suffix" => strings::concat_cprop_suffix,
+
+            "string_decompose" => strings::string_decompose,
+            "string_length_pos" => strings::string_length_pos,
+            "string_length_non_empty" => strings::string_length_non_empty,
+
+            "re_inter" => strings::re_inter,
+            "re_unfold_neg" => strings::re_unfold_neg,
+            "re_unfold_neg_concat_fixed_prefix" => strings::re_unfold_neg_concat_fixed_prefix,
+            "re_unfold_neg_concat_fixed_suffix" => strings::re_unfold_neg_concat_fixed_suffix,
 
             // Special rules that always check as valid, and are used to indicate holes in the
             // proof.

@@ -15,7 +15,7 @@ pub type Rule = fn(RuleArgs) -> RuleResult;
 pub struct RuleArgs<'a> {
     pub(super) conclusion: &'a [Rc<Term>],
     pub(super) premises: &'a [Premise<'a>],
-    pub(super) args: &'a [ProofArg],
+    pub(super) args: &'a [Rc<Term>],
     pub(super) pool: &'a mut dyn TermPool,
     pub(super) context: &'a mut ContextStack,
 
@@ -85,7 +85,7 @@ fn assert_clause_len<T: Into<Range>>(clause: &[Rc<Term>], range: T) -> RuleResul
     Ok(())
 }
 
-fn assert_num_args<T: Into<Range>>(args: &[ProofArg], range: T) -> RuleResult {
+fn assert_num_args<T: Into<Range>>(args: &[Rc<Term>], range: T) -> RuleResult {
     let range = range.into();
     if !range.contains(args.len()) {
         return Err(CheckerError::WrongNumberOfArgs(range, args.len()));
@@ -162,7 +162,7 @@ fn run_tests(test_name: &str, definitions: &str, cases: &[(&str, bool)]) {
 
     for (i, (proof, expected)) in cases.iter().enumerate() {
         // This parses the definitions again for every case, which is not ideal
-        let (_, mut proof, mut pool) = parser::parse_instance(
+        let (mut problem, mut proof, mut pool) = parser::parse_instance(
             Cursor::new(definitions),
             Cursor::new(proof),
             parser::Config::new(),
@@ -172,7 +172,7 @@ fn run_tests(test_name: &str, definitions: &str, cases: &[(&str, bool)]) {
         // Since rule tests often use `assume` commands to introduce premises, we search the proof
         // for all `assume`d terms and retroactively add them as the problem premises, to avoid
         // checker errors on the `assume`s
-        proof.premises = proof
+        problem.premises = proof
             .commands
             .iter()
             .filter_map(|c| match c {
@@ -193,7 +193,7 @@ fn run_tests(test_name: &str, definitions: &str, cases: &[(&str, bool)]) {
         }));
 
         let mut checker = checker::ProofChecker::new(&mut pool, checker::Config::new());
-        let got = checker.check(&proof).is_ok();
+        let got = checker.check(&problem, &proof).is_ok();
         assert_eq!(
             *expected, got,
             "test case \"{}\" index {} failed",

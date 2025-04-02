@@ -4,6 +4,7 @@ mod polyeq;
 mod reflexivity;
 mod reordering;
 mod resolution;
+mod sat_refutation;
 mod transitivity;
 mod uncrowding;
 
@@ -28,6 +29,8 @@ pub struct Config {
     pub uncrowd_rotation: bool,
 
     pub hole_options: Option<HoleOptions>,
+
+    pub sat_refutation_options: Option<SatRefutationOptions>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -38,6 +41,7 @@ pub enum ElaborationStep {
     Uncrowd,
     Reordering,
     Hole,
+    SatRefutation,
 }
 
 /// The options that control how `lia_generic` steps are elaborated using an external solver.
@@ -62,21 +66,35 @@ pub struct HoleOptions {
     pub arguments: Vec<Box<str>>,
 }
 
+/// The options that control how `hole` steps are elaborated using an external solver.
+#[derive(Debug, Clone)]
+pub struct SatRefutationOptions {
+    /// The external SAT solver path. The solver should be a binary that can read DIMACS and output a DRAT proof..
+    pub sat_solver: Box<str>,
+    /// The arguments to pass to CaDiCaL
+    pub sat_arguments: Vec<Box<str>>,
+
+    /// The external DRAT checker/trimmer path. The tool should be a binary that can read DRAT from stdin and output a proof core and an LRAT.
+    pub drat_checker: Box<str>,
+    /// The arguments to pass to CaDiCaL
+    pub drat_arguments: Vec<Box<str>>,
+
+    /// The external SMT solver path. The solver should be a binary that can read SMT-LIB from stdin and
+    /// output an Alethe proof to stdout.
+    pub smt_solver: Box<str>,
+    /// The arguments to pass to the solver.
+    pub smt_arguments: Vec<Box<str>>,
+}
+
 pub struct Elaborator<'e> {
     pool: &'e mut PrimitivePool,
-    premises: &'e IndexSet<Rc<Term>>,
-    prelude: &'e ProblemPrelude,
+    problem: &'e Problem,
     config: Config,
 }
 
 impl<'e> Elaborator<'e> {
-    pub fn new(
-        pool: &'e mut PrimitivePool,
-        premises: &'e IndexSet<Rc<Term>>,
-        prelude: &'e ProblemPrelude,
-        config: Config,
-    ) -> Self {
-        Self { pool, premises, prelude, config }
+    pub fn new(pool: &'e mut PrimitivePool, problem: &'e Problem, config: Config) -> Self {
+        Self { pool, problem, config }
     }
 
     pub fn elaborate_with_default_pipeline(&mut self, root: &Rc<ProofNode>) -> Rc<ProofNode> {
@@ -138,6 +156,19 @@ impl<'e> Elaborator<'e> {
                         })
                     }
                 }
+                ElaborationStep::SatRefutation => {
+                    if self.config.sat_refutation_options.is_none() {
+                        current.clone()
+                    } else {
+                        mutate(&current, |_, node| match node.as_ref() {
+                            ProofNode::Step(s) if (s.rule == "sat_refutation") => {
+                                sat_refutation::sat_refutation(self, s)
+                                    .unwrap_or_else(|| node.clone())
+                            }
+                            _ => node.clone(),
+                        })
+                    }
+                }
             };
             durations.push(time.elapsed());
         }
@@ -148,7 +179,7 @@ impl<'e> Elaborator<'e> {
         mutate(root, |context, node| {
             match node.as_ref() {
                 ProofNode::Assume { id, depth, term }
-                    if context.is_empty() && !self.premises.contains(term) =>
+                    if context.is_empty() && !self.problem.premises.contains(term) =>
                 {
                     self.elaborate_assume(id, *depth, term)
                 }
@@ -186,9 +217,12 @@ impl<'e> Elaborator<'e> {
 
     fn elaborate_assume(&mut self, id: &str, depth: usize, term: &Rc<Term>) -> Rc<ProofNode> {
         let mut found = None;
-        let mut polyeq_time = std::time::Duration::ZERO;
-        for p in self.premises {
-            if polyeq_mod_nary(term, p, &mut polyeq_time) {
+        for p in &self.problem.premises {
+            if Polyeq::new()
+                .mod_reordering(true)
+                .mod_nary(true)
+                .eq(term, p)
+            {
                 found = Some(p.clone());
                 break;
             }
@@ -226,10 +260,7 @@ impl<'e> Elaborator<'e> {
             clause: vec![term.clone()],
             rule: "resolution".to_owned(),
             premises: vec![new_assume, equiv1_step],
-            args: vec![
-                ProofArg::Term(premise),
-                ProofArg::Term(self.pool.bool_true()),
-            ],
+            args: vec![premise, self.pool.bool_true()],
             ..Default::default()
         }))
     }
@@ -257,7 +288,7 @@ pub fn add_refl_step(
 type ElaborationFunc =
     fn(&mut PrimitivePool, &mut ContextStack, &StepNode) -> Result<Rc<ProofNode>, CheckerError>;
 
-fn mutate<F>(root: &Rc<ProofNode>, mut mutate_func: F) -> Rc<ProofNode>
+pub fn mutate<F>(root: &Rc<ProofNode>, mut mutate_func: F) -> Rc<ProofNode>
 where
     F: FnMut(&mut ContextStack, &Rc<ProofNode>) -> Rc<ProofNode>,
 {
@@ -343,20 +374,20 @@ where
     cache[root].clone()
 }
 
-struct IdHelper {
+pub struct IdHelper {
     root: String,
     stack: Vec<usize>,
 }
 
 impl IdHelper {
-    fn new(root: &str) -> Self {
+    pub fn new(root: &str) -> Self {
         Self {
             root: root.to_owned(),
             stack: vec![0],
         }
     }
 
-    fn next_id(&mut self) -> String {
+    pub fn next_id(&mut self) -> String {
         use std::fmt::Write;
 
         let mut current = self.root.clone();
@@ -367,11 +398,11 @@ impl IdHelper {
         current
     }
 
-    fn push(&mut self) {
+    pub fn push(&mut self) {
         self.stack.push(0);
     }
 
-    fn pop(&mut self) {
+    pub fn pop(&mut self) {
         assert!(self.stack.len() >= 2, "can't pop last frame from the stack");
         self.stack.pop();
     }

@@ -1,16 +1,50 @@
+use crate::external::ExternalError;
 use crate::{
     ast::*,
     checker::rules::linear_arithmetic::LinearComb,
     utils::{Range, TypeName},
 };
 use rug::{Integer, Rational};
-use std::fmt;
+use std::{fmt, io};
 use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum LiaGenericError {
+    #[error("failed to spawn solver process")]
+    FailedSpawnSolver(io::Error),
+
+    #[error("failed to write to solver stdin")]
+    FailedWriteToSolverStdin(io::Error),
+
+    #[error("error while waiting for solver to exit")]
+    FailedWaitForSolver(io::Error),
+
+    #[error("solver gave invalid output")]
+    SolverGaveInvalidOutput,
+
+    #[error("solver output not unsat")]
+    OutputNotUnsat,
+
+    #[error("solver timed out when solving problem")]
+    SolverTimeout,
+
+    #[error(
+        "solver returned non-zero exit code: {}",
+        if let Some(i) = .0 { format!("{}", i) } else { "none".to_owned() }
+    )]
+    NonZeroExitCode(Option<i32>),
+
+    #[error("error in inner proof: {0}")]
+    InnerProofError(Box<crate::Error>),
+}
 
 #[derive(Debug, Error)]
 pub enum CheckerError {
     #[error("unspecified error")]
     Unspecified,
+
+    #[error("{0}")]
+    Explanation(String),
 
     #[error(transparent)]
     Substitution(#[from] SubstitutionError),
@@ -30,6 +64,12 @@ pub enum CheckerError {
 
     #[error(transparent)]
     LinearArithmetic(#[from] LinearArithmeticError),
+
+    #[error(transparent)]
+    LiaGeneric(#[from] LiaGenericError),
+
+    #[error(transparent)]
+    External(#[from] ExternalError),
 
     #[error(transparent)]
     Subproof(#[from] SubproofError),
@@ -67,6 +107,9 @@ pub enum CheckerError {
 
     #[error("term '{0}' is not a valid n-ary operation")]
     NotValidNaryTerm(Rc<Term>),
+
+    #[error("cannot evaluate the fixed length of the term '{0}'")]
+    LengthCannotBeEvaluated(Rc<Term>),
 
     // General errors
     #[error("expected {0} premises, got {1}")]
@@ -125,12 +168,6 @@ pub enum CheckerError {
 
     #[error("expected 'let' term, got '{0}'")]
     ExpectedLetTerm(Rc<Term>),
-
-    #[error("expected term style argument, got assign style argument: '(:= {0} {1})'")]
-    ExpectedTermStyleArg(String, Rc<Term>),
-
-    #[error("expected assign style '(:= ...)' argument, got term style argument: '{0}'")]
-    ExpectedAssignStyleArg(Rc<Term>),
 
     #[error("expected term {0} to be a prefix of {1}")]
     ExpectedToBePrefix(Rc<Term>, Rc<Term>),

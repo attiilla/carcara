@@ -19,6 +19,8 @@ use std::{
     sync::atomic,
 };
 
+use std::error::Error;
+
 // `git describe --all` will try to find any ref (including tags) that describes the current commit.
 // This will include tags like `carcara-0.1.0`, that we create for github releases. To account for
 // that, we pass the arguments `--exclude 'carcara-*'`, ignoring these tags.
@@ -37,6 +39,20 @@ const VERSION_STRING: &str = formatcp!(
     str_index!(GIT_BRANCH_NAME, 6..),
     GIT_COMMIT_HASH,
 );
+
+/// Parse a single key-value pair
+fn parse_key_val<T, U>(s: &str) -> Result<(T, U), Box<dyn Error + Send + Sync + 'static>>
+where
+    T: std::str::FromStr,
+    T::Err: Error + Send + Sync + 'static,
+    U: std::str::FromStr,
+    U::Err: Error + Send + Sync + 'static,
+{
+    let pos = s
+        .find('=')
+        .ok_or_else(|| format!("invalid KEY=value: no `=` found in `{s}`"))?;
+    Ok((s[..pos].parse()?, s[pos + 1..].parse()?))
+}
 
 #[derive(Parser)]
 #[clap(
@@ -132,6 +148,11 @@ struct ParsingOptions {
     /// When this flag is enabled: unary `and`, `or` and `xor` terms are not allowed;
     #[clap(short, long = "strict-parsing")]
     strict: bool,
+
+    /// If `true`, Carcara will parse arguments to the `hole` rule, expecting them to be valid
+    /// terms. In the future, this will be the default behaviour.
+    #[clap(long)]
+    parse_hole_args: bool,
 }
 
 impl From<ParsingOptions> for parser::Config {
@@ -141,6 +162,7 @@ impl From<ParsingOptions> for parser::Config {
             expand_lets: val.expand_let_bindings,
             allow_int_real_subtyping: val.allow_int_real_subtyping,
             strict: val.strict,
+            parse_hole_args: val.parse_hole_args,
         }
     }
 }
@@ -174,6 +196,26 @@ struct CheckingOptions {
     /// - the pivots for `resolution` steps must be given as arguments
     #[clap(arg_enum, long, default_value = "normal", verbatim_doc_comment)]
     check_granularity: CheckGranularity,
+
+    // number_of_values = 1 forces the user to repeat the -D option for each key-value pair:
+    // my_program -D a=1 -D b=2
+    // Without number_of_values = 1 you can do:
+    // my_program -D a=1 b=2
+    // but this makes adding an argument after the values impossible:
+    // my_program -D a=1 -D b=2 my_input_file
+    // becomes invalid.
+    #[clap(short = 'o', value_parser = parse_key_val::<String, String>)]
+    rule_checkers: Vec<(String, String)>,
+
+    // number_of_values = 1 forces the user to repeat the -D option for each key-value pair:
+    // my_program -D a=1 -D b=2
+    // Without number_of_values = 1 you can do:
+    // my_program -D a=1 b=2
+    // but this makes adding an argument after the values impossible:
+    // my_program -D a=1 -D b=2 my_input_file
+    // becomes invalid.
+    #[clap(short = 'e', value_parser = parse_key_val::<String, String>)]
+    external_tools: Vec<(String, String)>,
 }
 
 impl From<CheckingOptions> for checker::Config {
@@ -182,6 +224,8 @@ impl From<CheckingOptions> for checker::Config {
             elaborated: val.check_granularity == CheckGranularity::Elaborated,
             ignore_unknown_rules: val.ignore_unknown_rules,
             allowed_rules: val.allowed_rules.unwrap_or_default().into_iter().collect(),
+            rule_checkers: val.rule_checkers.into_iter().collect(),
+            external_tools: val.external_tools.into_iter().collect(),
         }
     }
 }
@@ -194,42 +238,57 @@ enum ElaborationStep {
     Uncrowd,
     Reordering,
     Hole,
+    SatRefutation,
 }
 
 #[derive(Args, Clone)]
 struct ElaborationOptions {
-    /// Elaborate `lia_generic` steps using the provided solver.
-    #[clap(long)]
-    lia_solver: Option<String>,
-
-    /// The arguments to pass to the `lia_generic` solver. This should be a single string where
-    /// multiple arguments are separated by spaces.
-    #[clap(
-        long,
-        requires = "lia-solver",
-        allow_hyphen_values = true,
-        default_value = "--tlimit=10000 --lang=smt2 --proof-format-mode=alethe --proof-granularity=theory-rewrite --proof-alethe-res-pivots"
-    )]
-    lia_solver_args: String,
-
     /// When uncrowding resolutions steps, also reorder premises to further minimize the number of
     /// `contraction` steps added.
     #[clap(long)]
     uncrowd_rotate: bool,
 
-    /// Elaborate `hole` steps using the provided solver.
+    /// SAT solver that can be used when elaborating proof steps.
     #[clap(long)]
-    hole_solver: Option<String>,
+    sat_solver: Option<String>,
 
-    /// The arguments to pass to the `lia_generic` solver. This should be a single string where
+    /// The arguments to pass to the SAT solver. This should be a single string where
     /// multiple arguments are separated by spaces.
     #[clap(
         long,
-        requires = "hole-solver",
+        requires = "sat-solver",
         allow_hyphen_values = true,
-        default_value = "--disable-banner --disable-print-success --proof-prune --proof-merge --proof="
+        default_value = "proof.drat --no-binary"
     )]
-    hole_solver_args: String,
+    sat_solver_args: String,
+
+    /// DRAT checker and trimmer that can be used when elaborating proof steps.
+    #[clap(long)]
+    drat_checker: Option<String>,
+
+    /// The arguments to pass to the DRAT checker. This should be a single string where
+    /// multiple arguments are separated by spaces.
+    #[clap(
+        long,
+        requires = "drat-checker",
+        allow_hyphen_values = true,
+        default_value = "proof.drat -c proof.core -L proof.lrat"
+    )]
+    drat_checker_args: String,
+
+    /// SMT solver that can be used when elaborating proof steps.
+    #[clap(long)]
+    smt_solver: Option<String>,
+
+    /// The arguments to pass to the SMT solver. This should be a single string where
+    /// multiple arguments are separated by spaces.
+    #[clap(
+        long,
+        requires = "smt-solver",
+        allow_hyphen_values = true,
+        default_value = "--tlimit=10000 --lang=smt2 --proof-format-mode=alethe --no-symmetry-breaker"
+    )]
+    smt_solver_args: String,
 
     /// The pipeline of elaboration steps to use.
     #[clap(
@@ -253,30 +312,62 @@ impl From<ElaborationOptions> for (elaborator::Config, Vec<elaborator::Elaborati
                 ElaborationStep::Uncrowd => elaborator::ElaborationStep::Uncrowd,
                 ElaborationStep::Reordering => elaborator::ElaborationStep::Reordering,
                 ElaborationStep::Hole => elaborator::ElaborationStep::Hole,
+                ElaborationStep::SatRefutation => elaborator::ElaborationStep::SatRefutation,
             })
             .collect();
-        let lia_options = val.lia_solver.map(|solver| elaborator::LiaGenericOptions {
-            solver: solver.into(),
-            arguments: val
-                .lia_solver_args
-                .split_whitespace()
-                .map(Into::into)
-                .collect(),
-        });
+        let lia_options = val
+            .smt_solver
+            .clone()
+            .map(|solver| elaborator::LiaGenericOptions {
+                solver: solver.into(),
+                arguments: val
+                    .smt_solver_args
+                    .split_whitespace()
+                    .map(Into::into)
+                    .collect(),
+            });
 
-        let hole_options = val.hole_solver.map(|solver| elaborator::HoleOptions {
-            solver: solver.into(),
-            arguments: val
-                .hole_solver_args
-                .split_whitespace()
-                .map(Into::into)
-                .collect(),
-        });
+        let hole_options = val
+            .smt_solver
+            .clone()
+            .map(|solver| elaborator::HoleOptions {
+                solver: solver.into(),
+                arguments: val
+                    .smt_solver_args
+                    .split_whitespace()
+                    .map(Into::into)
+                    .collect(),
+            });
 
         let config = elaborator::Config {
             lia_options,
             uncrowd_rotation: val.uncrowd_rotate,
             hole_options,
+            sat_refutation_options: match (val.sat_solver, val.drat_checker, val.smt_solver) {
+                (Some(sat_solver), Some(drat_checker), Some(smt_solver)) => {
+                    Some(elaborator::SatRefutationOptions {
+                        sat_solver: sat_solver.into(),
+                        sat_arguments: val
+                            .sat_solver_args
+                            .split_whitespace()
+                            .map(Into::into)
+                            .collect(),
+                        drat_checker: drat_checker.into(),
+                        drat_arguments: val
+                            .drat_checker_args
+                            .split_whitespace()
+                            .map(Into::into)
+                            .collect(),
+                        smt_solver: smt_solver.into(),
+                        smt_arguments: val
+                            .smt_solver_args
+                            .split_whitespace()
+                            .map(Into::into)
+                            .collect(),
+                    })
+                }
+                _ => None,
+            },
         };
         (config, pipeline)
     }
@@ -424,6 +515,7 @@ enum LogLevel {
     Error,
     Warn,
     Info,
+    Debug,
 }
 
 impl From<LogLevel> for log::LevelFilter {
@@ -433,6 +525,7 @@ impl From<LogLevel> for log::LevelFilter {
             LogLevel::Error => Self::Error,
             LogLevel::Warn => Self::Warn,
             LogLevel::Info => Self::Info,
+            LogLevel::Debug => Self::Debug,
         }
     }
 }
@@ -458,8 +551,8 @@ fn main() {
     }
 
     let result = match cli.command {
-        Command::Parse(options) => parse_command(options).and_then(|(prelude, proof, mut pool)| {
-            ast::print_proof(&mut pool, &prelude, &proof, !cli.no_print_with_sharing)?;
+        Command::Parse(options) => parse_command(options).and_then(|(pb, pf, mut pool)| {
+            ast::print_proof(&mut pool, &pb.prelude, &pf, !cli.no_print_with_sharing)?;
             Ok(())
         }),
         Command::Check(options) => {
@@ -475,25 +568,25 @@ fn main() {
             return;
         }
         Command::Elaborate(options) => {
-            elaborate_command(options).and_then(|(res, prelude, proof, mut pool)| {
+            elaborate_command(options).and_then(|(res, pb, pf, mut pool)| {
                 if res {
                     println!("holey");
                 } else {
                     println!("valid");
                 }
-                ast::print_proof(&mut pool, &prelude, &proof, !cli.no_print_with_sharing)?;
+                ast::print_proof(&mut pool, &pb.prelude, &pf, !cli.no_print_with_sharing)?;
                 Ok(())
             })
         }
         Command::Compress(options) => {
-            compress_command(options).and_then(|(prelude, proof, mut pool)| {
-                ast::print_proof(&mut pool, &prelude, &proof, !cli.no_print_with_sharing)?;
+            compress_command(options).and_then(|(pb, pf, mut pool)| {
+                ast::print_proof(&mut pool, &pb.prelude, &pf, !cli.no_print_with_sharing)?;
                 Ok(())
             })
         }
         Command::Bench(options) => bench_command(options),
-        Command::Slice(options) => slice_command(options).and_then(|(prelude, proof, mut pool)| {
-            ast::print_proof(&mut pool, &prelude, &proof, !cli.no_print_with_sharing)?;
+        Command::Slice(options) => slice_command(options).and_then(|(pb, pf, mut pool)| {
+            ast::print_proof(&mut pool, &pb.prelude, &pf, !cli.no_print_with_sharing)?;
             Ok(())
         }),
         Command::GenerateLiaProblems(options) => {
@@ -525,7 +618,7 @@ fn get_instance(options: &Input) -> CliResult<(Box<dyn BufRead>, Box<dyn BufRead
 
 fn parse_command(
     options: ParseCommandOptions,
-) -> CliResult<(ast::ProblemPrelude, ast::Proof, ast::PrimitivePool)> {
+) -> CliResult<(ast::Problem, ast::Proof, ast::PrimitivePool)> {
     let (problem, proof) = get_instance(&options.input)?;
     let result = parser::parse_instance(problem, proof, options.parsing.into())
         .map_err(carcara::Error::from)?;
@@ -555,7 +648,7 @@ fn check_command(options: CheckCommandOptions) -> CliResult<bool> {
 
 fn elaborate_command(
     options: ElaborateCommandOptions,
-) -> CliResult<(bool, ast::ProblemPrelude, ast::Proof, ast::PrimitivePool)> {
+) -> CliResult<(bool, ast::Problem, ast::Proof, ast::PrimitivePool)> {
     let (problem, proof) = get_instance(&options.input)?;
 
     let (elab_config, pipeline) = options.elaboration.into();
@@ -624,7 +717,7 @@ fn bench_command(options: BenchCommandOptions) -> CliResult<()> {
 
 fn compress_command(
     options: CompressCommandOptions,
-) -> CliResult<(ast::ProblemPrelude, ast::Proof, ast::PrimitivePool)> {
+) -> CliResult<(ast::Problem, ast::Proof, ast::PrimitivePool)> {    
     let (problem, proof) = get_instance(&options.input)?;
 
     let (elab_config, pipeline) = options.elaboration.into();
@@ -632,17 +725,15 @@ fn compress_command(
         problem,
         proof,
         options.parsing.into(),
-        elab_config,
-        pipeline,
     )
     .map_err(CliError::CarcaraError)
 }
 
 fn slice_command(
     options: SliceCommandOptions,
-) -> CliResult<(ast::ProblemPrelude, ast::Proof, ast::PrimitivePool)> {
+) -> CliResult<(ast::Problem, ast::Proof, ast::PrimitivePool)> {
     let (problem, proof) = get_instance(&options.input)?;
-    let (prelude, proof, pool) = parser::parse_instance(problem, proof, options.parsing.into())
+    let (problem, proof, pool) = parser::parse_instance(problem, proof, options.parsing.into())
         .map_err(carcara::Error::from)?;
 
     let node = ast::ProofNode::from_commands_with_root_id(proof.commands, &options.from)
@@ -652,7 +743,7 @@ fn slice_command(
         ..proof
     };
 
-    Ok((prelude, sliced, pool))
+    Ok((problem, sliced, pool))
 }
 
 fn generate_lia_problems_command(options: ParseCommandOptions, use_sharing: bool) -> CliResult<()> {

@@ -1,6 +1,6 @@
 use super::{
-    assert_clause_len, assert_eq, assert_num_premises, assert_polyeq, get_premise_term,
-    CheckerError, RuleArgs, RuleResult,
+    assert_clause_len, assert_eq, assert_num_args, assert_num_premises, assert_polyeq,
+    get_premise_term, CheckerError, RuleArgs, RuleResult,
 };
 use crate::{ast::*, checker::rules::assert_operation_len};
 
@@ -31,17 +31,16 @@ pub fn not_not(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
     assert_eq(p, &conclusion[1])
 }
 
-pub fn and_pos(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
+pub fn and_pos(RuleArgs { conclusion, args, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 2)?;
+    assert_num_args(args, 1)?;
 
     let and_contents = match_term_err!((not (and ...)) = &conclusion[0])?;
-    if !and_contents.contains(&conclusion[1]) {
-        return Err(CheckerError::TermDoesntApperInOp(
-            Operator::And,
-            conclusion[1].clone(),
-        ));
-    }
-    Ok(())
+
+    assert_eq(
+        &conclusion[1],
+        &and_contents[args[0].as_integer().unwrap().to_usize().unwrap()],
+    )
 }
 
 pub fn and_neg(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
@@ -69,18 +68,17 @@ pub fn or_pos(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
     Ok(())
 }
 
-pub fn or_neg(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {
+pub fn or_neg(RuleArgs { conclusion, args, .. }: RuleArgs) -> RuleResult {
     assert_clause_len(conclusion, 2)?;
+    assert_num_args(args, 1)?;
+
     let or_contents = match_term_err!((or ...) = &conclusion[0])?;
     let other = conclusion[1].remove_negation_err()?;
 
-    if !or_contents.contains(other) {
-        return Err(CheckerError::TermDoesntApperInOp(
-            Operator::Or,
-            other.clone(),
-        ));
-    }
-    Ok(())
+    assert_eq(
+        other,
+        &or_contents[args[0].as_integer().unwrap().to_usize().unwrap()],
+    )
 }
 
 pub fn xor_pos1(RuleArgs { conclusion, .. }: RuleArgs) -> RuleResult {

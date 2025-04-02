@@ -1,6 +1,7 @@
 use super::{
-    assert_clause_len, assert_eq, assert_is_expected, assert_num_premises, assert_operation_len,
-    assert_polyeq_expected, get_premise_term, CheckerError, EqualityError, RuleArgs, RuleResult,
+    assert_clause_len, assert_eq, assert_is_expected, assert_num_args, assert_num_premises,
+    assert_operation_len, assert_polyeq_expected, get_premise_term, CheckerError, EqualityError,
+    RuleArgs, RuleResult,
 };
 use crate::ast::*;
 use indexmap::IndexMap;
@@ -59,37 +60,33 @@ pub fn distinct_elim(RuleArgs { conclusion, pool, .. }: RuleArgs) -> RuleResult 
     }
 }
 
-pub fn and(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult {
+pub fn and(RuleArgs { conclusion, premises, args, .. }: RuleArgs) -> RuleResult {
     assert_num_premises(premises, 1)?;
+    assert_num_args(args, 1)?;
     assert_clause_len(conclusion, 1)?;
 
     let and_term = get_premise_term(&premises[0])?;
     let and_contents = match_term_err!((and ...) = and_term)?;
 
-    if !and_contents.contains(&conclusion[0]) {
-        return Err(CheckerError::TermDoesntApperInOp(
-            Operator::And,
-            conclusion[0].clone(),
-        ));
-    }
-    Ok(())
+    assert_eq(
+        &conclusion[0],
+        &and_contents[args[0].as_integer().unwrap().to_usize().unwrap()],
+    )
 }
 
-pub fn not_or(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult {
+pub fn not_or(RuleArgs { conclusion, premises, args, .. }: RuleArgs) -> RuleResult {
     assert_num_premises(premises, 1)?;
+    assert_num_args(args, 1)?;
     assert_clause_len(conclusion, 1)?;
 
     let or_term = get_premise_term(&premises[0])?;
     let or_contents = match_term_err!((not (or ...)) = or_term)?;
     let conclusion = conclusion[0].remove_negation_err()?;
 
-    if !or_contents.contains(conclusion) {
-        return Err(CheckerError::TermDoesntApperInOp(
-            Operator::Or,
-            conclusion.clone(),
-        ));
-    }
-    Ok(())
+    assert_eq(
+        conclusion,
+        &or_contents[args[0].as_integer().unwrap().to_usize().unwrap()],
+    )
 }
 
 pub fn or(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult {

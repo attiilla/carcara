@@ -1,4 +1,5 @@
 use super::*;
+use crate::external::insert_solver_proof;
 use crate::{checker, parser, CarcaraResult};
 use std::{
     io::{self, BufRead, Write},
@@ -59,14 +60,14 @@ fn get_problem_string(
 }
 
 pub fn hole(elaborator: &mut Elaborator, step: &StepNode) -> Option<Rc<ProofNode>> {
-    let prelude = if elaborator.prelude.logic.clone().unwrap() == "QF_LIA" {
+    let prelude = elaborator.problem.prelude.clone();
+    let prelude = if prelude.logic.as_deref() == Some("QF_LIA") {
         ProblemPrelude {
-            sort_declarations: elaborator.prelude.sort_declarations.clone(),
-            function_declarations: elaborator.prelude.function_declarations.clone(),
             logic: Some("QF_LIRA".into()),
+            ..prelude
         }
     } else {
-        elaborator.prelude.clone()
+        prelude
     };
     let problem = get_problem_string(elaborator.pool, &prelude, &step.clause);
     let options = elaborator.config.hole_options.as_ref().unwrap();
@@ -149,117 +150,12 @@ fn parse_and_check_solver_proof(
         expand_lets: true,
         allow_int_real_subtyping: true,
         strict: false,
+        parse_hole_args: false,
     };
-    let mut parser = parser::Parser::new(pool, config, problem)?;
-    let (_, premises) = parser.parse_problem()?;
-    parser.reset(proof)?;
-    let mut proof = parser.parse_proof()?;
-    proof.premises = premises;
+
+    let (problem, proof) = parser::parse_instance_with_pool(problem, proof, config, pool)?;
 
     let config = checker::Config::new();
-    let res = checker::ProofChecker::new(pool, config).check(&proof)?;
+    let res = checker::ProofChecker::new(pool, config).check(&problem, &proof)?;
     Ok((proof.commands, res))
-}
-
-fn increase_subproof_depth(proof: &Rc<ProofNode>, delta: usize, prefix: &str) -> Rc<ProofNode> {
-    mutate(proof, |_, node| {
-        let node = match node.as_ref().clone() {
-            ProofNode::Assume { id, depth, term } => ProofNode::Assume {
-                id: format!("{}.{}", prefix, id),
-                depth: depth + delta,
-                term,
-            },
-            ProofNode::Step(mut s) => {
-                s.id = format!("{}.{}", prefix, s.id);
-                s.depth += delta;
-                ProofNode::Step(s)
-            }
-            ProofNode::Subproof(_) => unreachable!(),
-        };
-        Rc::new(node)
-    })
-}
-
-fn insert_solver_proof(
-    pool: &mut PrimitivePool,
-    commands: Vec<ProofCommand>,
-    conclusion: &[Rc<Term>],
-    root_id: &str,
-    depth: usize,
-) -> Rc<ProofNode> {
-    let proof = ProofNode::from_commands(commands);
-
-    let mut ids = IdHelper::new(root_id);
-    let subproof_id = ids.next_id();
-
-    let mut clause: Vec<_> = conclusion
-        .iter()
-        .map(|l| build_term!(pool, (not (not {l.clone()}))))
-        .collect();
-
-    clause.push(pool.bool_false());
-
-    let proof = increase_subproof_depth(&proof, depth + 1, root_id);
-    let subproof_assumptions = proof.get_assumptions_of_depth(depth + 1);
-
-    let last_step = Rc::new(ProofNode::Step(StepNode {
-        id: subproof_id,
-        depth: depth + 1,
-        clause: clause.clone(),
-        rule: "subproof".to_owned(),
-        premises: Vec::new(),
-        args: Vec::new(),
-        discharge: subproof_assumptions,
-        previous_step: Some(proof),
-    }));
-
-    let subproof = Rc::new(ProofNode::Subproof(SubproofNode {
-        last_step,
-        args: Vec::new(),
-        // Since the subproof was inserted from the solver proof, it cannot reference anything
-        // outside of it.
-        outbound_premises: Vec::new(),
-    }));
-
-    let not_not_steps: Vec<_> = clause[..clause.len() - 1]
-        .iter()
-        .map(|term| {
-            let clause = vec![
-                build_term!(pool, (not {term.clone()})),
-                term.remove_negation()
-                    .unwrap()
-                    .remove_negation()
-                    .unwrap()
-                    .clone(),
-            ];
-            Rc::new(ProofNode::Step(StepNode {
-                id: ids.next_id(),
-                depth,
-                clause,
-                rule: "not_not".to_owned(),
-                ..Default::default()
-            }))
-        })
-        .collect();
-
-    let false_step = Rc::new(ProofNode::Step(StepNode {
-        id: ids.next_id(),
-        depth,
-        clause: vec![build_term!(pool, (not {pool.bool_false()}))],
-        rule: "false".to_owned(),
-        ..Default::default()
-    }));
-
-    let mut premises = vec![subproof];
-    premises.extend(not_not_steps);
-    premises.push(false_step);
-
-    Rc::new(ProofNode::Step(StepNode {
-        id: ids.next_id(),
-        depth,
-        clause: conclusion.to_vec(),
-        rule: "resolution".to_owned(),
-        premises,
-        ..Default::default()
-    }))
 }

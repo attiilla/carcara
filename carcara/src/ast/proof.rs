@@ -1,15 +1,8 @@
 use super::{ProofIter, Rc, SortedVar, Term};
-use crate::CheckerError;
-use indexmap::IndexSet;
 
 /// A proof in the Alethe format.
 #[derive(Debug, Default, Clone)]
 pub struct Proof {
-    /// The proof's premises.
-    ///
-    /// Those are the terms introduced in the original problem's `assert` commands.
-    pub premises: IndexSet<Rc<Term>>,
-
     /// The constants defined in the proof using `define-fun` with arity zero.
     ///
     /// This is only used to reconstruct these `define-fun`s when printing the proof.
@@ -52,21 +45,11 @@ pub struct ProofStep {
     pub premises: Vec<(usize, usize)>,
 
     /// The step arguments, given via the `:args` attribute.
-    pub args: Vec<ProofArg>,
+    pub args: Vec<Rc<Term>>,
 
     /// The local premises that this step discharges, given via the `:discharge` attribute, and
     /// indexed similarly to premises.
     pub discharge: Vec<(usize, usize)>,
-}
-
-/// An argument for a `step` command.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ProofArg {
-    /// An argument that is just a term.
-    Term(Rc<Term>),
-
-    /// An argument of the form `(:= <symbol> <term>)`.
-    Assign(String, Rc<Term>),
 }
 
 /// A subproof.
@@ -134,10 +117,10 @@ impl ProofCommand {
     ///
     /// For subproofs, this is the args of the last step in the subproof.
     /// For assumes, return reference to an empty vector
-    pub fn args(&self) -> &Vec<ProofArg> {
+    pub fn args(&self) -> &Vec<Rc<Term>> {
         match self {
             ProofCommand::Assume { .. } => {
-                static NO_ARGS: Vec<ProofArg> = Vec::new();
+                static NO_ARGS: Vec<Rc<Term>> = Vec::new();
                 &NO_ARGS
             }
             ProofCommand::Step(s) => &s.args,
@@ -171,26 +154,6 @@ impl ProofCommand {
     /// Returns `true` if the command is a subproof.
     pub fn is_subproof(&self) -> bool {
         matches!(self, ProofCommand::Subproof(_))
-    }
-}
-
-impl ProofArg {
-    /// If this argument is a "term style" argument, extracts that term from it. Otherwise, returns
-    /// an error.
-    pub fn as_term(&self) -> Result<&Rc<Term>, CheckerError> {
-        match self {
-            ProofArg::Term(t) => Ok(t),
-            ProofArg::Assign(s, t) => Err(CheckerError::ExpectedTermStyleArg(s.clone(), t.clone())),
-        }
-    }
-
-    /// If this argument is an "assign style" argument, extracts the variable name and the value
-    /// term from it. Otherwise, returns an error.
-    pub fn as_assign(&self) -> Result<(&String, &Rc<Term>), CheckerError> {
-        match self {
-            ProofArg::Assign(s, t) => Ok((s, t)),
-            ProofArg::Term(t) => Err(CheckerError::ExpectedAssignStyleArg(t.clone())),
-        }
     }
 }
 

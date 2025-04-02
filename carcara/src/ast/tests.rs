@@ -1,5 +1,5 @@
 use crate::{
-    ast::{node::ProofNode, pool::PrimitivePool, Polyeq, PolyeqComparator, TermPool},
+    ast::{node::ProofNode, pool::PrimitivePool, Polyeq, TermPool},
     parser::tests::parse_terms,
 };
 use indexmap::IndexSet;
@@ -49,14 +49,11 @@ fn test_polyeq() {
         for (i, (a, b)) in cases.iter().enumerate() {
             let [a, b] = parse_terms(&mut pool, definitions, [a, b]);
             let mut comp = match test_type {
-                TestType::ModReordering => PolyeqComparator::new(true, false, false),
-                TestType::AlphaEquiv => PolyeqComparator::new(true, true, false),
-                TestType::ModNary => PolyeqComparator::new(false, false, true),
+                TestType::ModReordering => Polyeq::new().mod_reordering(true),
+                TestType::AlphaEquiv => Polyeq::new().mod_reordering(true).alpha_equiv(true),
+                TestType::ModNary => Polyeq::new().mod_nary(true),
             };
-            assert!(
-                Polyeq::eq(&mut comp, &a, &b),
-                "test case #{i} failed: `{a}` != `{b}`"
-            );
+            assert!(comp.eq(&a, &b), "test case #{i} failed: `{a}` != `{b}`");
         }
     }
     let definitions = "
@@ -101,8 +98,8 @@ fn test_polyeq() {
                 "(choice ((a Int)) (forall ((b Int)) (exists ((c Int)) (= a b c))))",
             ),
             (
-                "(let ((x 0) (y (+ x 2)) (z (< x y))) (and z (= x y)))",
-                "(let ((z 0) (x (+ z 2)) (y (< z x))) (and y (= z x)))",
+                "(let ((x 0)) (let ((y (+ x 2))) (let ((z (< x y))) (and z (= x y)))))",
+                "(let ((z 0)) (let ((x (+ z 2))) (let ((y (< z x))) (and y (= z x)))))",
             ),
         ],
         TestType::AlphaEquiv,

@@ -57,8 +57,38 @@ pub fn weakening(RuleArgs { conclusion, premises, .. }: RuleArgs) -> RuleResult 
     assert_num_premises(premises, 1)?;
     let premise = premises[0].clause;
     assert_clause_len(conclusion, premise.len()..)?;
-    for (t, u) in premise.iter().zip(conclusion) {
-        assert_eq(t, u)?;
+
+    let premise_set: IndexSet<_> = premise.iter().collect();
+    let conclusion_set: IndexSet<_> = conclusion.iter().collect();
+    if premise_set.is_subset(&conclusion_set) {
+        Ok(())
+    } else {
+        Err(CheckerError::Explanation(
+            "Premise is not a subset of conclusion".to_string(),
+        ))
+    }
+}
+
+pub fn and_intro(RuleArgs { conclusion, premises, pool, .. }: RuleArgs) -> RuleResult {
+    assert_clause_len(conclusion, 1)?;
+    let and_contents = match_term_err!((and ...) = &conclusion[0])?;
+    assert_num_premises(premises, and_contents.len())?;
+
+    // for the rule to be correct, each element of `and_contents` must
+    // be the conclusion of a premise, in the right order. If a
+    // premise has a non-unit conclusion, it must correspond to an OR
+    // term in `and_contents`
+    for i in 0..and_contents.len() {
+        let and_arg = &and_contents[i];
+        match &premises[i].clause[..] {
+            [term] => {
+                assert_eq(and_arg, term)?;
+            }
+            _ => {
+                let premise_as_or = pool.add(Term::Op(Operator::Or, premises[i].clause.to_vec()));
+                assert_eq(and_arg, &premise_as_or)?;
+            }
+        };
     }
     Ok(())
 }
@@ -301,11 +331,11 @@ mod tests {
 
                 "(step t1 (cl) :rule hole)
                 (step t2 (cl a b) :rule weakening :premises (t1))": true,
+
+                "(step t1 (cl a b) :rule hole)
+                (step t2 (cl a c b) :rule weakening :premises (t1))": true,
             }
             "Failing examples" {
-                "(step t1 (cl a b) :rule hole)
-                (step t2 (cl a c b) :rule weakening :premises (t1))": false,
-
                 "(step t1 (cl a b c) :rule hole)
                 (step t2 (cl a b) :rule weakening :premises (t1))": false,
             }

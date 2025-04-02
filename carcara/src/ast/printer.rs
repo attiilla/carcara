@@ -50,6 +50,25 @@ pub fn write_lia_smt_instance(
     printer.write_lia_smt_instance(clause)
 }
 
+/// Given a set of assertions and a prelude, write them as an SMT problem instance to `dest`.
+pub fn _write_smt_instance(
+    pool: &mut PrimitivePool,
+    prelude: &ProblemPrelude,
+    dest: &mut dyn io::Write,
+    assertions: &[Rc<Term>],
+    use_sharing: bool,
+) -> io::Result<()> {
+    let mut printer = AlethePrinter::new(pool, prelude, use_sharing, dest);
+    // We have to override the default prefix "@p_" because symbols starting with "@" are reserved
+    // in SMT-LIB.
+    printer.term_sharing_variable_prefix = "p_";
+    // Since we are printing an SMT-LIB problem, we have to be
+    // compliant. For Carcara, this means that arithmetic constants
+    // cannot use the GMP notation
+    printer.smt_lib_strict = true;
+    printer._write_assertions(assertions)
+}
+
 trait PrintProof {
     fn write_proof(&mut self, proof: &Proof) -> io::Result<()>;
 }
@@ -319,6 +338,13 @@ impl<'a> AlethePrinter<'a> {
                 term.print_with_sharing(self)?;
                 write!(self.inner, ")")
             }
+            Term::Match(term, patterns) => {
+                write!(self.inner, "(match {} (", term)?;
+                for (_, pattern, res) in patterns {
+                    write!(self.inner, "({} {})", pattern, res)?;
+                }
+                write!(self.inner, ")")
+            }
             Term::ParamOp { op, op_args, args } => {
                 if !args.is_empty() {
                     write!(self.inner, "(")?;
@@ -356,10 +382,10 @@ impl<'a> AlethePrinter<'a> {
 
         if let [head, tail @ ..] = step.args.as_slice() {
             write!(self.inner, " :args (")?;
-            self.write_proof_arg(head)?;
+            head.print_with_sharing(self)?;
             for arg in tail {
                 write!(self.inner, " ")?;
-                self.write_proof_arg(arg)?;
+                arg.print_with_sharing(self)?;
             }
             write!(self.inner, ")")?;
         }
@@ -378,22 +404,20 @@ impl<'a> AlethePrinter<'a> {
         Ok(())
     }
 
-    fn write_proof_arg(&mut self, arg: &ProofArg) -> io::Result<()> {
-        match arg {
-            ProofArg::Term(t) => t.print_with_sharing(self),
-            ProofArg::Assign(name, value) => {
-                write!(self.inner, "(:= {} ", name)?;
-                value.print_with_sharing(self)?;
-                write!(self.inner, ")")
-            }
-        }
-    }
-
     fn write_lia_smt_instance(&mut self, clause: &[Rc<Term>]) -> io::Result<()> {
         for term in clause.iter().dedup() {
             write!(self.inner, "(assert (not ")?;
             term.print_with_sharing(self)?;
             writeln!(self.inner, "))")?;
+        }
+        Ok(())
+    }
+
+    fn _write_assertions(&mut self, assertions: &[Rc<Term>]) -> io::Result<()> {
+        for assertion in assertions.iter().dedup() {
+            write!(self.inner, "(assert ")?;
+            assertion.print_with_sharing(self)?;
+            writeln!(self.inner, ")")?;
         }
         Ok(())
     }
@@ -531,6 +555,12 @@ impl fmt::Display for Sort {
             Sort::Real => write!(f, "Real"),
             Sort::String => write!(f, "String"),
             Sort::RegLan => write!(f, "RegLan"),
+            Sort::Datatype(name, args) => write_s_expr(f, quote_symbol(name), args),
+            Sort::Var(name) => write!(f, "{}", name),
+            Sort::ParamSort(args, s) => {
+                let par = format!("(par {:?} {})", args, s);
+                write!(f, "{}", par)
+            }
             Sort::Array(x, y) => write_s_expr(f, "Array", &[x, y]),
             Sort::BitVec(w) => write!(f, "(_ BitVec {})", w),
             Sort::RareList => unreachable!("RARE list sort should never be displayed"),
@@ -613,11 +643,11 @@ mod tests {
             (step t6.t1 (cl (= (+ x 2) (+ x 2))) :rule hole)\n\
             (step t6 (cl) :rule hole)\n\
         ";
-        let (prelude, proof, mut pool) =
+        let (problem, proof, mut pool) =
             parser::parse_instance(definitions, proof, parser::Config::new()).unwrap();
 
         let mut buf = Vec::new();
-        AlethePrinter::new(&mut pool, &prelude, true, &mut buf)
+        AlethePrinter::new(&mut pool, &problem.prelude, true, &mut buf)
             .write_proof(&proof)
             .unwrap();
 
