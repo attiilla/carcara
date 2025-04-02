@@ -5,7 +5,7 @@
 mod tracker;
 mod disjoints;
 mod error;
-use crate::ast::term::Term;
+use crate::ast::term::{Term, Operator};
 use crate::ast::rc::Rc;
 use crate::checker::rules::Premise;
 use crate::compressor::error::*;
@@ -75,8 +75,8 @@ impl<'a> ProofCompressor{
                             "onepoint".to_owned()
                         ].into_iter().collect::<HashSet<_>>(),
             preserving_binder:  vec![
-                                    "contraction".to_owned(),
-                                    "reordering".to_owned()
+                                    "contraction".to_owned()/* ,
+                                    "reordering".to_owned()*/
                                 ].into_iter().collect::<HashSet<_>>(),
             subproofs: Vec::new(),
             fixed: HashMap::new(),
@@ -105,12 +105,22 @@ impl<'a> ProofCompressor{
         // break the proof in parts that has only resolution and preserving binders
         // collect units
         let mut pt: PartTracker = self.collect_units(sub_adrs, proof_pool);
-        
+        /*if sub_adrs.is_none(){
+            println!("Before fix");
+            self.print_part(&pt.parts[1]);
+        }*/
         // turn every part of a proof in a valid reasoning
         self.fix_broken_proof(&mut pt, sub_adrs, proof_pool);
-        
+        /*if sub_adrs.is_none(){
+            println!("After fix");
+            self.print_part(&pt.parts[1]);
+        }*/
         // reinsert the collected units to each part
         self.reinsert_collected_clauses(&mut pt, sub_adrs, proof_pool);
+        /*if sub_adrs.is_none(){
+            println!("After reinsert");
+            self.print_part(&pt.parts[1]);
+        }*/
         
         // combines the parts to create a valid proof
         let new_commands: Vec<ProofCommand> = self.rebuild(&mut pt, sub_adrs);
@@ -130,9 +140,8 @@ impl<'a> ProofCompressor{
         if sub_adrs.is_none(){
             self.relocate_subproofs(sub_adrs);
         }
-        println!("Não ajudo.");
         println!("Proof:");
-        println!("Fixed {:?}",&self.fixed);
+        println!("Fixed: {:?}",&self.fixed);
         println!("Outer: {:?}",&self.outer);
         for (i, mt_sp) in self.subproofs.iter().enumerate(){
             println!("Meta {:?}:",i);
@@ -380,11 +389,10 @@ impl<'a> ProofCompressor{
                             pt.clone_data_to_part((depth,i), containing_part, commands);
 
                             // Check if this step must be collected in this part
-                            let req: usize = if self.is_premise_of_part_conclusion(containing_part, (depth,i), &pt){
-                                3
-                            }else{
-                                2
-                            };
+                            // The step have to be used as premise 2 times to nodes that are not the conclusion
+                            // So, if it is premise to the conclusion it has to be premise 3 times
+                            let req: usize = 
+                                if self.is_premise_of_part_conclusion(containing_part, (depth,i), &pt){ 3 }else{ 2 };
                             if pt.counting_in_part((depth,i), containing_part)>=req && self.get_clause_len((depth,i), sub_adrs)==1{
                                 pt.add_to_units_queue_of_part((depth,i),containing_part, position, &self.subproofs, proof_pool);
                             }
@@ -642,7 +650,9 @@ impl<'a> ProofCompressor{
                 for clause in &to_recompute{
                     if self.get_rule(clause.index, sub_adrs)=="contraction"{
                         self.re_contract(p, clause.location, sub_adrs, &global_to_local); //WARNING maybe add proof pool
-                    }
+                    }/* else if self.get_rule(clause.index, sub_adrs)=="reordering"{
+                        self.re_reorder(p, clause.location, sub_adrs, &global_to_local)
+                    }*/
                     else if clause.substitute{
                         p.substitute(clause.index, p.remaining_premises(&self.subproofs, clause.location)[0]);
                     } else {
@@ -749,7 +759,6 @@ impl<'a> ProofCompressor{
                             let mut ps_temp = ps.clone();
                             ps_temp.clause = self.command_clause(local_step).to_vec();
                             new_comm = ProofCommand::Step(ps_temp);
-                            //println!("{:?}",&new_comm);
                         }
                         ProofCommand::Subproof(sp_ph) => {//Warning: subproof as last step of a part
                                                                     //Should probably be dead code as subproofs introduce new premises
@@ -773,7 +782,7 @@ impl<'a> ProofCompressor{
                     args.push(lit.clone());
                     args.push(polarity.clone());
                 }
-                //println!("Premises {:?}", &premises);
+                //self.enforce_resolution_compatibility(&mut premises, &mut args, proof_pool);
                 let resolution: Result<IndexSet<(u32, &Rc<Term>)>, CheckerError> = apply_generic_resolution::<IndexSet<_>>(&premises, &args, proof_pool);
                 match resolution{
                     Ok(v)=>{
@@ -1476,6 +1485,47 @@ impl<'a> ProofCompressor{
             }
         }
     }
+
+    /*fn enforce_resolution_compatibility(&self, mut premises: &mut Vec<Premise<'_>>, mut args: &mut Vec<Rc<Term>>, pool: &mut PrimitivePool){
+        let mut aux: usize = 1;
+        let mut redundant: Vec<usize> = Vec::new();
+        for arg in args.chunks(2){
+            let term: &Rc<Term> = &arg[0];
+            let polarity: &Rc<Term> = &arg[1];
+            if Term::Op(Operator::True, Vec::new()) == (**polarity).clone(){ //look for term
+                if !premises[0].clause.contains(term){
+                    redundant.push(aux)
+                }
+            } else { //look for not term
+                let unwr_term = (**term).clone();
+                let mut found = false;
+                for cl in premises[0].clause{
+                    match cl.remove_negation(){
+                        None => (),
+                        Some(t) => {
+                            if &((**t).clone())==&unwr_term{
+                                found = true;
+                            }
+                        }
+                    }
+                }
+                if !found{
+                    redundant.push(aux);
+                }
+            }
+            aux+=1;
+        }
+        premises = premises.iter()
+            .enumerate()
+            .filter(|(i, _)| !redundant.contains(i))
+            .map(|(_, &val)| val)
+            .collect();
+
+        args = args.iter()
+            .enumerate()
+            .filter(|(i, _)|)
+
+    }*/
     //fn map_to_new_loc(&self, outer_step: OuterPremiseAdrs) -> usize{}
 }
 
