@@ -1,11 +1,11 @@
 /target
 /benchmarks
-/sample
+sample/*
+!sample/fails
 scripts/*
 !scripts/generate_proofs.sh
 !scripts/check_folder.sh
 !scripts/filter_unknowns.sh
-/fetch.sh
 /debug.sh
 /resolve.sh
 /.vscode/launch.json

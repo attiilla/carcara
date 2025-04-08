@@ -2,6 +2,7 @@
 //Only steps that are resolution and are premise of another resolution are compressed by lower units
 //benchmarks/small/SH_problems_all_filtered/Green_veriT/x2020_07_28_19_01_13_405_7253502.smt2 rodando ~/carcara/wt-atila/target/release/carcara check -i --allow-int-real-subtyping --expand-let-bindings test.alethe x2020_07_28_19_01_13_405_7253502.smt2
 //Uncontracted resolution with two pivots in one premise
+//build_term!(pool, (not { term }))
 mod tracker;
 mod disjoints;
 mod error;
@@ -783,7 +784,8 @@ impl<'a> ProofCompressor{
                     args.push(polarity.clone());
                 }
                 //self.enforce_resolution_compatibility(&mut premises, &mut args, proof_pool);
-                let resolution: Result<IndexSet<(u32, &Rc<Term>)>, CheckerError> = apply_generic_resolution::<IndexSet<_>>(&premises, &args, proof_pool);
+                let resolution: Result<IndexSet<(u32, &Rc<Term>)>, CheckerError> = resolve_when_possible(&premises, &args, proof_pool)?;
+                //let resolution: Result<IndexSet<(u32, &Rc<Term>)>, CheckerError> = apply_generic_resolution::<IndexSet<_>>(&premises, &args, proof_pool);
                 match resolution{
                     Ok(v)=>{
                         let mut conclusion_prem = vec![];
@@ -1484,6 +1486,43 @@ impl<'a> ProofCompressor{
                 }
             }
         }
+    }
+
+    fn resolve_when_possible(
+        &self, 
+        premises: &mut Vec<Premise<'_>>, 
+        mut args: &mut Vec<Rc<Term>>, 
+        pool: &mut PrimitivePool
+    ) -> Result<IndexSet<(u32, &Rc<Term>)>, CheckerError>{
+        let num_steps = premises.len() - 1;
+        let args: Vec<_> = args
+        .chunks(2)
+        .map(|chunk| {
+            let pivot = chunk[0].remove_all_negations();
+            let polarity = chunk[1].clone();
+            let polarity = if polarity.is_bool_true() {
+                true
+            } else if polarity.is_bool_false() {
+                false
+            } else {
+                return Err(CheckerError::ExpectedAnyBoolConstant(polarity.clone()));
+            };
+            Ok((pivot, polarity))
+        })
+        .collect::<Result<_, _>>()?;
+
+        let mut current:IndexSet<(u32, &Rc<Term>)>  = premises[0]
+        .clause
+        .iter()
+        .map(Rc::remove_all_negations)
+        .collect();
+        for (premise, (pivot, polarity)) in premises[1..].iter().zip(args) {
+            if Self::pivot_will_be_used(premise, pivot){
+                binary_resolution(pool, &mut current, premise.clause, pivot, polarity)?;
+            }
+        }
+        Ok(current)
+        //Err(CheckerError::DivOrModByZero)
     }
 
     /*fn enforce_resolution_compatibility(&self, mut premises: &mut Vec<Premise<'_>>, mut args: &mut Vec<Rc<Term>>, pool: &mut PrimitivePool){
