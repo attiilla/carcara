@@ -179,7 +179,7 @@ pub fn apply_generic_resolution<'a, C: ClauseCollection<'a>>(
     Ok(current)
 }
 
-fn binary_resolution<'a, C: ClauseCollection<'a>>(
+pub fn binary_resolution<'a, C: ClauseCollection<'a>>(
     pool: &mut dyn TermPool,
     current: &mut C,
     next: &'a [Rc<Term>],
