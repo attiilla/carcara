@@ -85,11 +85,17 @@ impl<'a> ProofCompressor{
         }
     }
 
-    pub fn compress_proof(mut self, proof_pool: &mut PrimitivePool) -> Proof{
+    pub fn compress_proof(mut self, verbose: bool, proof_pool: &mut PrimitivePool) -> Proof{
         env::set_var("RUST_BACKTRACE", "1");
+
         //print_proof(&self.proof.commands, "".to_string(), 0, 0);
-        //println!("carimbada");
-        let _ = &mut self.lower_units(None,  proof_pool);
+        if verbose{
+            let _ = &mut self.lower_units_verbose(None,  proof_pool);
+        } else {
+            let _ = &mut self.lower_units(None,  proof_pool);
+        }
+        
+
         // remove the placeholders and insert the subproofs again in the final proof
         self.reassemble();
         //print_proof(&self.proof.commands, "".to_string(), 0, 0);
@@ -173,6 +179,7 @@ impl<'a> ProofCompressor{
         // reinsert the collected units to each part
         self.reinsert_collected_clauses(&mut pt, sub_adrs, proof_pool);
         for p in &pt.parts{
+            self.print_part(p);
             println!("New conclusion part {:?}: {:?}", &p.ind, &p.new_conclusion);
         }
 
@@ -180,7 +187,7 @@ impl<'a> ProofCompressor{
         // combines the parts to create a valid proof
         let new_commands: Vec<ProofCommand> = self.rebuild(&mut pt, sub_adrs);
         //println!("New commands {:?}", &new_commands);
-        println!("Socorro Naldo!!!!");
+        //println!("Socorro Naldo!!!!");
         print_proof(&new_commands, "".to_string(), 0, 0);
         self.position_insert(new_commands, sub_adrs);
         
@@ -662,7 +669,7 @@ impl<'a> ProofCompressor{
                         println!("clause {:?}",&clause);*/
                         let (new_clause, 
                             new_premises, 
-                            new_args
+                            _new_args
                         )  = self.re_resolve(
                                 p, 
                                 clause.location, 
@@ -673,7 +680,7 @@ impl<'a> ProofCompressor{
                         match &mut p.part_commands[clause.location]{
                             ProofCommand::Assume { .. } => panic!("Assumes don't have args nor premises"),
                             ProofCommand::Step(ps) => {
-                                ps.args = new_args;
+                                ps.args = vec![];
                                 ps.premises = new_premises;
                                 ps.clause = new_clause;
                             },
@@ -1475,14 +1482,14 @@ impl<'a> ProofCompressor{
         println!("Part {:?}", part.ind);
         for (i, com) in part.part_commands.iter().enumerate(){
             match com{
-                ProofCommand::Assume { id, term } => println!("{:?} - Assume {:?}: {:?}; {:?}",i,id,term,part.original_index[i]),
+                ProofCommand::Assume { id, term } => println!("{:?}; {:?} - Assume {:?}: {:?}",i,part.original_index[i],id,term),
                 ProofCommand::Step(ps) => 
-                println!("{:?} - Step {:?} {:?}: {:?}; prem: {:?}; arg: {:?}; {:?}",i,&ps.id,&ps.rule,&ps.clause,&ps.premises, &ps.args, part.original_index[i]),
+                println!("{:?}; {:?} - Step {:?} {:?}: {:?}; prem: {:?}; arg: {:?}", i, part.original_index[i], &ps.id,&ps.rule,&ps.clause,&ps.premises, &ps.args),
                 ProofCommand::Subproof(sp_ph) => {
                     let sp = self.access_subproof(&sp_ph);
                     match sp.commands.last(){
                         None => panic!("empty"),
-                        Some(ProofCommand::Step(ps)) => println!("{:?} - Sub {:?} {:?}: {:?}; prem: {:?}; disc: {:?}; {:?}",i,&ps.id,&ps.rule,&ps.clause,&ps.premises, &ps.discharge, part.original_index[i]),
+                        Some(ProofCommand::Step(ps)) => println!("{:?}; {:?} - Sub {:?} {:?}: {:?}; prem: {:?}; disc: {:?}", i, part.original_index[i], &ps.id,&ps.rule,&ps.clause,&ps.premises, &ps.discharge),
                         _ => panic!("Not a proofstep")
                     };
                 }

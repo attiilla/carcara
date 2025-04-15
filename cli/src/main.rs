@@ -230,6 +230,15 @@ impl From<CheckingOptions> for checker::Config {
     }
 }
 
+#[derive(Args, Clone)]
+struct CompressOptions {
+    /// Print details of compression when used
+    /// Debug purpose only
+
+    #[clap(long)]
+    verbose: bool
+}
+
 #[derive(ArgEnum, Clone)]
 enum ElaborationStep {
     Polyeq,
@@ -442,6 +451,12 @@ struct CompressCommandOptions {
 
     #[clap(flatten)]
     elaboration: ElaborationOptions,
+
+    #[clap(flatten)]
+    checking: CheckingOptions,
+
+    #[clap(flatten)]
+    compress: CompressOptions,
 }
 
 #[derive(Args)]
@@ -722,6 +737,7 @@ fn compress_command(
     compress(
         problem,
         proof,
+        options.compress.verbose,
         options.parsing.into(),
     )
     .map_err(CliError::CarcaraError)
