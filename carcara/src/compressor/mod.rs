@@ -6,7 +6,7 @@
 mod tracker;
 mod disjoints;
 mod error;
-use crate::ast::term::{Term, Operator};
+use crate::ast::term::Term;
 use crate::ast::rc::Rc;
 use crate::checker::rules::Premise;
 use crate::compressor::error::*;
@@ -17,7 +17,7 @@ use std::collections::{HashSet, HashMap};
 use std::{mem, vec};
 //use std::ops::Index;
 //use crate::checker::rules::Premise;
-use crate::checker::rules::resolution::{apply_generic_resolution, unremove_all_negations};
+use crate::checker::rules::resolution::{apply_generic_resolution, binary_resolution, unremove_all_negations};
 use crate::checker::error::CheckerError;
 use disjoints::*;
 use indexmap::IndexSet;
@@ -784,20 +784,22 @@ impl<'a> ProofCompressor{
                     args.push(polarity.clone());
                 }
                 //self.enforce_resolution_compatibility(&mut premises, &mut args, proof_pool);
-                let resolution: Result<IndexSet<(u32, &Rc<Term>)>, CheckerError> = resolve_when_possible(&premises, &args, proof_pool)?;
+                let resolution: Result<(IndexSet<(u32, &Rc<Term>)>, Vec<usize>), CheckerError> = Self::resolve_when_possible(&premises, &args, proof_pool);
                 //let resolution: Result<IndexSet<(u32, &Rc<Term>)>, CheckerError> = apply_generic_resolution::<IndexSet<_>>(&premises, &args, proof_pool);
                 match resolution{
-                    Ok(v)=>{
+                    Ok((v, useless))=>{
                         let mut conclusion_prem = vec![];
-                        for pr in &premises{
-                            conclusion_prem.push(pr.index);
+                        for (i, pr) in premises.iter().enumerate(){
+                            if !useless.contains(&i){
+                                conclusion_prem.push(pr.index);
+                            }
                         }
                         let new_conclusion = ProofCommand::Step(ProofStep{
                             premises: conclusion_prem,
                             id: format!("n{:?}",p.ind),
                             clause: v.into_iter().map(|x| unremove_all_negations(proof_pool,x)).collect(),
                             rule: String::from("resolution"),
-                            args,
+                            args: vec![],
                             discharge: vec![],
                         });
                         conclusions.push((p.ind,new_conclusion));
@@ -1264,7 +1266,7 @@ impl<'a> ProofCompressor{
                 Ok(r) => {
                     let resolvent: Vec<Rc<Term>> = r.into_iter().map(|x| unremove_all_negations(proof_pool,x)).collect();
                     let formatted_premises = premises.iter().map(|x| x.index).collect();
-                    (resolvent, formatted_premises, args)
+                    (resolvent, formatted_premises, vec![])
                 }
                 _ => panic!("Error: Clauses couldn't be resolved\n
                         Resolving for {:?} on part {:?}\n
@@ -1488,12 +1490,25 @@ impl<'a> ProofCompressor{
         }
     }
 
-    fn resolve_when_possible(
-        &self, 
-        premises: &mut Vec<Premise<'_>>, 
-        mut args: &mut Vec<Rc<Term>>, 
+    /*fn pivot_will_be_used(premise: &Premise, pivot: (u32, &Rc<Term>), polarity: bool) -> bool{
+        let mut found = false;
+        let term = literal_to_term()
+        if polarity {
+            for cl in premise.clause.iter(){
+                if cl.remove_all_negations().0 == *pivot{
+                    found = true;
+                }
+            }
+        }
+        
+        found
+    }*/
+
+    fn resolve_when_possible( 
+        premises: &Vec<Premise<'a>>, 
+        mut args: &'a Vec<Rc<Term>>, 
         pool: &mut PrimitivePool
-    ) -> Result<IndexSet<(u32, &Rc<Term>)>, CheckerError>{
+    ) -> Result<(IndexSet<(u32, &'a Rc<Term>)>,Vec<usize>), CheckerError>{
         let num_steps = premises.len() - 1;
         let args: Vec<_> = args
         .chunks(2)
@@ -1510,18 +1525,22 @@ impl<'a> ProofCompressor{
             Ok((pivot, polarity))
         })
         .collect::<Result<_, _>>()?;
-
+        let mut useless_premise: Vec<usize> = vec![];
         let mut current:IndexSet<(u32, &Rc<Term>)>  = premises[0]
         .clause
         .iter()
         .map(Rc::remove_all_negations)
         .collect();
-        for (premise, (pivot, polarity)) in premises[1..].iter().zip(args) {
-            if Self::pivot_will_be_used(premise, pivot){
-                binary_resolution(pool, &mut current, premise.clause, pivot, polarity)?;
-            }
+        for (i, (premise, (pivot, polarity))) in premises[1..].iter().zip(args).enumerate() {
+            let result = binary_resolution(pool, &mut current, premise.clause, pivot, polarity);
+            match result {
+                Err(_) => {
+                    useless_premise.push(i+1);
+                }
+                Ok(()) => ()
+            };
         }
-        Ok(current)
+        Ok((current, useless_premise))
         //Err(CheckerError::DivOrModByZero)
     }
 
