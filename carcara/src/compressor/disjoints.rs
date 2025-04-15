@@ -185,14 +185,14 @@ impl<'a> DisjointPart {
         &'a self,
         substituted: &'a ProofCommand,
         old_index: (usize, usize),
-    ) -> &'a ProofCommand {
+    ) -> (&'a ProofCommand,(usize, usize)) {
         match self.subs_table.get(&old_index) {
-            None => substituted,
+            None => (substituted,old_index),
             Some(substitute_ind) => {
                 let position = *self.inv_ind.get(substitute_ind).unwrap_or_else(|| {
                     panic!("The step {:?} is not in the inverted index", substitute_ind)
                 });
-                &self.part_commands[position]
+                (&self.part_commands[position],*substitute_ind)
             }
         }
     }

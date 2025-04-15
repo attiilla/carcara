@@ -708,16 +708,16 @@ impl<'a> ProofCompressor{
             if p.compressible && !queue.is_empty(){
                 let queue_local = &p.queue_local;
                 let args_queue = &p.args_queue;
-                let mut args: Vec<Rc<Term>> = Vec::new();
                 let mut premises: Vec<Premise<'_>>=  Vec::new();
-                
+                let mut args: Vec<Rc<Term>> = Vec::new();
                 // The part was constructed traversing the proof bottom-up
                 // So the 0-th position contains the "root"
                 let mut first: &ProofCommand = &p.part_commands[0];
-                let location: (usize, usize) = p.original_index[0];
+                let mut location: (usize, usize) = p.original_index[0];
                 // Verifies if the conclusion was substituted
-                first = p.get_substitute(first, location);
-                // Builds and saves in command the data that will be used on resolution
+                (first, location) = p.get_substitute(first, location);
+                
+                
                 let command: ProofCommand;
                 match &cache[depth][location.1]{
                     ProofCommand::Assume { id, .. } => 
@@ -741,6 +741,15 @@ impl<'a> ProofCompressor{
                         }
                     }
                 }
+                
+                /*if let ProofCommand::Step(ps) = &cache[depth][location]{
+                    let mut args: Vec<Rc<Term>> = ps.args.clone();
+                    for pr in ps.premises{
+                        let location = self.get_new_index_of_outer_premise(sub_adrs, pr);
+                    }
+                } else {
+                    panic!("The conclusion of a compressible part should not be an assume nor a subproof.")
+                }*/
                 premises.push(Premise::new(location,&command));
                 let mut new_commands: Vec<((usize,usize),ProofCommand)> = Vec::new();
                 for (i, location) in queue.iter().enumerate(){
@@ -748,7 +757,7 @@ impl<'a> ProofCompressor{
                     let location: (usize, usize) = self.get_new_index_of_outer_premise(sub_adrs, *old_location).unwrap();
                     let local_ind = queue_local[i];
                     let mut local_step = &p.part_commands[local_ind];
-                    local_step = p.get_substitute(local_step, location);
+                    (local_step,_) = p.get_substitute(local_step, location);
                     let new_comm: ProofCommand;
                     let command_depth: usize = location.0;
                     if cache[command_depth].is_empty(){
