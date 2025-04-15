@@ -27,25 +27,7 @@ process_file() {
         echo "Failed on checking the compressed proof ${base_name}.Calethe"
         return 3
     fi
-
     
-    
-    # Calculate difference
-    #diff=$((compressed_lines - original_lines))
-    
-    # Update counters based on difference (using global variables)
-    #if [ $diff -gt 0 ]; then
-    #    ((positive_diff++))
-    #    diff_status="+${diff}"
-    #elif [ $diff -lt 0 ]; then
-    #    ((negative_diff++))
-    #    diff_status="${diff}"
-    #else
-    #    ((zero_diff++))
-    #    diff_status="0"
-    #fi
-    
-    #echo "$alethe_file - $output - Line difference: $diff_status"
     return 0
 }
 
@@ -80,7 +62,7 @@ while IFS= read -r -d '' alethe_file; do
                 # Count lines in both files
                 original_lines=$(wc -l < "$alethe_file")
                 compressed_lines=$(wc -l < "$compressed_file")
-                echo "Contagem"
+                echo "Counting"
                 echo "$alethe_file: $original_lines"
                 echo "$compressed_file: $compressed_lines"
                 difference=$((original_lines - compressed_lines))
