@@ -693,7 +693,7 @@ impl<'a> ProofCompressor{
     }
 
 
-    /*fn reinsert_collected_clauses(&self, pt: &mut PartTracker, sub_adrs: Option<usize>, proof_pool: &mut PrimitivePool){
+    fn reinsert_collected_clauses(&self, pt: &mut PartTracker, sub_adrs: Option<usize>, proof_pool: &mut PrimitivePool){
         let depth = match sub_adrs{
             Some(v) => self.subproofs[v].depth,
             None => 0,
@@ -830,9 +830,10 @@ impl<'a> ProofCompressor{
             pt.parts[ind].new_conclusion = Some(conc);
             pt.parts[ind].compressed = true;
         }
-    }*/
+    }
+    
 
-    fn reinsert_collected_clauses(&self, pt: &mut PartTracker, sub_adrs: Option<usize>, proof_pool: &mut PrimitivePool){
+    /*fn reinsert_collected_clauses(&self, pt: &mut PartTracker, sub_adrs: Option<usize>, proof_pool: &mut PrimitivePool){
         let depth = match sub_adrs{
             Some(v) => self.subproofs[v].depth,
             None => 0,
@@ -972,7 +973,7 @@ impl<'a> ProofCompressor{
             pt.parts[ind].compressed = true;
         }
     }
-
+*/
     fn rebuild(&mut self, pt: &mut PartTracker, sub_adrs: Option<usize>) -> Vec<ProofCommand>{
         let depth: usize = match sub_adrs {
             None => 0,
