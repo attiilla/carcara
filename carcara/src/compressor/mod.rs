@@ -693,7 +693,7 @@ impl<'a> ProofCompressor{
     }
 
 
-    fn reinsert_collected_clauses(&self, pt: &mut PartTracker, sub_adrs: Option<usize>, proof_pool: &mut PrimitivePool){
+    /*fn reinsert_collected_clauses(&self, pt: &mut PartTracker, sub_adrs: Option<usize>, proof_pool: &mut PrimitivePool){
         let depth = match sub_adrs{
             Some(v) => self.subproofs[v].depth,
             None => 0,
@@ -828,6 +828,147 @@ impl<'a> ProofCompressor{
         }
         for (ind,conc) in conclusions{
             pt.parts[ind].new_conclusion = Some(conc);
+            pt.parts[ind].compressed = true;
+        }
+    }*/
+
+    fn reinsert_collected_clauses(&self, pt: &mut PartTracker, sub_adrs: Option<usize>, proof_pool: &mut PrimitivePool){
+        let depth = match sub_adrs{
+            Some(v) => self.subproofs[v].depth,
+            None => 0,
+        };
+        let void_proof: Vec<ProofCommand> = vec![];
+        let mut cache: Vec<&Vec<ProofCommand>> = vec![&void_proof;depth+1];
+        cache[depth] = self.dive_into_proof(sub_adrs);
+        // Stores the conclusion on each part and the part index
+        let mut conclusions: Vec<(usize,ProofCommand)> = Vec::new();
+        for p in & pt.parts{
+            let queue = &p.units_queue;
+            if p.compressible && !queue.is_empty(){
+                let queue_local = &p.queue_local;
+                let args_queue = &p.args_queue;
+                let mut premises: Vec<Premise<'_>>=  Vec::new();
+                let mut args: Vec<Rc<Term>> = Vec::new();
+                // The part was constructed traversing the proof bottom-up
+                // So the 0-th position contains the "root"
+                let mut first: &ProofCommand = &p.part_commands[0];
+                let mut location: (usize, usize) = p.original_index[0];
+                // Verifies if the conclusion was substituted
+                (first, location) = p.get_substitute(first, location);
+                let command: ProofCommand;
+                match &cache[depth][location.1]{
+                    ProofCommand::Assume { id, .. } => 
+                    command = ProofCommand::Assume{id: id.clone(),
+                                                    term: self.command_clause(first)[0].clone() 
+                                                    },
+                    ProofCommand::Step(ps) => {
+                        let mut ps_temp = ps.clone();
+                        ps_temp.clause = self.command_clause(first).to_vec();
+                        command = ProofCommand::Step(ps_temp);
+                    }
+                    ProofCommand::Subproof(ph_sp) => {//Warning: subproof as last step of a part
+                        let sp = self.access_subproof(ph_sp);
+                        let sub_conclusion: &ProofCommand = sp.commands.last().expect("Error: Empty subproof");
+                        if let ProofCommand::Step(ps) = sub_conclusion{
+                            let mut ps_temp = ps.clone();
+                            ps_temp.clause = self.command_clause(first).to_vec();
+                            command = ProofCommand::Step(ps_temp);
+                        } else {
+                            panic!("The last element of a subproof should be a Step");
+                        }
+                    }
+                }
+                
+                if let ProofCommand::Step(ps) = &cache[depth][location.1]{
+                    // Here will be added the premises and args of the current conclusion to the vector of premises and args of the new conclusion
+                    let mut args: Vec<Rc<Term>> = ps.args.clone();
+                    for &(command_depth, prem_loc) in &ps.premises{
+                        if command_depth == depth { // inner premise
+                            let commands: &Vec<ProofCommand> = &p.part_commands;
+                            match p.inv_ind.get(&(command_depth, prem_loc)){
+                                Some(&position) => {
+                                    let command = &commands[position];
+                                    let (command, location) = p.get_substitute(command, (command_depth, prem_loc));
+                                    premises.push(Premise::new(location,command));
+                                }
+                                None => panic!("Every inner premise should be in the inverse index")
+                            }
+                        } else { // outer premise
+                            if cache[command_depth].is_empty(){
+                                let new_sub = self.fetch_owner_subproof(sub_adrs, command_depth);
+                                cache[command_depth] = self.dive_into_proof(new_sub);
+                                let fixed = self.get_current_fix(new_sub);
+                                match fixed.get(&(command_depth,prem_loc)){
+                                    Some(&Some(location)) => {
+                                        let command = &cache[command_depth][location.1];
+                                        premises.push(Premise::new(location,command));
+                                    }
+                                    _ => panic!("An outer premise should be listed as a fixed step in its proof level"),
+                                };
+                                //get new position of (command_depth, prem_loc) in cache[command_depth]
+                            }
+                            
+                        };
+    
+                    }
+
+                    // Now the premises and arguments for the collected clauses will be added
+                    let mut new_commands: Vec<((usize,usize),ProofCommand)> = Vec::new();
+
+                    //build premises
+                    for (i, location) in queue.iter().enumerate(){
+                        let old_location = location;
+                        let location: (usize, usize) = self.get_new_index_of_outer_premise(sub_adrs, *old_location).unwrap();
+                        let local_ind = queue_local[i];
+                        let mut local_step = &p.part_commands[local_ind];
+                        (local_step, _) = p.get_substitute(local_step, location);
+                        let command_depth = location.0;
+                        if cache[command_depth].is_empty(){
+                            let new_sub = self.fetch_owner_subproof(sub_adrs, command_depth);
+                            cache[command_depth] = self.dive_into_proof(new_sub);
+                        }
+                        
+                    }
+                    //build args
+                    for (lit, polarity) in args_queue{
+                        args.push(lit.clone());
+                        args.push(polarity.clone());
+                    }
+                } else {
+                    panic!("The conclusion of a compressible part should not be an assume nor a subproof.")
+                }
+                //self.enforce_resolution_compatibility(&mut premises, &mut args, proof_pool);
+                let resolution: Result<(IndexSet<(u32, &Rc<Term>)>, Vec<usize>), CheckerError> = Self::resolve_when_possible(&premises, &args, proof_pool);
+                //let resolution: Result<IndexSet<(u32, &Rc<Term>)>, CheckerError> = apply_generic_resolution::<IndexSet<_>>(&premises, &args, proof_pool);
+                match resolution{
+                    Ok((v, useless))=>{
+                        let mut conclusion_prem = vec![];
+                        for (i, pr) in premises.iter().enumerate(){
+                            if !useless.contains(&i){
+                                conclusion_prem.push(pr.index);
+                            }
+                        }
+                        let new_conclusion = ProofCommand::Step(ProofStep{
+                            premises: conclusion_prem,
+                            id: format!("n{:?}",p.ind),
+                            clause: v.into_iter().map(|x| unremove_all_negations(proof_pool,x)).collect(),
+                            rule: String::from("resolution"),
+                            args: vec![],
+                            discharge: vec![],
+                        });
+                        conclusions.push((p.ind,new_conclusion));
+                    }
+                    
+                    Err(_) => panic!("Error: Clauses couldn't be resolved\nReinserting on part {:?}.{:?}\nPremises: {:?}\nArguments: {:?}",
+                    depth, p.ind, premises, args),
+                }
+            }
+        }
+        for (ind,conc) in conclusions{
+            match pt.parts[ind].part_commands.last_mut(){
+                Some(com) => *com = conc,
+                _ => panic!("If this part is empty, how was a new conclusion computed?"),
+            }
             pt.parts[ind].compressed = true;
         }
     }
