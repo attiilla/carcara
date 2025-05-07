@@ -15,6 +15,7 @@ fi
 
 prove=false
 log=false
+sharing=false
 
 # Process remaining arguments (1 or 2)
 for arg in "$@"; do
@@ -25,25 +26,36 @@ for arg in "$@"; do
         log)
             log=true
             ;;
+        sharing)
+            sharing=true
+            ;;
         *)
-            echo "Error: Invalid argument '$arg'. Only 'prove' and 'log' are allowed."
+            echo "Error: Invalid argument '$arg'. Only 'prove', 'sharing' and 'log' are allowed."
             exit 1
             ;;
     esac
 done
 
 if [ "$prove" = true ]; then
-    #./scripts/generate_proofs.sh clear "$folder"
-    echo "./scripts/generate_proofs.sh clear "$folder""
-    #./scripts/generate_proofs.sh "$folder"
-    echo "./scripts/generate_proofs.sh "$folder""
+    ./scripts/generate_proofs.sh clear "$folder"
+    #echo "./scripts/generate_proofs.sh clear "$folder""
+    ./scripts/generate_proofs.sh "$folder"
+    #echo "./scripts/generate_proofs.sh "$folder""
 fi
 
 ./scripts/filter_unknowns.sh "$folder"
 ./scripts/sanitize_result.sh "$folder"
 
 if [ "$log" = true ]; then
-    ./scripts/check_folder.sh "$folder" > run.log
+    if [ "$sharing" = true ]; then
+        ./scripts/check_folder.sh "$folder" sharing > run.log
+    else
+        ./scripts/check_folder.sh "$folder" > run.log
+    fi
 else
-    ./scripts/check_folder.sh "$folder"
+    if [ "$sharing" = true ]; then
+        ./scripts/check_folder.sh "$folder" sharing
+    else
+        ./scripts/check_folder.sh "$folder"
+    fi
 fi
