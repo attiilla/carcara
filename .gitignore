@@ -6,7 +6,9 @@ scripts/*
 !scripts/generate_proofs.sh
 !scripts/check_folder.sh
 !scripts/filter_unknowns.sh
+!scripts/sanitize_result.sh
 /debug.sh
 /resolve.sh
+/run.log
 /.vscode/launch.json
 /.vscode/settings.json
