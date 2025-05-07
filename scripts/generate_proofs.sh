@@ -13,7 +13,7 @@ if [ "$arg" != "clear" ]; then
             base_name=$(basename "$file" .smt2)
             output="$arg/$base_name.alethe"
             #--enum-inst makes the proof generating too slow, add when testing for large sets in server
-            cvc5 --dump-proofs --simplification=none --proof-format=alethe --proof-alethe-res-pivots --dag-thresh=0 --proof-granularity=theory-rewrite "$file" > "$output"
+            timeout 300s cvc5 --dump-proofs --simplification=none --enum-inst --proof-format=alethe --proof-alethe-res-pivots --dag-thresh=0 --proof-granularity=theory-rewrite "$file" > "$output"
         done
     else
         echo "Directory $arg does not exist."
