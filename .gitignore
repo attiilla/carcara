@@ -12,3 +12,4 @@ scripts/*
 /run.log
 /.vscode/launch.json
 /.vscode/settings.json
+/fetch.sh
