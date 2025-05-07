@@ -13,7 +13,22 @@ if [ "$arg" != "clear" ]; then
             base_name=$(basename "$file" .smt2)
             output="$arg/$base_name.alethe"
             #--enum-inst makes the proof generating too slow, add when testing for large sets in server
-            timeout 300s cvc5 --dump-proofs --simplification=none --enum-inst --proof-format=alethe --proof-alethe-res-pivots --dag-thresh=0 --proof-granularity=theory-rewrite "$file" > "$output"
+            cvc5 --dump-proofs --simplification=none --proof-format=alethe --proof-alethe-res-pivots --dag-thresh=0 --proof-granularity=theory-rewrite "$file" > "$output"
+            {
+                # Read first line separately
+                IFS= read -r first_line
+                
+                # Skip first line if it's exactly "unsat"
+                if [ "$first_line" != "unsat" ]; then
+                    echo "$first_line"
+                fi
+                
+                # Copy the rest of the file
+                cat
+                
+                # Remove trailing blank lines
+            } < "$output" | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' > "$output.tmp"
+            mv "$output.tmp" "$output"
         done
     else
         echo "Directory $arg does not exist."

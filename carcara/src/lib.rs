@@ -274,6 +274,7 @@ pub fn check_and_elaborate<T: io::BufRead>(
 pub fn compress<T: io::BufRead>(
     problem: T,
     proof: T,
+    verbose: bool,
     parser_config: parser::Config,
 ) -> Result<(ast::Problem, ast::Proof, ast::PrimitivePool), Error> {
     //let mut run: RunMeasurement = RunMeasurement::default();
@@ -286,7 +287,7 @@ pub fn compress<T: io::BufRead>(
 
     //Compressing
     let compressor = ProofCompressor::from(pf);
-    let compressed = compressor.compress_proof(&mut pool);
+    let compressed = compressor.compress_proof(verbose, &mut pool);
     Ok((pb, compressed, pool))
 }
 
