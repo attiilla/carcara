@@ -19,7 +19,7 @@ pub struct DisjointPart {
     pub subs_table: HashMap<(usize, usize), (usize, usize)>,
     pub inv_ind: HashMap<(usize, usize), usize>,
     pub behaved_steps: IndexSet<(usize, usize)>,
-    pub new_conclusion: Option<ProofCommand>,
+    pub recomputed: HashSet<(usize,usize)>,
 }
 
 impl ProofCommand {
@@ -62,7 +62,7 @@ impl<'a> DisjointPart {
             subs_table: HashMap::new(),
             inv_ind: HashMap::new(),
             behaved_steps: IndexSet::new(),
-            new_conclusion: None,
+            recomputed: HashSet::new()
         }
     }
 
@@ -195,5 +195,13 @@ impl<'a> DisjointPart {
                 (&self.part_commands[position],*substitute_ind)
             }
         }
+    }
+
+    pub fn set_recomputed(&mut self, index: (usize, usize)){
+        self.recomputed.insert(index);
+    }
+
+    pub fn is_recomputed(&self, index: (usize, usize))->bool{
+        self.recomputed.contains(&index)
     }
 }
