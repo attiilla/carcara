@@ -4,6 +4,9 @@
 //Uncontracted resolution with two pivots in one premise
 //build_term!(pool, (not { term }))
 //To refactor: command_clause
+//To optimize: steps without premises can all go to part 0?
+//To optimize: references in parts
+//To optimize: mark as resolution premise only if not resolution
 //To check: when part conclusion is substituted
 mod tracker;
 mod disjoints;
@@ -305,8 +308,6 @@ impl<'a> ProofCompressor{
         pt.add_step_to_part((depth,n-1),1); //adds conclusion to part 1
         pt.set_is_conclusion((depth,n-1));
         for (i, c) in commands.iter().enumerate().rev(){
-            //println!("i is {:?} and the number of parts is {:?}", i, &pt.parts.len());
-            //println!("Command is {:?}",c);
             match c{
                 ProofCommand::Assume{id,term} => {
                     // Select the parts whose the current step belong to
@@ -614,15 +615,9 @@ impl<'a> ProofCompressor{
                     changed.insert(q);
                 }
                 for (i, step) in p.part_commands.iter().rev().enumerate(){
-                    //println!("original indices {:?}",&p.original_index);
                     let index = p.original_index[n-1-i];
                     
                     global_to_local.insert(index, n-1-i);
-                    /*if p.ind==1 && sub_adrs.is_none() && i==35{ //comment
-                        println!("Rastreando @g: {:?}",&step);
-                        println!("all_premises_remain: {:?}", p.all_premises_remain(&self.subproofs, step));
-                        println!("some_premises_changed: {:?}", p.some_premises_changed(&self.subproofs, step, &mut changed))
-                    }*/
                     if p.all_premises_remain(&self.subproofs, step)
                     && p.some_premises_changed(&self.subproofs, step, &mut changed){
                         to_recompute.push(ReResolveInfo{
