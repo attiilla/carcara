@@ -11,6 +11,7 @@
 //To optimize: mark as resolution premise only if not resolution
 //To optimize: i believe an uncompressible step can be just in the first part it was added to
 //To optimize: self.is_premise_of_resolution(index) in must_collect_assume seems to be trivial
+//To optimize: i am not collecting subproofs even if they can be collected. Collect them all
 //To check: when part conclusion is substituted
 //CORNER CASE TO TEST: Node is a subproof that isn't used as premise for any node of same depth
 //CORNER CASE TO TEST: The collectable node is from another subproof level
@@ -359,10 +360,11 @@ impl<'a> ProofCompressor{
         commands: &Vec<ProofCommand>,
         ind: (usize, usize),
         sub_adrs: Option<usize>,
-        proof_pool: &mut PrimitivePool
+        proof_pool: &mut PrimitivePool,
+        is_subproof: bool
     ){
         let depth = ind.0;
-        let mut containing: Vec<usize> = pt.get_containing_parts(ind, true);
+        let containing: Vec<usize> = pt.get_containing_parts(ind, true);
         let mut premise_not_r: Vec<(usize,usize)> = vec![];
         for &prem in c.premises(){
             if prem.0==depth{
@@ -403,7 +405,7 @@ impl<'a> ProofCompressor{
             let position = pt.parts[containing_part].part_commands.len();
             pt.insert_to_part(ind,containing_part, c);
 
-            if pt.parts[containing_part].compressible{
+            if pt.parts[containing_part].compressible && !is_subproof{
                 // Check if this step must be collected in this part
                 if pt.must_be_collected(ind, containing_part, c){
                     pt.add_to_units_queue_of_part_old(ind,containing_part, position, &self.subproofs, proof_pool);
@@ -481,17 +483,6 @@ impl<'a> ProofCompressor{
                 }
 
                 ProofCommand::Step(ps) => {
-                    // Select the parts whose the current step belong to
-                    let mut containing: Vec<usize> = vec![];
-                    match pt.parts_containing((depth,i)){
-                        Ok(v) => containing = v,
-                        Err(CollectionError::NodeWithoutInwardEdge) => {
-                            let new_part_ind: usize = pt.add_step_to_new_part((depth,i),self.step_is_resolution((depth,i), sub_adrs));
-                            containing.push(new_part_ind);
-                        }
-                        Err(_) => panic!("Unexpected error"),
-                    }
-
                     // Case 1
                     // If this node is a resolution, every premise is in the same parts
                     if self.internal_command(ps,sub_adrs){
@@ -504,7 +495,7 @@ impl<'a> ProofCompressor{
                     // premises will be in their own parts if they are resolutions
                     // non-resolution premises will be in a single non-resolution part
                     else if pt.is_premise_of_resolution((depth,i)){
-                        self.handle_edge_command(&mut pt, c, commands, (depth,i), sub_adrs, proof_pool);
+                        self.handle_edge_command(&mut pt, c, commands, (depth,i), sub_adrs, proof_pool, false);
                     }
 
                     // Case 3
@@ -538,56 +529,14 @@ impl<'a> ProofCompressor{
                     // If the subproof is not premise of a resolution, it's resolution premises of same depth will be conclusion of new parts
                     // and it's other premises will be added to it's parts
                     if pt.is_premise_of_resolution((depth,i)){
-                        let mut premise_not_r: Vec<(usize,usize)> = vec![];
-                        for &prem in premises{
-                            if prem.0==depth{
-                                if self.step_is_resolution(prem, sub_adrs){
-                                    pt.add_step_to_new_part((depth,i), true); // creates new parts for the premises that are resolutions
-                                } else {
-                                    premise_not_r.push(prem); // stores the premises that aren't resolutions
-                                }
-                            }
-                        }
-                        
-                        // Here we will add the non-resolution premises to non-resolution parts where this node belongs to 
-                        // or create a single part for this node and all it's non-resolution premises
-                        if !premise_not_r.is_empty(){ // checks if there is a non-resolution, and if step is not or
-                            let non_resolution_parts = pt.non_resolution_parts((depth,i));
-                            if non_resolution_parts.is_empty(){ // checks if every part of this step is a resolution part, so we will create a new part
-                                let new_part_ind: usize = pt.add_step_to_new_part((depth,i), false);
-                                containing.push(new_part_ind);
-                                for &prem in &premise_not_r{
-                                    pt.mark_for_part(prem, new_part_ind);
-                                }
-                            } else{
-                                for &containing_part in &non_resolution_parts{
-                                    for &prem in &premise_not_r{
-                                        pt.mark_for_part(prem, containing_part);
-                                    }
-                                }
-                            }
-                        }
+                        self.handle_edge_command(&mut pt, c, commands, (depth,i), sub_adrs, proof_pool, true);
                     }
                     // If the subproof is premise of a resolution
                     // A logic much like the Case 2 of ProofStep will be used
                     else{
-                        for &prem in premises{
-                            if prem.0==depth{
-                                if self.step_is_resolution(prem, sub_adrs) && prem.0==depth{
-                                    pt.add_step_to_new_part(prem, true);
-                                } else {
-                                    for &containing_parts in &containing {
-                                        pt.mark_for_part(prem, containing_parts);
-                                    }
-                                }
-                            }
-                        }
-
+                        self.handle_uncompressible_command(&mut pt, c, (depth, i), sub_adrs);
                     }
-                    // Now the data in the placeholder should be added to the DisjointParts of the Tracker
-                    for &containing_part in &containing{    
-                        pt.insert_to_part((depth,i),containing_part, c);
-                    }
+                    
                 }
             };
         }
