@@ -569,7 +569,6 @@ impl<'a> ProofCompressor{
         for p in &mut pt.parts{
             if p.compressible{
                 let mut to_recompute: Vec<ReResolveInfo> = vec![];
-                let mut global_to_local: HashMap<(usize,usize),usize> = HashMap::new();
                 let n: usize = p.part_commands.len();
                 let queue: &IndexSet<(usize, usize)> = &p.units_queue;
                 let mut modified: HashSet<(usize,usize)> = HashSet::new();
@@ -579,8 +578,6 @@ impl<'a> ProofCompressor{
                 for (i, c) in p.part_commands.iter().rev().enumerate(){
                     let local_ind: usize = n-1-i;
                     let index: (usize, usize) = p.original_index[local_ind];
-                    global_to_local.insert(index, local_ind);
-                    
                     if p.must_be_recomputed(c, &mut modified){
                         to_recompute.push(
                         ReResolveInfo{
@@ -605,8 +602,8 @@ impl<'a> ProofCompressor{
                 };
                 for clause in &to_recompute{
                     if clause.rule=="contraction"{
-                        self.re_contract(p, clause.location, sub_adrs, &global_to_local); //WARNING maybe add proof pool
-                    }/* else if self.get_rule(clause.index, sub_adrs)=="reordering"{
+                        self.re_contract(p, clause.location); //WARNING maybe add proof pool
+                    }/* else if clause.rule=="reordering"{
                         self.re_reorder(p, clause.location, sub_adrs, &global_to_local)
                     }*/
                     else if clause.substitute{
@@ -619,7 +616,6 @@ impl<'a> ProofCompressor{
                                 p, 
                                 clause.location, 
                                 sub_adrs, 
-                                &global_to_local, 
                                 proof_pool
                             );
                         p.set_recomputed(clause.index);
@@ -636,7 +632,6 @@ impl<'a> ProofCompressor{
                 }
             }
         }
-        //recomputed
     }
 
     fn reinsert_collected_clauses(&self, pt: &mut PartTracker, sub_adrs: Option<usize>, proof_pool: &mut PrimitivePool){
@@ -1209,27 +1204,20 @@ impl<'a> ProofCompressor{
     
     fn re_contract(&mut self, 
         part: &mut DisjointPart, 
-        index: usize, 
-        sub_adrs: Option<usize>,
-        global_to_local: &HashMap<(usize,usize),usize>
+        index: usize
     ){ // ok
         let sp_stack = &self.subproofs;
         if let Some(premises) = part.part_commands[index].premises_old(sp_stack){
             let parent_global_ind = premises[0];
-            let op_local_ind = global_to_local.get(&parent_global_ind);
-            match op_local_ind{
-                Some(parent_local_ind) => {
-                    let parent_clause: Vec<Rc<Term>> = 
-                        part.part_commands[*parent_local_ind]
-                        .clause()
-                        .to_vec();
-                    let clause_set: IndexSet<Rc<Term>> = parent_clause.into_iter().collect();
-                    let new_contract: Vec<Rc<Term>> = clause_set.into_iter().collect();
-                    let to_compress = &mut part.part_commands[index];
-                    self.overwrite_clause(to_compress, new_contract);
-                }
-                None => panic!("This clause wasn't mapped in global_to_local")
-            }
+            let parent_local_ind = part.local_index_of(parent_global_ind);
+            let parent_clause: Vec<Rc<Term>> = 
+                part.part_commands[parent_local_ind]
+                .clause()
+                .to_vec();
+            let clause_set: IndexSet<Rc<Term>> = parent_clause.into_iter().collect();
+            let new_contract: Vec<Rc<Term>> = clause_set.into_iter().collect();
+            let to_compress = &mut part.part_commands[index];
+            self.overwrite_clause(to_compress, new_contract);
         }
     }
 
@@ -1258,8 +1246,7 @@ impl<'a> ProofCompressor{
     fn re_resolve(&self, 
         part: &mut DisjointPart, 
         index: usize, 
-        sub_adrs: Option<usize>, 
-        global_to_local: &HashMap<(usize,usize),usize>,
+        sub_adrs: Option<usize>,
         proof_pool: &mut PrimitivePool,
     ) -> 
     (Vec<Rc<Term>>,Vec<(usize,usize)>,Vec<Rc<Term>>){
@@ -1270,7 +1257,7 @@ impl<'a> ProofCompressor{
         //println!("table: {:?}",table);
         //println!("\nglobal to local: {:?}",&global_to_local);
         let mut new_commands: Vec<(ProofCommand,(usize,usize))> = Vec::new();
-        let mut premises: Vec<Premise<'_>> = self.build_premises(part, &remaining, global_to_local, index, sub_adrs, &mut new_commands);
+        let mut premises: Vec<Premise<'_>> = self.build_premises(part, &remaining, index, sub_adrs, &mut new_commands);
         //println!("\nPremises: {:?}",&premises);
         let args = self.build_args(part, &remaining, index);
         //println!("Args: {:?}", &args);
@@ -1281,7 +1268,7 @@ impl<'a> ProofCompressor{
                 for p in &mut premises{
                     if p.index==*r{        
                         p.index = aft_subs;
-                        let local_ind: usize = *global_to_local.get(&aft_subs).unwrap();
+                        let local_ind: usize = part.local_index_of(aft_subs);
                         p.clause = part.part_commands[local_ind].clause();
                     }
                  }
@@ -1326,7 +1313,6 @@ impl<'a> ProofCompressor{
     fn build_premises(&'a self,
         part: &DisjointPart, 
         remaining: &[(usize, usize)], 
-        global_to_local: &HashMap<(usize,usize),usize>, 
         index: usize, 
         sub_adrs: Option<usize>, 
         new_commands: &'a mut Vec<(ProofCommand,(usize,usize))>
@@ -1344,21 +1330,21 @@ impl<'a> ProofCompressor{
         let remaining_set: HashSet<_> = remaining.iter().copied().collect();
         
         let op_prem: Option<&Vec<(usize, usize)>> = data.premises_old(sp_stack);
-        if let Some(prem) = op_prem{
-            for p in prem{
-                if remaining_set.contains(p){
+        if let Some(premises) = op_prem{
+            for &prem in premises{
+                if remaining_set.contains(&prem){
                     let new_comm: ProofCommand;
-                    if cache[p.0].is_empty(){
-                        let new_sub = match p.0{
+                    if cache[prem.0].is_empty(){
+                        let new_sub = match prem.0{
                             0 => None,
                             i => Some(i-1)
                         };
-                        cache[p.0] = self.dive_into_proof(new_sub);
+                        cache[prem.0] = self.dive_into_proof(new_sub);
                         //cache[p.0] = self.dive_into_proof(&sub_adrs[0..p.0]);
                     }
-                    let local: usize = *global_to_local.get(p).unwrap();
+                    let local: usize = part.local_index_of(prem);
                     let local_command = &part.part_commands[local];
-                    match &cache[p.0][p.1]{
+                    match &cache[prem.0][prem.1]{
                         ProofCommand::Assume { id, .. } => 
                         new_comm = ProofCommand::Assume{id: id.clone(),
                                                         term: local_command.clause()[0].clone() 
@@ -1380,7 +1366,7 @@ impl<'a> ProofCompressor{
                             }
                         }
                     }
-                    new_commands.push((new_comm,*p));
+                    new_commands.push((new_comm,prem));
                 }
             }
         }

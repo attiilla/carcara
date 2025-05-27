@@ -177,6 +177,16 @@ impl<'a> DisjointPart {
         }
     }
 
+    pub fn local_index_of(&self, index: (usize, usize)) -> usize{
+        *self.inv_ind.get(&index).unwrap_or_else(|| {
+            panic!("The step {:?} is not in the inverted index", index)
+        })
+    }
+
+    /*pub fn inverse_index(&self) -> &HashMap<(usize,usize), usize>{
+        &self.inv_ind
+    }*/
+
     pub fn must_be_recomputed(&self, command: &ProofCommand, modified: &mut HashSet<(usize,usize)>) -> bool {
         (self.all_premises_remain(command) && self.some_premises_changed(command, modified)) ||
         (self.some_premises_remains(command) && command.is_resolution())
