@@ -56,12 +56,27 @@ impl PartTracker {
         self.counting_in_part(index, part_ind)>=req && command.clause().len()==1
     }
 
+    pub fn get_containing_parts(&mut self, ind: (usize, usize), is_resolution_or_pseudo: bool) -> Vec<usize>{
+        let containing: Vec<usize> = 
+        match self.parts_containing(ind)
+            {
+                Ok(v) => v,
+                Err(CollectionError::NodeWithoutInwardEdge) => {
+                    let new_part_ind: usize = self.add_step_to_new_part(ind,is_resolution_or_pseudo);
+                    vec![new_part_ind]
+                }
+                Err(_) => panic!("Unexpected error"),
+            };
+        containing
+    }
+    
+
     pub fn set_is_conclusion(&mut self, step: (usize, usize)) {
         //ok
         self.is_conclusion.insert(step);
     }
 
-    pub fn add_step_to_part(&mut self, step: (usize, usize), part_ind: usize) {
+    pub fn mark_to_part(&mut self, step: (usize, usize), part_ind: usize) {
         //ok
         match self.track_data.get_mut(&step) {
             // The step is already in some part
@@ -82,7 +97,7 @@ impl PartTracker {
         self.parts
             .push(DisjointPart::new(is_resolution, self.next_part));
         self.next_part += 1;
-        self.add_step_to_part(step, new_part_ind);
+        self.mark_to_part(step, new_part_ind);
         self.set_is_conclusion(step);
         new_part_ind
     }
@@ -95,7 +110,7 @@ impl PartTracker {
         }
     }
 
-    pub fn clone_data_to_part(
+    pub fn insert_to_part_old(
         &mut self,
         step: (usize, usize),
         part_ind: usize,
@@ -113,6 +128,20 @@ impl PartTracker {
         //self.update_inv_index(step, part_ind, n);
     }
 
+    pub fn insert_to_part(
+        &mut self,
+        step: (usize, usize),
+        part_ind: usize,
+        command: &ProofCommand,
+    ) {
+        //ok
+        let command_cloned: ProofCommand = command.clone();
+        let n = self.parts[part_ind].part_commands.len();
+        self.parts[part_ind].part_commands.push(command_cloned);
+        self.parts[part_ind].original_index.push(step);
+        self.parts[part_ind].inv_ind.insert(step, n);
+    }
+    
     pub fn is_premise_of_part_conclusion(&self, index: (usize,usize), part_ind: usize) -> bool{
         let part = &self.parts[part_ind];
         let premises = part.part_commands[0].premises();
