@@ -1,5 +1,6 @@
 /target
 /benchmarks
+/benchmarks_solutions
 sample/*
 !sample/fails
 scripts/*
@@ -13,3 +14,4 @@ scripts/*
 /.vscode/launch.json
 /.vscode/settings.json
 /fetch.sh
+/carcara/src/compressor_new
