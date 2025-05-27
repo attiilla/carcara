@@ -356,9 +356,7 @@ impl<'a> ProofCompressor{
 
                     // Case 1
                     // If this node is a resolution, every premise is in the same parts
-                    if ps.rule == "resolution" || 
-                    ps.rule == "th-resolution" || 
-                    (self.preserving_binder.contains(&ps.rule) && self.resolution_is_a_premise(&ps, sub_adrs)){
+                    if self.internal_command(ps,sub_adrs){
                         // First we check if this is one of the steps that can't be deleted
                         // If it isn't conclusion of a part and can't be deleted, we create a 
                         // new part with this step as conclusion
