@@ -71,6 +71,7 @@ struct ReResolveInfo{
     substitute: bool,
     location: usize,
     index: (usize, usize),
+    rule: String,
 }
 
 
@@ -569,41 +570,41 @@ impl<'a> ProofCompressor{
             if p.compressible{
                 let mut to_recompute: Vec<ReResolveInfo> = vec![];
                 let mut global_to_local: HashMap<(usize,usize),usize> = HashMap::new();
-                let n = p.part_commands.len();
-                let queue = &p.units_queue;
+                let n: usize = p.part_commands.len();
+                let queue: &IndexSet<(usize, usize)> = &p.units_queue;
                 let mut modified: HashSet<(usize,usize)> = HashSet::new();
                 for &q in queue{
                     modified.insert(q);
                 }
                 for (i, c) in p.part_commands.iter().rev().enumerate(){
-                    let index = p.original_index[n-1-i];
-                    global_to_local.insert(index, n-1-i);
-                    /*if p.all_premises_remain( c)
-                    && p.some_premises_changed(&self.subproofs, c, &mut changed)*/
+                    let local_ind: usize = n-1-i;
+                    let index: (usize, usize) = p.original_index[local_ind];
+                    global_to_local.insert(index, local_ind);
                     
                     if p.must_be_recomputed(c, &mut modified){
-                        to_recompute.push(ReResolveInfo{
+                        to_recompute.push(
+                        ReResolveInfo{
                             substitute: false,
-                            location: n-1-i,
-                            index
+                            location: local_ind,
+                            index,
+                            rule: c.rule().to_string()
                         });
-                        //println!("Adding {:?} in to_recompute",&step);
                         modified.insert(index);
                     }
-                    else if p.single_premise_remains(c) &&
-                    (c.rule() == "resolution" || c.rule() == "th-resolution") {
-                    //else if p.must_be_substituted(..){
-                        to_recompute.push(ReResolveInfo{
+                    else if p.must_be_substituted(c){
+                        to_recompute.push(
+                        ReResolveInfo{
                             substitute: true,
-                            location: n-1-i,
-                            index
+                            location: local_ind,
+                            index,
+                            rule: c.rule().to_string()
                         });
                         modified.insert(index);
                     }
                     
                 };
                 for clause in &to_recompute{
-                    if self.get_rule(clause.index, sub_adrs)=="contraction"{
+                    if clause.rule=="contraction"{
                         self.re_contract(p, clause.location, sub_adrs, &global_to_local); //WARNING maybe add proof pool
                     }/* else if self.get_rule(clause.index, sub_adrs)=="reordering"{
                         self.re_reorder(p, clause.location, sub_adrs, &global_to_local)
@@ -614,14 +615,14 @@ impl<'a> ProofCompressor{
                         let (new_clause, 
                             new_premises, 
                             _new_args
-                        )  = self.re_resolve(
+                        ) = self.re_resolve(
                                 p, 
                                 clause.location, 
                                 sub_adrs, 
                                 &global_to_local, 
                                 proof_pool
                             );
-                            p.set_recomputed(clause.index);
+                        p.set_recomputed(clause.index);
                         match &mut p.part_commands[clause.location]{
                             ProofCommand::Assume { .. } => panic!("Assumes don't have args nor premises"),
                             ProofCommand::Step(ps) => {
@@ -1124,24 +1125,6 @@ impl<'a> ProofCompressor{
             part_table.insert(index, (depth,n));
         }
         new_proof.push(com);
-    }
-
-    fn get_rule(&self, step: (usize, usize), sub_adrs: Option<usize>) -> &str{ //ok
-        let ind = step.1;
-        let commands: &Vec<ProofCommand> = self.dive_into_proof(sub_adrs);
-        match commands.get(ind){
-            Some(ProofCommand::Assume {..}) => "assume",
-            Some(ProofCommand::Step(ps)) => &ps.rule,
-            Some(ProofCommand::Subproof(ssp)) => {
-                let sp = self.access_subproof(&ssp);
-                if let ProofCommand::Step(ps) = sp.commands.last().expect("A subproof shouldn't be empty"){
-                    &ps.rule
-                } else {
-                    panic!("last step of a subproof should be a proof step")
-                }
-            }
-            None => panic!("Index out of bounds for the command vector")
-        }
     }
 
     fn position_insert(&mut self, new_commands: Vec<ProofCommand>, sub_adrs: Option<usize>){

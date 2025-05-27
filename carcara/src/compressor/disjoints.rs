@@ -177,16 +177,20 @@ impl<'a> DisjointPart {
         }
     }
 
-    pub fn must_be_recomputed(&self, command: &ProofCommand, modified: &mut HashSet<(usize,usize)>)->bool{
+    pub fn must_be_recomputed(&self, command: &ProofCommand, modified: &mut HashSet<(usize,usize)>) -> bool {
         (self.all_premises_remain(command) && self.some_premises_changed(command, modified)) ||
         (self.some_premises_remains(command) && command.is_resolution())
+    }
+
+    pub fn must_be_substituted(&self, command: &ProofCommand) -> bool {
+        self.single_premise_remains(command) && command.is_resolution()
     }
 
     pub fn set_recomputed(&mut self, index: (usize, usize)){
         self.recomputed.insert(index);
     }
 
-    pub fn is_recomputed(&self, index: (usize, usize))->bool{
+    pub fn is_recomputed(&self, index: (usize, usize)) -> bool {
         self.recomputed.contains(&index)
     }
 }
