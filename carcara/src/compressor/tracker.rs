@@ -40,6 +40,22 @@ impl PartTracker {
         }
     }
 
+    pub fn must_collect_assume(&self, index: (usize,usize), part_ind: usize) -> bool{
+        let req = 
+            if self.is_premise_of_part_conclusion(index, part_ind) {3} 
+            else {2};
+        self.is_premise_of_resolution(index) &&
+        self.counting_in_part(index, part_ind)>=req &&
+        self.is_resolution_part(part_ind)
+    }
+
+    pub fn must_be_collected(&self, index: (usize, usize), part_ind: usize, command: &ProofCommand) -> bool{
+        let req = 
+            if self.is_premise_of_part_conclusion(index, part_ind) {3} 
+            else {2};
+        self.counting_in_part(index, part_ind)>=req && command.clause().len()==1
+    }
+
     pub fn set_is_conclusion(&mut self, step: (usize, usize)) {
         //ok
         self.is_conclusion.insert(step);
@@ -97,34 +113,11 @@ impl PartTracker {
         //self.update_inv_index(step, part_ind, n);
     }
 
-    /*pub fn get_substitute<'a>(
-        &'a self,
-        current: &'a ProofCommand,
-        location: &mut (usize, usize),
-        part: &'a DisjointPart,
-    ) -> &'a ProofCommand {
-        println!("subs table {:?}", &part.subs_table);
-        match part.substituted_by(*location) {
-            Some(&subs_index) => {
-                *location = subs_index;
-                //println!("\n\n\ntrack {:?}", &self.track_data);
-                match self.track_data.get(location) {
-                    None => panic!("This step {:?} is not being tracked", subs_index),
-                    Some(tracker) => {
-                        let local_ind_opt = tracker.inv_index.get(&part.ind);
-                        match local_ind_opt {
-                            Some(local_ind) => &part.part_commands[*local_ind],
-                            None => {
-                                let ind = part.original_index.iter().position(|&x|x==subs_index).expect("Can't subtitute a step by something that is not even on the part");
-                                &part.part_commands[ind]
-                            }
-                        }
-                    }
-                }
-            }
-            None => current,
-        }
-    }*/
+    pub fn is_premise_of_part_conclusion(&self, index: (usize,usize), part_ind: usize) -> bool{
+        let part = &self.parts[part_ind];
+        let premises = part.part_commands[0].premises();
+        premises.contains(&index)
+    }
 
     pub fn counting_in_part(&self, step: (usize, usize), part_ind: usize) -> usize {
         //ok
@@ -186,6 +179,7 @@ impl PartTracker {
         //ok
         self.resolutions_premises.contains(&step)
     }
+    
 
     pub fn is_resolution_part(&self, part_ind: usize) -> bool {
         //ok
