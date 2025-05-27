@@ -23,7 +23,7 @@ pub struct DisjointPart {
 }
 
 impl ProofCommand {
-    pub fn premises<'a>(
+    pub fn premises_old<'a>(
         &'a self,
         sp_stack: &'a Vec<SubproofMeta>,
     ) -> Option<&'a Vec<(usize, usize)>> {
@@ -68,76 +68,59 @@ impl<'a> DisjointPart {
 
     pub fn all_premises_remain(
         &self,
-        sp_stack: &Vec<SubproofMeta>,
         command: &ProofCommand,
     ) -> bool {
         //ok
-        match command.premises(sp_stack) {
-            None => true,
-            Some(p) => p.iter().all(|prem| !self.marked_to_removal(prem)),
-        }
+        let premises = command.premises();
+        premises.iter().all(|prem| !self.marked_to_removal(prem))
+        
     }
 
     pub fn some_premises_remains(
         &self,
-        sp_stack: &Vec<SubproofMeta>,
         command: &ProofCommand,
     ) -> bool {
         //ok
-        match command.premises(sp_stack) {
-            None => false,
-            Some(p) => {
-                let remain: usize = p.iter().fold(0, |acc, prem| {
-                    if self.marked_to_removal(prem) {
-                        acc
-                    } else {
-                        acc + 1
-                    }
-                });
-                (remain != p.len()) && (remain > 1)
-            }
-        }
+        let premises = command.premises();
+        let remain: usize = premises.iter().fold(0, |acc, prem| {
+                if self.marked_to_removal(prem) {
+                    acc
+                } else {
+                    acc + 1
+                }
+            });
+        (remain != premises.len()) && (remain > 1)
     }
 
     pub fn single_premise_remains(
         &self,
-        sp_stack: &Vec<SubproofMeta>,
         command: &ProofCommand,
     ) -> bool {
         //ok
-        match command.premises(sp_stack) {
-            None => false,
-            Some(p) => {
-                let remain: usize = p.iter().fold(0, |acc, prem| {
-                    if self.marked_to_removal(prem) {
-                        acc
-                    } else {
-                        acc + 1
-                    }
-                });
-                (remain != p.len()) && (remain == 1)
+        let premises = command.premises();
+        let remain: usize = premises.iter().fold(0, |acc, prem| {
+            if self.marked_to_removal(prem) {
+                acc
+            } else {
+                acc + 1
             }
-        }
+        });
+        (remain != premises.len()) && (remain == 1)
     }
 
     pub fn remaining_premises(
         &self,
-        sp_stack: &Vec<SubproofMeta>,
         ind: usize,
     ) -> Vec<(usize, usize)> {
         //ok
         let command = &self.part_commands[ind];
-        match command.premises(sp_stack) {
-            None => vec![],
-            Some(p) => {
-                let ans: Vec<_> = p
-                    .iter()
-                    .filter(|&prem| !self.marked_to_removal(prem))
-                    .copied()
-                    .collect();
-                ans
-            }
-        }
+        let premises = command.premises(); 
+        let ans: Vec<_> = premises
+                .iter()
+                .filter(|&prem| !self.marked_to_removal(prem))
+                .copied()
+                .collect();
+        ans
     }
 
     pub fn some_premises_changed(
@@ -147,10 +130,8 @@ impl<'a> DisjointPart {
         changed: &mut HashSet<(usize, usize)>,
     ) -> bool {
         //ok
-        match command.premises(sp_stack) {
-            None => false,
-            Some(p) => p.iter().any(|premise| changed.contains(premise)),
-        }
+        let premises = command.premises();
+        premises.iter().any(|prem| changed.contains(prem))
     }
 
     pub fn marked_to_removal(&self, step: &(usize, usize)) -> bool {

@@ -140,6 +140,22 @@ impl ProofCommand {
             ProofCommand::Subproof(s) => s.commands.last().unwrap().clause(),
         }
     }
+    
+    /// Returns a reference for a vector with the premises of this command.
+    ///
+    /// For subproofs, this is the premises of the last step in the subproof
+    /// (that is guaranteed to not have any command native to the subproof).
+    /// For assumes, return reference to an empty vector
+    pub fn premises(&self) -> &Vec<(usize,usize)> {
+        match self {
+            ProofCommand::Assume { .. } => {
+                static NO_PREM: Vec<(usize,usize)> = Vec::new();
+                &NO_PREM
+            }
+            ProofCommand::Step(s) => &s.premises,
+            ProofCommand::Subproof(s) => s.commands.last().unwrap().premises(),
+        }
+    }
 
     /// Returns `true` if the command is an `assume` command.
     pub fn is_assume(&self) -> bool {

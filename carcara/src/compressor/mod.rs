@@ -618,7 +618,7 @@ impl<'a> ProofCompressor{
                     let index = p.original_index[n-1-i];
                     
                     global_to_local.insert(index, n-1-i);
-                    if p.all_premises_remain(&self.subproofs, step)
+                    if p.all_premises_remain( step)
                     && p.some_premises_changed(&self.subproofs, step, &mut changed){
                         to_recompute.push(ReResolveInfo{
                             substitute: false,
@@ -628,7 +628,7 @@ impl<'a> ProofCompressor{
                         //println!("Adding {:?} in to_recompute",&step);
                         changed.insert(index);
                     }
-                    else if p.single_premise_remains(&self.subproofs, step) &&
+                    else if p.single_premise_remains(step) &&
                     (step.rule() == "resolution" || step.rule() == "th-resolution") {
                         to_recompute.push(ReResolveInfo{
                             substitute: true,
@@ -638,7 +638,7 @@ impl<'a> ProofCompressor{
                         //println!("Adding {:?} in to_recompute",&step);
                         changed.insert(index);
                     }
-                    else if p.some_premises_remains(&self.subproofs, step) && 
+                    else if p.some_premises_remains(step) && 
                     (step.rule() == "resolution" || step.rule() == "th-resolution"){
                         to_recompute.push(ReResolveInfo{
                             substitute: false,
@@ -656,7 +656,7 @@ impl<'a> ProofCompressor{
                         self.re_reorder(p, clause.location, sub_adrs, &global_to_local)
                     }*/
                     else if clause.substitute{
-                        p.substitute(clause.index, p.remaining_premises(&self.subproofs, clause.location)[0]);
+                        p.substitute(clause.index, p.remaining_premises(clause.location)[0]);
                     } else {
                         let (new_clause, 
                             new_premises, 
@@ -1515,7 +1515,7 @@ impl<'a> ProofCompressor{
         global_to_local: &HashMap<(usize,usize),usize>
     ){ // ok
         let sp_stack = &self.subproofs;
-        if let Some(premises) = part.part_commands[index].premises(sp_stack){
+        if let Some(premises) = part.part_commands[index].premises_old(sp_stack){
             let parent_global_ind = premises[0];
             let op_local_ind = global_to_local.get(&parent_global_ind);
             match op_local_ind{
@@ -1565,7 +1565,7 @@ impl<'a> ProofCompressor{
     ) -> 
     (Vec<Rc<Term>>,Vec<(usize,usize)>,Vec<Rc<Term>>){
         let sp_stack: &Vec<SubproofMeta> = &self.subproofs;
-        let mut remaining: Vec<(usize, usize)> = part.remaining_premises(sp_stack, index);
+        let mut remaining: Vec<(usize, usize)> = part.remaining_premises(index);
         //println!("Remaining {:?}",&remaining);
         let table: &HashMap<(usize, usize), (usize, usize)> = &part.subs_table;
         //println!("table: {:?}",table);
@@ -1644,7 +1644,7 @@ impl<'a> ProofCompressor{
         let data = &part.part_commands[index];
         let remaining_set: HashSet<_> = remaining.iter().copied().collect();
         
-        let op_prem: Option<&Vec<(usize, usize)>> = data.premises(sp_stack);
+        let op_prem: Option<&Vec<(usize, usize)>> = data.premises_old(sp_stack);
         if let Some(prem) = op_prem{
             for p in prem{
                 if remaining_set.contains(p){
@@ -1697,7 +1697,7 @@ impl<'a> ProofCompressor{
         let data = &part.part_commands[index];
         let remaining_set: HashSet<_> = remaining.iter().copied().collect();
         let old_args = self.command_args(data); 
-        if let Some(premises) = data.premises(sp_stack){
+        if let Some(premises) = data.premises_old(sp_stack){
             let n: usize = if remaining_set.contains(&premises[0]) {1} else {2};
             for (i, &p) in premises.iter().enumerate().skip(n){
                 if remaining_set.contains(&p){
