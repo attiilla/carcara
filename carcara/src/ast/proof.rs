@@ -171,6 +171,11 @@ impl ProofCommand {
     pub fn is_subproof(&self) -> bool {
         matches!(self, ProofCommand::Subproof(_))
     }
+
+    /// Returns `true` if the command rule is `resolution` or `th-resolution`.
+    pub fn is_resolution(&self) -> bool {
+        self.rule() == "resolution" || self.rule() == "th-resolution"
+    }
 }
 
 impl Subproof {
