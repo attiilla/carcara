@@ -304,13 +304,13 @@ impl<'a> ProofCompressor{
 
     fn handle_internal_command(&self, 
         pt: &mut PartTracker, 
-        c: &ProofCommand, 
+        command: &ProofCommand, 
         outer_premises: &mut IndexSet<(usize,usize)>, 
         ind: (usize, usize), 
         sub_adrs: Option<usize>, 
         proof_pool: &mut PrimitivePool)
     {
-        if let ProofCommand::Step(ps) = c{
+        if let ProofCommand::Step(ps) = command{
             let depth: usize = ind.0;
             let mut containing: Vec<usize> = pt.get_containing_parts(ind, true);
 
@@ -339,13 +339,13 @@ impl<'a> ProofCompressor{
 
                 // Now the data in the ProofCommand is added to the DisjointParts of the Tracker
                 let position = pt.parts[containing_part].part_commands.len();
-                pt.insert_to_part(ind, containing_part, c);
+                pt.insert_to_part(ind, containing_part, command);
 
                 // Check if this step must be collected in this part
                 // The step have to be used as premise 2 times to nodes that are not the conclusion
                 // So, if it is premise to the conclusion it has to be premise 3 times
-                if pt.must_be_collected(ind, containing_part, c){
-                    pt.add_to_units_queue_of_part(ind,containing_part, position, c, proof_pool);
+                if pt.must_be_collected(ind, containing_part, command){
+                    pt.add_to_units_queue_of_part(ind,containing_part, position, command, proof_pool);
                 }
             }
         } else {
@@ -353,6 +353,64 @@ impl<'a> ProofCompressor{
         }
     }
 
+    fn handle_edge_command(&self, 
+        pt: &mut PartTracker, 
+        c: &ProofCommand, 
+        commands: &Vec<ProofCommand>,
+        ind: (usize, usize),
+        sub_adrs: Option<usize>,
+        proof_pool: &mut PrimitivePool
+    ){
+        let depth = ind.0;
+        let mut containing: Vec<usize> = pt.get_containing_parts(ind, true);
+        let mut premise_not_r: Vec<(usize,usize)> = vec![];
+        for &prem in c.premises(){
+            if prem.0==depth{
+                if self.step_is_resolution(prem, sub_adrs){
+                    pt.add_step_to_new_part(prem, true); // creates new parts for the premises that are resolutions
+                    //println!("Now there are {:?} parts",&pt.parts.len());
+                    //println!("Last part is {:?}",&pt.parts.last().unwrap());
+                } else {
+                    premise_not_r.push(prem); // stores the premises that aren't resolutions
+                }
+            }
+        }
+        if !self.single_assume_is_premise(ind, commands, sub_adrs){ //check if this step comes from an assume, 
+            // In this case it's premise already is going to be added to part 0.
+            // Here we will add the non-resolution premises to non-resolution parts where this node belongs to 
+            // or create a single part for this node and all it's non-resolution premises
+            if !premise_not_r.is_empty(){ // checks if there is a non-resolution, and if step is not or
+                let non_resolution_parts = pt.non_resolution_parts(ind);
+                
+                if non_resolution_parts.is_empty(){ // checks if every part of this step is a resolution part, so we will create a new part
+                    let new_part_ind: usize = pt.add_step_to_new_part(ind, false);
+                    // containing.push(new_part_ind);
+                    for &prem in &premise_not_r{
+                        pt.mark_for_part(prem, new_part_ind);
+                    }
+                } else{
+                    for &containing_part in &non_resolution_parts{
+                        for &prem in &premise_not_r{
+                            pt.mark_for_part(prem, containing_part);
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Now the data in the ProofCommand is added to the DisjointParts of the Tracker
+        for &containing_part in &containing{
+            let position = pt.parts[containing_part].part_commands.len();
+            pt.insert_to_part(ind,containing_part, c);
+
+            if pt.parts[containing_part].compressible{
+                // Check if this step must be collected in this part
+                if pt.must_be_collected(ind, containing_part, c){
+                    pt.add_to_units_queue_of_part_old(ind,containing_part, position, &self.subproofs, proof_pool);
+                }
+            }
+        }
+    }
 
     fn collect_units(&mut self, sub_adrs: Option<usize>, proof_pool: &mut PrimitivePool) -> PartTracker{
         
@@ -418,54 +476,7 @@ impl<'a> ProofCompressor{
                     // premises will be in their own parts if they are resolutions
                     // non-resolution premises will be in a single non-resolution part
                     else if pt.is_premise_of_resolution((depth,i)){
-                        let mut premise_not_r: Vec<(usize,usize)> = vec![];
-                        for &prem in &ps.premises{
-                            if prem.0==depth{
-                                if self.step_is_resolution(prem, sub_adrs){
-                                    pt.add_step_to_new_part(prem, true); // creates new parts for the premises that are resolutions
-                                    //println!("Now there are {:?} parts",&pt.parts.len());
-                                    //println!("Last part is {:?}",&pt.parts.last().unwrap());
-                                } else {
-                                    premise_not_r.push(prem); // stores the premises that aren't resolutions
-                                }
-                            }
-                        }
-                        if !self.single_assume_is_premise((depth,i), commands, sub_adrs){ //check if this step comes from an assume, 
-                            // In this case it's premise already is going to be added to part 0.
-                            // Here we will add the non-resolution premises to non-resolution parts where this node belongs to 
-                            // or create a single part for this node and all it's non-resolution premises
-                            if !premise_not_r.is_empty(){ // checks if there is a non-resolution, and if step is not or
-                                let non_resolution_parts = pt.non_resolution_parts((depth,i));
-                                
-                                if non_resolution_parts.is_empty(){ // checks if every part of this step is a resolution part, so we will create a new part
-                                    let new_part_ind: usize = pt.add_step_to_new_part((depth,i), false);
-                                   // containing.push(new_part_ind);
-                                    for &prem in &premise_not_r{
-                                        pt.mark_for_part(prem, new_part_ind);
-                                    }
-                                } else{
-                                    for &containing_part in &non_resolution_parts{
-                                        for &prem in &premise_not_r{
-                                            pt.mark_for_part(prem, containing_part);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        
-                        // Now the data in the ProofCommand is added to the DisjointParts of the Tracker
-                        for &containing_part in &containing{
-                            let position = pt.parts[containing_part].part_commands.len();
-                            pt.insert_to_part((depth,i),containing_part, c);
-
-                            if pt.parts[containing_part].compressible{
-                                // Check if this step must be collected in this part
-                                if pt.must_be_collected((depth,i), containing_part, c){
-                                    pt.add_to_units_queue_of_part_old((depth,i),containing_part, position, &self.subproofs, proof_pool);
-                                }
-                            }
-                        }
-
+                        self.handle_edge_command(&mut pt, c, commands, (depth,i), sub_adrs, proof_pool)
                     }
 
                     // Case 3
