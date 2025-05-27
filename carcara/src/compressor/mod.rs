@@ -556,9 +556,7 @@ impl<'a> ProofCompressor{
                 }
             };
         }
-
         self.handle_collectible_outer_premises(&mut collectible_outer_premises, &mut pt, sub_adrs, proof_pool);
-        
         pt
     }
 
@@ -566,51 +564,43 @@ impl<'a> ProofCompressor{
         pt: &mut PartTracker, 
         sub_adrs: Option<usize>, 
         proof_pool: &mut PrimitivePool)
-        { //ok
+        {
         for p in &mut pt.parts{
             if p.compressible{
                 let mut to_recompute: Vec<ReResolveInfo> = vec![];
                 let mut global_to_local: HashMap<(usize,usize),usize> = HashMap::new();
                 let n = p.part_commands.len();
                 let queue = &p.units_queue;
-                let mut changed: HashSet<(usize,usize)> = HashSet::new();
+                let mut modified: HashSet<(usize,usize)> = HashSet::new();
                 for &q in queue{
-                    changed.insert(q);
+                    modified.insert(q);
                 }
-                for (i, step) in p.part_commands.iter().rev().enumerate(){
+                for (i, c) in p.part_commands.iter().rev().enumerate(){
                     let index = p.original_index[n-1-i];
-                    
                     global_to_local.insert(index, n-1-i);
-                    if p.all_premises_remain( step)
-                    && p.some_premises_changed(&self.subproofs, step, &mut changed){
+                    /*if p.all_premises_remain( c)
+                    && p.some_premises_changed(&self.subproofs, c, &mut changed)*/
+                    
+                    if p.must_be_recomputed(c, &mut modified){
                         to_recompute.push(ReResolveInfo{
                             substitute: false,
                             location: n-1-i,
                             index
                         });
                         //println!("Adding {:?} in to_recompute",&step);
-                        changed.insert(index);
+                        modified.insert(index);
                     }
-                    else if p.single_premise_remains(step) &&
-                    (step.rule() == "resolution" || step.rule() == "th-resolution") {
+                    else if p.single_premise_remains(c) &&
+                    (c.rule() == "resolution" || c.rule() == "th-resolution") {
+                    //else if p.must_be_substituted(..){
                         to_recompute.push(ReResolveInfo{
                             substitute: true,
                             location: n-1-i,
                             index
                         });
-                        //println!("Adding {:?} in to_recompute",&step);
-                        changed.insert(index);
+                        modified.insert(index);
                     }
-                    else if p.some_premises_remains(step) && 
-                    (step.rule() == "resolution" || step.rule() == "th-resolution"){
-                        to_recompute.push(ReResolveInfo{
-                            substitute: false,
-                            location: n-1-i,
-                            index
-                        });
-                        //println!("Adding {:?} in to_recompute",&step);
-                        changed.insert(index);
-                    }
+                    
                 };
                 for clause in &to_recompute{
                     if self.get_rule(clause.index, sub_adrs)=="contraction"{

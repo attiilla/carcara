@@ -125,13 +125,12 @@ impl<'a> DisjointPart {
 
     pub fn some_premises_changed(
         &self,
-        sp_stack: &Vec<SubproofMeta>,
         command: &ProofCommand,
-        changed: &mut HashSet<(usize, usize)>,
+        modified: &mut HashSet<(usize, usize)>,
     ) -> bool {
         //ok
         let premises = command.premises();
-        premises.iter().any(|prem| changed.contains(prem))
+        premises.iter().any(|prem| modified.contains(prem))
     }
 
     pub fn marked_to_removal(&self, step: &(usize, usize)) -> bool {
@@ -176,6 +175,11 @@ impl<'a> DisjointPart {
                 (&self.part_commands[position],*substitute_ind)
             }
         }
+    }
+
+    pub fn must_be_recomputed(&self, command: &ProofCommand, modified: &mut HashSet<(usize,usize)>)->bool{
+        (self.all_premises_remain(command) && self.some_premises_changed(command, modified)) ||
+        (self.some_premises_remains(command) && command.is_resolution())
     }
 
     pub fn set_recomputed(&mut self, index: (usize, usize)){
