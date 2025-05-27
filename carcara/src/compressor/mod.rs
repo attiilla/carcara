@@ -412,6 +412,34 @@ impl<'a> ProofCompressor{
         }
     }
 
+    fn handle_uncompressible_command(&self, 
+        pt: &mut PartTracker, 
+        c: &ProofCommand,
+        ind: (usize, usize),
+        sub_adrs: Option<usize>
+    ){
+            let depth = ind.0;
+            let mut containing: Vec<usize> = pt.get_containing_parts(ind, true);
+            for &prem in c.premises(){
+                if prem.0==depth{
+                    // If the premise is a resolution, it will be the conclusion of a new part
+                    if self.step_is_resolution(prem, sub_adrs){
+                        pt.add_step_to_new_part(prem, true); // creates new parts for the premises that are resolutions
+                    } 
+                    // If the premise is not a resolution, just add it to the parts containing the current step 
+                    else {
+                        for &containing_part in &containing{
+                            pt.mark_for_part(prem, containing_part);
+                        }
+                    }
+                }
+            }
+            for &containing_part in &containing{
+                // Now the data in the ProofStep should be added to the DisjointParts of the Tracker
+                pt.insert_to_part(ind,containing_part, c);
+            }
+        }
+
     fn collect_units(&mut self, sub_adrs: Option<usize>, proof_pool: &mut PrimitivePool) -> PartTracker{
         
         let mut outer_premises: IndexSet<(usize,usize)> = IndexSet::new();
@@ -476,30 +504,13 @@ impl<'a> ProofCompressor{
                     // premises will be in their own parts if they are resolutions
                     // non-resolution premises will be in a single non-resolution part
                     else if pt.is_premise_of_resolution((depth,i)){
-                        self.handle_edge_command(&mut pt, c, commands, (depth,i), sub_adrs, proof_pool)
+                        self.handle_edge_command(&mut pt, c, commands, (depth,i), sub_adrs, proof_pool);
                     }
 
                     // Case 3
                     // If the node is not a resolution nor premise of one
                     else {
-                        for &prem in &ps.premises{
-                            if prem.0==depth{
-                                // If the premise is a resolution, it will be the conclusion of a new part
-                                if self.step_is_resolution(prem, sub_adrs){
-                                    pt.add_step_to_new_part(prem, true); // creates new parts for the premises that are resolutions
-                                } 
-                                // If the premise is not a resolution, just add it to the parts containing the current step 
-                                else {
-                                    for &containing_part in &containing{
-                                        pt.mark_for_part(prem, containing_part);
-                                    }
-                                }
-                            }
-                        }
-                        for &containing_part in &containing{
-                            // Now the data in the ProofStep should be added to the DisjointParts of the Tracker
-                            pt.insert_to_part((depth,i),containing_part, c);
-                        }
+                        self.handle_uncompressible_command(&mut pt, c, (depth, i), sub_adrs);
                     }
                 }
                 
