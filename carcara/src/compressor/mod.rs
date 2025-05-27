@@ -302,6 +302,58 @@ impl<'a> ProofCompressor{
         }
     }
 
+    fn handle_internal_command(&self, 
+        pt: &mut PartTracker, 
+        c: &ProofCommand, 
+        outer_premises: &mut IndexSet<(usize,usize)>, 
+        ind: (usize, usize), 
+        sub_adrs: Option<usize>, 
+        proof_pool: &mut PrimitivePool)
+    {
+        if let ProofCommand::Step(ps) = c{
+            let depth: usize = ind.0;
+            let mut containing: Vec<usize> = pt.get_containing_parts(ind, true);
+
+            // First we check if this is one of the steps that can't be deleted
+            // If it is conclusion of a part or can't be deleted, we create a 
+            // new part with this step as conclusion
+            if self.must_be_a_new_conclusion(ind, &pt, sub_adrs){
+                let new_part_ind: usize = pt.add_step_to_new_part(ind, true);
+                containing.push(new_part_ind);
+            }
+            if self.preserving_binder.contains(&ps.rule){
+                for &containing_part in &containing{
+                    pt.set_as_behaved(ps.premises[0],containing_part);       
+                }
+            }
+
+            for &containing_part in &containing{
+                for &prem in &ps.premises{
+                    if prem.0!=depth{
+                        outer_premises.insert(prem);
+                    }
+                    pt.mark_for_part(prem, containing_part);
+                    pt.set_resolutions_premise(prem); // To optimize
+                }
+                
+
+                // Now the data in the ProofCommand is added to the DisjointParts of the Tracker
+                let position = pt.parts[containing_part].part_commands.len();
+                pt.insert_to_part(ind, containing_part, c);
+
+                // Check if this step must be collected in this part
+                // The step have to be used as premise 2 times to nodes that are not the conclusion
+                // So, if it is premise to the conclusion it has to be premise 3 times
+                if pt.must_be_collected(ind, containing_part, c){
+                    pt.add_to_units_queue_of_part(ind,containing_part, position, c, proof_pool);
+                }
+            }
+        } else {
+            panic!("This function must never be called for a non-step command");
+        }
+    }
+
+
     fn collect_units(&mut self, sub_adrs: Option<usize>, proof_pool: &mut PrimitivePool) -> PartTracker{
         
         let mut outer_premises: IndexSet<(usize,usize)> = IndexSet::new();
@@ -312,13 +364,13 @@ impl<'a> ProofCompressor{
         let commands: &Vec<ProofCommand> = self.dive_into_proof(sub_adrs);
         let n = commands.len();
         let mut pt = PartTracker::new(self.step_is_resolution((depth,n-1), sub_adrs));
-        pt.mark_to_part((depth,n-1),1); //adds conclusion to part 1
+        pt.mark_for_part((depth,n-1),1); //adds conclusion to part 1
         pt.set_is_conclusion((depth,n-1));
         for (i, c) in commands.iter().enumerate().rev(){
             match c{
                 ProofCommand::Assume{id,term} => {
                     // Select the parts whose the current step belong to
-                    pt.mark_to_part((depth,i), 0); //all assumes must be in the part 0
+                    pt.mark_for_part((depth,i), 0); //all assumes must be in the part 0
                     let containing: Vec<usize> = match pt.parts_containing((depth,i)){
                         Ok(v) => v,
                         Err(CollectionError::NodeWithoutInwardEdge) => 
@@ -336,7 +388,7 @@ impl<'a> ProofCompressor{
                         if pt.must_collect_assume((depth,i), containing_part)
                         {
                             //println!("Adding Assume {id}: {term} to queue of part {:?}",&containing_part);
-                            pt.add_to_units_queue_of_part((depth,i),containing_part, position, &self.subproofs, proof_pool);
+                            pt.add_to_units_queue_of_part_old((depth,i),containing_part, position, &self.subproofs, proof_pool);
                         }
                     }
                     
@@ -357,45 +409,7 @@ impl<'a> ProofCompressor{
                     // Case 1
                     // If this node is a resolution, every premise is in the same parts
                     if self.internal_command(ps,sub_adrs){
-                        // First we check if this is one of the steps that can't be deleted
-                        // If it isn't conclusion of a part and can't be deleted, we create a 
-                        // new part with this step as conclusion
-
-                        if self.must_be_a_new_conclusion((depth,i), &pt, sub_adrs){
-                            let new_part_ind: usize = pt.add_step_to_new_part((depth,i), true);
-                            containing.push(new_part_ind);
-                        }
-                        if self.preserving_binder.contains(&ps.rule){
-                            for &containing_part in &containing{
-                                pt.set_as_behaved(ps.premises[0],containing_part);       
-                            }
-                        }
-
-                        for &containing_part in &containing{
-                            for &prem in &ps.premises{
-                                if prem.0!=depth{
-                                    outer_premises.insert(prem);
-                                }
-                                pt.mark_to_part(prem, containing_part);
-                                if ps.rule == "resolution" || ps.rule == "th-resoltion"{
-                                    pt.set_resolutions_premise(prem); // marks prem as premise of a resolution if this is a resolution
-                                } else if self.preserving_binder.contains(&ps.rule) && pt.is_premise_of_resolution((depth,i)){
-                                    pt.set_resolutions_premise(prem); // if its a contraction/reordering, mark prem only if this step is premise of a resolution
-                                }
-                            }
-                            
-
-                            // Now the data in the ProofCommand is added to the DisjointParts of the Tracker
-                            let position = pt.parts[containing_part].part_commands.len();
-                            pt.insert_to_part((depth,i), containing_part, c);
-
-                            // Check if this step must be collected in this part
-                            // The step have to be used as premise 2 times to nodes that are not the conclusion
-                            // So, if it is premise to the conclusion it has to be premise 3 times
-                            if pt.must_be_collected((depth,i), containing_part, c){
-                                pt.add_to_units_queue_of_part((depth,i),containing_part, position, &self.subproofs, proof_pool);
-                            }
-                        }
+                        self.handle_internal_command(&mut pt, c, &mut outer_premises, (depth,i), sub_adrs, proof_pool);
                     }
 
                     // Case 2
@@ -427,12 +441,12 @@ impl<'a> ProofCompressor{
                                     let new_part_ind: usize = pt.add_step_to_new_part((depth,i), false);
                                    // containing.push(new_part_ind);
                                     for &prem in &premise_not_r{
-                                        pt.mark_to_part(prem, new_part_ind);
+                                        pt.mark_for_part(prem, new_part_ind);
                                     }
                                 } else{
                                     for &containing_part in &non_resolution_parts{
                                         for &prem in &premise_not_r{
-                                            pt.mark_to_part(prem, containing_part);
+                                            pt.mark_for_part(prem, containing_part);
                                         }
                                     }
                                 }
@@ -447,7 +461,7 @@ impl<'a> ProofCompressor{
                             if pt.parts[containing_part].compressible{
                                 // Check if this step must be collected in this part
                                 if pt.must_be_collected((depth,i), containing_part, c){
-                                    pt.add_to_units_queue_of_part((depth,i),containing_part, position, &self.subproofs, proof_pool);
+                                    pt.add_to_units_queue_of_part_old((depth,i),containing_part, position, &self.subproofs, proof_pool);
                                 }
                             }
                         }
@@ -466,7 +480,7 @@ impl<'a> ProofCompressor{
                                 // If the premise is not a resolution, just add it to the parts containing the current step 
                                 else {
                                     for &containing_part in &containing{
-                                        pt.mark_to_part(prem, containing_part);
+                                        pt.mark_for_part(prem, containing_part);
                                     }
                                 }
                             }
@@ -521,12 +535,12 @@ impl<'a> ProofCompressor{
                                 let new_part_ind: usize = pt.add_step_to_new_part((depth,i), false);
                                 containing.push(new_part_ind);
                                 for &prem in &premise_not_r{
-                                    pt.mark_to_part(prem, new_part_ind);
+                                    pt.mark_for_part(prem, new_part_ind);
                                 }
                             } else{
                                 for &containing_part in &non_resolution_parts{
                                     for &prem in &premise_not_r{
-                                        pt.mark_to_part(prem, containing_part);
+                                        pt.mark_for_part(prem, containing_part);
                                     }
                                 }
                             }
@@ -541,7 +555,7 @@ impl<'a> ProofCompressor{
                                     pt.add_step_to_new_part(prem, true);
                                 } else {
                                     for &containing_parts in &containing {
-                                        pt.mark_to_part(prem, containing_parts);
+                                        pt.mark_for_part(prem, containing_parts);
                                     }
                                 }
                             }
@@ -576,7 +590,7 @@ impl<'a> ProofCompressor{
                 //Check if some outer step must be collected for each part
                 if pt.must_be_collected(outer_step, containing_part, outer_c)
                 {
-                    pt.add_to_units_queue_of_part(outer_step, containing_part, position, &self.subproofs, proof_pool);
+                    pt.add_to_units_queue_of_part_old(outer_step, containing_part, position, &self.subproofs, proof_pool);
                 }
                 
             }

@@ -76,7 +76,7 @@ impl PartTracker {
         self.is_conclusion.insert(step);
     }
 
-    pub fn mark_to_part(&mut self, step: (usize, usize), part_ind: usize) {
+    pub fn mark_for_part(&mut self, step: (usize, usize), part_ind: usize) {
         //ok
         match self.track_data.get_mut(&step) {
             // The step is already in some part
@@ -97,7 +97,7 @@ impl PartTracker {
         self.parts
             .push(DisjointPart::new(is_resolution, self.next_part));
         self.next_part += 1;
-        self.mark_to_part(step, new_part_ind);
+        self.mark_for_part(step, new_part_ind);
         self.set_is_conclusion(step);
         new_part_ind
     }
@@ -160,6 +160,33 @@ impl PartTracker {
     }
 
     pub fn add_to_units_queue_of_part(
+        &mut self,
+        step: (usize, usize),
+        part_ind: usize,
+        position: usize,
+        command: &ProofCommand,
+        proof_pool: &mut PrimitivePool,
+    ) {
+        //ok
+        match self.parts.get_mut(part_ind) {
+            Some(part) => {
+                let literal = command.clause()[0].clone();
+                let (parity, atom) = literal.remove_all_negations();
+                let bool_constant = if parity % 2 == 0 {
+                    proof_pool.bool_false()
+                } else {
+                    proof_pool.bool_true()
+                };
+                let args = (atom.clone(), bool_constant);
+                part.units_queue.insert(step);
+                part.queue_local.insert(position);
+                part.args_queue.insert(args);
+            }
+            None => panic!("Impossible adding to queue of a part that doesn't exist"),
+        }
+    }
+
+    pub fn add_to_units_queue_of_part_old(
         &mut self,
         step: (usize, usize),
         part_ind: usize,
