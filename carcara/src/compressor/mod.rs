@@ -3,7 +3,6 @@
 //benchmarks/small/SH_problems_all_filtered/Green_veriT/x2020_07_28_19_01_13_405_7253502.smt2 rodando ~/carcara/wt-atila/target/release/carcara check -i --allow-int-real-subtyping --expand-let-bindings test.alethe x2020_07_28_19_01_13_405_7253502.smt2
 //Uncontracted resolution with two pivots in one premise
 //build_term!(pool, (not { term }))
-//To refactor: better syntax for pseudo_assume
 //Refac
 //To optimize: steps without premises can all go to part 0?
 //To optimize: references in parts
@@ -208,7 +207,9 @@ impl<'a> ProofCompressor{
         }
     }
 
-    // Returns None if the owner is not a subproof
+    // This functions receives the current address of a subproof level and a target level, then
+    // it looks for the subproof of target level that contains the current proof and return
+    // the address of this proof level
     fn fetch_owner_subproof(&self, sub_adrs: Option<usize>, tgt: usize) -> Option<usize>{ //ok //Change
         if tgt==0{
             None
@@ -376,7 +377,7 @@ impl<'a> ProofCompressor{
                 }
             }
         }
-        if !self.single_assume_is_premise(ind, commands, sub_adrs){ //check if this step comes from an assume, 
+        if !self.is_pseudo_assume(ind, commands, sub_adrs){ //check if this step comes from an assume, 
             // In this case it's premise already is going to be added to part 0.
             // Here we will add the non-resolution premises to non-resolution parts where this node belongs to 
             // or create a single part for this node and all it's non-resolution premises
@@ -407,7 +408,7 @@ impl<'a> ProofCompressor{
             if pt.parts[containing_part].compressible && !is_subproof{
                 // Check if this step must be collected in this part
                 if pt.must_be_collected(ind, containing_part, c){
-                    pt.add_to_units_queue_of_part_old(ind,containing_part, position, &self.subproofs, proof_pool);
+                    pt.add_to_units_queue_of_part(ind,containing_part, position, c, proof_pool);
                 }
             }
         }
@@ -419,31 +420,67 @@ impl<'a> ProofCompressor{
         ind: (usize, usize),
         sub_adrs: Option<usize>
     ){
-            let depth = ind.0;
-            let mut containing: Vec<usize> = pt.get_containing_parts(ind, true);
-            for &prem in c.premises(){
-                if prem.0==depth{
-                    // If the premise is a resolution, it will be the conclusion of a new part
-                    if self.step_is_resolution(prem, sub_adrs){
-                        pt.add_step_to_new_part(prem, true); // creates new parts for the premises that are resolutions
-                    } 
-                    // If the premise is not a resolution, just add it to the parts containing the current step 
-                    else {
-                        for &containing_part in &containing{
-                            pt.mark_for_part(prem, containing_part);
-                        }
+        let depth = ind.0;
+        let mut containing: Vec<usize> = pt.get_containing_parts(ind, true);
+        for &prem in c.premises(){
+            if prem.0==depth{
+                // If the premise is a resolution, it will be the conclusion of a new part
+                if self.step_is_resolution(prem, sub_adrs){
+                    pt.add_step_to_new_part(prem, true); // creates new parts for the premises that are resolutions
+                } 
+                // If the premise is not a resolution, just add it to the parts containing the current step 
+                else {
+                    for &containing_part in &containing{
+                        pt.mark_for_part(prem, containing_part);
                     }
                 }
             }
+        }
+        for &containing_part in &containing{
+            // Now the data in the ProofStep should be added to the DisjointParts of the Tracker
+            pt.insert_to_part(ind,containing_part, c);
+        }
+    }
+
+    fn handle_collectible_outer_premises(&self, 
+        collectible_outer_premises: &mut IndexSet<(usize, usize)>, 
+        pt: &mut PartTracker, 
+        sub_adrs: Option<usize>,
+        proof_pool: &mut PrimitivePool)
+    {
+        let outer_owners: &HashMap<(usize, usize), Option<usize>> = match sub_adrs{
+            Some(v) => {
+                &self.subproofs[v].outer
+            }
+            None => &self.outer
+        };
+        for &outer_step in collectible_outer_premises.iter(){
+            let outer_owner_address: Option<usize> = *outer_owners.get(&outer_step).unwrap();
+            let adjusted_outer_step: (usize, usize) = self.get_new_index_of_outer_premise(sub_adrs, outer_step).unwrap();
+            let outer_commands: &Vec<ProofCommand> = self.dive_into_proof(outer_owner_address);
+            let outer_c = &outer_commands[outer_step.1];
+            let containing: Vec<usize> = match pt.parts_containing(outer_step){
+                Ok(v) => v,
+                _ => panic!("This should be impossible. In the same loop this step was stored in outer_premises it should have been m")
+            };
+
             for &containing_part in &containing{
-                // Now the data in the ProofStep should be added to the DisjointParts of the Tracker
-                pt.insert_to_part(ind,containing_part, c);
+                let position = pt.parts[containing_part].part_commands.len();
+                pt.insert_to_part(adjusted_outer_step, containing_part, outer_c);
+
+                
+                if pt.must_be_collected(outer_step, containing_part, outer_c)
+                {
+                    pt.add_to_units_queue_of_part(outer_step, containing_part, position, outer_c, proof_pool);
+                }
+                
             }
         }
+    }
 
     fn collect_units(&mut self, sub_adrs: Option<usize>, proof_pool: &mut PrimitivePool) -> PartTracker{
         
-        let mut outer_premises: IndexSet<(usize,usize)> = IndexSet::new();
+        let mut collectible_outer_premises: IndexSet<(usize,usize)> = IndexSet::new();
         let depth: usize = match sub_adrs{
             Some(v) => self.subproofs[v].depth,
             None => 0,
@@ -455,8 +492,7 @@ impl<'a> ProofCompressor{
         pt.set_is_conclusion((depth,n-1));
         for (i, c) in commands.iter().enumerate().rev(){
             match c{
-                ProofCommand::Assume{id,term} => {
-                    // Select the parts whose the current step belong to
+                ProofCommand::Assume{..} => {
                     pt.mark_for_part((depth,i), 0); //all assumes must be in the part 0
                     let containing: Vec<usize> = match pt.parts_containing((depth,i)){
                         Ok(v) => v,
@@ -465,17 +501,15 @@ impl<'a> ProofCompressor{
                         Err(_) => panic!("Unexpected error"),
                     };
 
-                    //println!("Parts containing Assume {id}: {term}\n{:?}",&containing);
                     for &containing_part in &containing{
                         let position = pt.parts[containing_part].part_commands.len();
-                        // The data in the Assume should be added to the DisjointParts of the Tracker
+    
                         pt.insert_to_part((depth,i),containing_part, c);
 
-                        // Check if this step must be collected in this part
+                        
                         if pt.must_collect_assume((depth,i), containing_part)
                         {
-                            //println!("Adding Assume {id}: {term} to queue of part {:?}",&containing_part);
-                            pt.add_to_units_queue_of_part_old((depth,i),containing_part, position, &self.subproofs, proof_pool);
+                            pt.add_to_units_queue_of_part((depth,i),containing_part, position, c, proof_pool);
                         }
                     }
                     
@@ -485,14 +519,13 @@ impl<'a> ProofCompressor{
                     // Case 1
                     // If this node is a resolution, every premise is in the same parts
                     if self.internal_command(ps,sub_adrs){
-                        self.handle_internal_command(&mut pt, c, &mut outer_premises, (depth,i), sub_adrs, proof_pool);
+                        self.handle_internal_command(&mut pt, c, &mut collectible_outer_premises, (depth,i), sub_adrs, proof_pool);
                     }
 
                     // Case 2
                     // If this node is not a resolution but is premise of a resolution,
-                    // it will be in the same parts as the resolutions who use it, but its
-                    // premises will be in their own parts if they are resolutions
-                    // non-resolution premises will be in a single non-resolution part
+                    // it will be in the same parts as the resolutions who use it, but the
+                    // disjoint part can't grown from here
                     else if pt.is_premise_of_resolution((depth,i)){
                         self.handle_edge_command(&mut pt, c, commands, (depth,i), sub_adrs, proof_pool, false);
                     }
@@ -504,34 +537,18 @@ impl<'a> ProofCompressor{
                     }
                 }
                 
-                ProofCommand::Subproof(ph_sp) => {//WARNING Corner Case: Let com premissa em outra profundidade
-                    let sp = self.access_subproof(&ph_sp);
-                    // Select the parts whose the current step belong to
-                    let mut containing: Vec<usize> = vec![];
-                    match pt.parts_containing((depth,i)){//WARNING
-                    //CORNER CASE TO TEST: Node is a subproof that isn't used as premise for any node of same depth
-                        Ok(v) => containing = v,
-                        Err(CollectionError::NodeWithoutInwardEdge) => {
-                            let new_part_ind: usize = pt.add_step_to_new_part((depth,i), false);
-                            containing.push(new_part_ind);
-                        }
-                        Err(_) => panic!("Unexpected error"),
-                    }
-                    
-                    
-                    let premises = match sp.commands.last(){
-                        None => panic!("Why there is an empty subproof on your proof?"),
-                        Some(ProofCommand::Step(ps)) => &ps.premises,
-                        _ => panic!("Why does your proof has an subproof that doesn't end in a step?"),
-                    };
+                ProofCommand::Subproof(_) => {//WARNING Corner Case: Let with premise in another depth
+                    //CORNER CASE TO TEST: in get_containing_parts: Node is a subproof that isn't used as premise for any node of same depth
 
-                    // If the subproof is not premise of a resolution, it's resolution premises of same depth will be conclusion of new parts
-                    // and it's other premises will be added to it's parts
+                    // Case 1
+                    // If this node is premise of a resolution, it will be 
+                    // in the same parts as the resolutions who use it, but the
+                    // disjoint part can't grown from here
                     if pt.is_premise_of_resolution((depth,i)){
                         self.handle_edge_command(&mut pt, c, commands, (depth,i), sub_adrs, proof_pool, true);
                     }
-                    // If the subproof is premise of a resolution
-                    // A logic much like the Case 2 of ProofStep will be used
+                    // Case 2
+                    // If the node is not a resolution nor premise of one
                     else{
                         self.handle_uncompressible_command(&mut pt, c, (depth, i), sub_adrs);
                     }
@@ -540,31 +557,8 @@ impl<'a> ProofCompressor{
             };
         }
 
-        let outer_owners: &HashMap<(usize, usize), Option<usize>> = match sub_adrs{
-            Some(v) => {
-                &self.subproofs[v].outer
-            }
-            None => &self.outer
-        };
-        // Now we will clone the data from outer premises in the respective parts
-        for outer_step in outer_premises{
-            let outer_owner_address: Option<usize> = *outer_owners.get(&outer_step).unwrap();
-            let adjusted_outer_step: (usize, usize) = self.get_new_index_of_outer_premise(sub_adrs, outer_step).unwrap();
-            let outer_commands: &Vec<ProofCommand> = self.dive_into_proof(outer_owner_address);
-            let outer_c = &outer_commands[outer_step.1];
-            let containing: Vec<usize> = pt.parts_containing(outer_step).unwrap_or_default();
-            for &containing_part in &containing{
-                let position = pt.parts[containing_part].part_commands.len();
-                pt.insert_to_part(adjusted_outer_step, containing_part, outer_c);
-
-                //Check if some outer step must be collected for each part
-                if pt.must_be_collected(outer_step, containing_part, outer_c)
-                {
-                    pt.add_to_units_queue_of_part_old(outer_step, containing_part, position, &self.subproofs, proof_pool);
-                }
-                
-            }
-        }
+        self.handle_collectible_outer_premises(&mut collectible_outer_premises, &mut pt, sub_adrs, proof_pool);
+        
         pt
     }
 
@@ -1457,7 +1451,7 @@ impl<'a> ProofCompressor{
         !pt.is_conclusion.contains(&step) && fixed.contains_key(&step)
     }
 
-    fn single_assume_is_premise(&self, step: (usize, usize), commands: &Vec<ProofCommand> ,sub_adrs: Option<usize>) -> bool{
+    fn is_pseudo_assume(&self, step: (usize, usize), commands: &Vec<ProofCommand> ,sub_adrs: Option<usize>) -> bool{
         match &commands[step.1]{
             ProofCommand::Step(ps) => {
                 if ps.premises.len()==1{
@@ -1475,22 +1469,6 @@ impl<'a> ProofCompressor{
                 }
             }
             _ => false,
-        }
-    }
-
-    fn is_premise_of_part_conclusion(&self, part_ind: usize, index: (usize,usize), pt: &PartTracker) -> bool{
-        let part = &pt.parts[part_ind];
-        match &part.part_commands[0]{
-            ProofCommand::Assume{..} => false,
-            ProofCommand::Step(ps) => ps.premises.contains(&index),
-            ProofCommand::Subproof(sp_ph) => {
-                let sp = self.access_subproof(sp_ph);
-                if let ProofCommand::Step(ps) = sp.commands.last().unwrap(){
-                    ps.premises.contains(&index)
-                } else {
-                    panic!("Every subproof should end in a ProofStep")
-                }
-            }
         }
     }
 
