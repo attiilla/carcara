@@ -3,7 +3,6 @@
 //benchmarks/small/SH_problems_all_filtered/Green_veriT/x2020_07_28_19_01_13_405_7253502.smt2 rodando ~/carcara/wt-atila/target/release/carcara check -i --allow-int-real-subtyping --expand-let-bindings test.alethe x2020_07_28_19_01_13_405_7253502.smt2
 //Uncontracted resolution with two pivots in one premise
 //build_term!(pool, (not { term }))
-//To refactor: command_premises, command_args, command_rule
 //To refactor: better syntax for pseudo_assume
 //Refac
 //To optimize: steps without premises can all go to part 0?
@@ -1143,69 +1142,6 @@ impl<'a> ProofCompressor{
         new_proof.push(com);
     }
 
-    fn command_rule<'b>(&'b self,pc: &'b ProofCommand) -> &'b str{
-        match pc {
-            ProofCommand::Assume {..} => "assume",
-            ProofCommand::Step(s) => &s.rule,
-            ProofCommand::Subproof(ssp) => {
-                if let ProofCommand::Step(ps) = &ssp.commands[0]{
-                    &ps.rule
-                } else {
-                    panic!("The last element of a subproof should be a proof step")
-                }
-            },
-        }
-    }
-
-    fn command_premises<'b>(&'b self,pc: &'b ProofCommand) -> &'b Vec<(usize,usize)>{
-        match pc {
-            ProofCommand::Assume {..} => {
-                static NO_PREM: Vec<(usize,usize)> = Vec::new();
-                &NO_PREM
-            },
-            ProofCommand::Step(s) => &s.premises,
-            ProofCommand::Subproof(ssp) => {
-                if let ProofCommand::Step(ps) = &ssp.commands[0]{
-                    &ps.premises
-                } else {
-                    panic!("The last element of a subproof should be a proof step")
-                }
-            },
-        }
-    }
-
-    fn command_args<'b>(&'b self,pc: &'b ProofCommand) -> &'b Vec<Rc<Term>>{
-        match pc {
-            ProofCommand::Assume {..} => {
-                static NO_ARGS: Vec<Rc<Term>> = Vec::new();
-                &NO_ARGS
-            },
-            ProofCommand::Step(s) => &s.args,
-            ProofCommand::Subproof(ssp) => {
-                if let ProofCommand::Step(ps) = &ssp.commands[0]{
-                    &ps.args
-                } else {
-                    panic!("The last element of a subproof should be a proof step")
-                }
-            },
-        }
-    }
-
-    fn plc_hodr_or_command_id<'b>(&'b self,pc: &'b ProofCommand) -> &'b str{
-        match pc {
-            ProofCommand::Assume {id,..} => id,
-            ProofCommand::Step(s) => &s.id,
-            ProofCommand::Subproof(ssp) => {
-                if let ProofCommand::Step(ps) = &ssp.commands[0]{
-                    &ps.id
-                } else {
-                    println!("sp {:?}",ssp);
-                    panic!("The last element of a subproof should be a proof step")
-                }
-            },
-        }
-    }
-
     fn get_rule(&self, step: (usize, usize), sub_adrs: Option<usize>) -> &str{ //ok
         let ind = step.1;
         let commands: &Vec<ProofCommand> = self.dive_into_proof(sub_adrs);
@@ -1282,7 +1218,7 @@ impl<'a> ProofCompressor{
                     }
                 }
             };
-            let rule = self.command_rule(&commands[ind]);
+            let rule = commands[ind].rule();
             rule == "resolution" || rule == "th-resolution"
         } else {
             panic!("reorder or contract with more than one premise")
@@ -1490,10 +1426,10 @@ impl<'a> ProofCompressor{
     fn build_args(&self, part: &DisjointPart, remaining: &[(usize, usize)], index: usize) -> Vec<Rc<Term>>{ // ok
         let mut ans: Vec<Rc<Term>> = vec![];
         let sp_stack = &self.subproofs;
-        let data = &part.part_commands[index];
+        let comm = &part.part_commands[index];
         let remaining_set: HashSet<_> = remaining.iter().copied().collect();
-        let old_args = self.command_args(data); 
-        if let Some(premises) = data.premises_old(sp_stack){
+        let old_args = comm.args(); 
+        if let Some(premises) = comm.premises_old(sp_stack){
             let n: usize = if remaining_set.contains(&premises[0]) {1} else {2};
             for (i, &p) in premises.iter().enumerate().skip(n){
                 if remaining_set.contains(&p){
