@@ -210,7 +210,7 @@ impl<'a> ProofCompressor{
     // This functions receives the current address of a subproof level and a target level, then
     // it looks for the subproof of target level that contains the current proof and return
     // the address of this proof level
-    fn fetch_owner_subproof(&self, sub_adrs: Option<usize>, tgt: usize) -> Option<usize>{ //ok //Change
+    fn stalk_owner(&self, sub_adrs: Option<usize>, tgt: usize) -> Option<usize>{ //ok //Change
         if tgt==0{
             None
         } else {
@@ -264,7 +264,7 @@ impl<'a> ProofCompressor{
                 self.fixed.insert(prem,None);
                 self.subproofs[me].outer.insert(prem,None);
             } else {
-                let owner_op: Option<usize> = self.fetch_owner_subproof(sub_adrs, prem.0);
+                let owner_op: Option<usize> = self.stalk_owner(sub_adrs, prem.0);
                 let fixed: &mut HashMap<(usize,usize),Option<(usize,usize)>> = match owner_op{
                     None => &mut self.fixed,
                     Some(owner) => &mut self.subproofs[owner].fixed,
@@ -640,7 +640,6 @@ impl<'a> ProofCompressor{
         // Stores the conclusion on each part and the part index
         let mut conclusions: Vec<(usize,ProofCommand)> = Vec::new();
         for p in & pt.parts{
-            //println!("Begin: Here, part {:?} has {:?} elements",p.ind,p.part_commands.len());
             let queue = &p.units_queue;
             if p.compressible && !queue.is_empty(){
                 let mut args = Vec::new();
@@ -660,7 +659,7 @@ impl<'a> ProofCompressor{
                     // Here will be added the premises and args of the current conclusion to the vector of premises and args of the new conclusion
                     args = ps.args.clone();
                     for &prem in &ps.premises{
-                        if prem.0 == depth { // inner premise
+                        if prem.0 == depth {
                             let commands: &Vec<ProofCommand> = &p.part_commands;
                             match p.inv_ind.get(&prem){
                                 Some(&position) => {
@@ -670,8 +669,8 @@ impl<'a> ProofCompressor{
                                 }
                                 None => panic!("Every inner premise should be in the inverse index")
                             }
-                        } else { // outer premise //Warning: Uncovered case?
-                            let new_sub = self.fetch_owner_subproof(sub_adrs, prem.0);
+                        } else {
+                            let new_sub = self.stalk_owner(sub_adrs, prem.0);
                             let fixed = self.get_current_fix(new_sub);
                             match fixed.get(&prem){
                                 Some(&Some(location)) => {
@@ -687,14 +686,13 @@ impl<'a> ProofCompressor{
                     }
                     
                     // Now the premises and arguments for the collected clauses will be added
-                    //build premises
+                    // build premises
                     for (i, location) in queue.iter().enumerate(){
-                        let old_location = location;
+                        let old_location: &(usize, usize) = location;
                         let location: (usize, usize) = self.get_new_index_of_outer_premise(sub_adrs, *old_location).unwrap();
                         let local_ind = queue_local[i];
                         let local_step = &p.part_commands[local_ind];
                         let (local_step, location) = p.get_substitute(local_step, location);
-                        let command_depth = location.0;
                         match p.inv_ind.get(&location){
                             Some(&on_part) => {
                                 let new_premise = Premise::new(location,&p.part_commands[on_part]);
@@ -709,7 +707,6 @@ impl<'a> ProofCompressor{
                         args.push(lit.clone());
                         args.push(polarity.clone());
                     }
-                    
                 } else {
                     panic!("The conclusion of a compressible part should not be an assume nor a subproof.")
                 }
@@ -740,7 +737,6 @@ impl<'a> ProofCompressor{
                     depth, p.ind, premises, args),
                 }
             }
-            //println!("End: Here, part {:?} has {:?} elements\n",p.ind,p.part_commands.len());
         }
         for (ind,conc) in conclusions{
             match pt.parts[ind].part_commands.first_mut(){
@@ -751,9 +747,6 @@ impl<'a> ProofCompressor{
             }
             pt.parts[ind].compressed = true;
         }
-        /*for &(p,index) in &recomputed_in{
-            pt.parts[p].set_recomputed(index);
-        }*/
     }
 
     fn rebuild(&mut self, pt: &mut PartTracker, sub_adrs: Option<usize>) -> Vec<ProofCommand>{
@@ -1152,7 +1145,7 @@ impl<'a> ProofCompressor{
         } else if adrs_depth == step.0{
             commands = self.dive_into_proof(sub_adrs);
         } else {
-            let owner = self.fetch_owner_subproof(sub_adrs, step.0).unwrap();
+            let owner = self.stalk_owner(sub_adrs, step.0).unwrap();
             commands = &self.subproofs[owner].proof.commands;
         }
         match commands.get(ind){
@@ -1171,7 +1164,7 @@ impl<'a> ProofCompressor{
                     if depth==self.subproofs[v].depth{
                         &self.subproofs[v].proof.commands
                     } else {
-                        &self.subproofs[self.fetch_owner_subproof(sub_adrs, depth).unwrap()].proof.commands
+                        &self.subproofs[self.stalk_owner(sub_adrs, depth).unwrap()].proof.commands
                     }
                 }
             };
@@ -1202,18 +1195,18 @@ impl<'a> ProofCompressor{
         index: usize
     ){ // ok
         let sp_stack = &self.subproofs;
-        if let Some(premises) = part.part_commands[index].premises_old(sp_stack){
-            let parent_global_ind = premises[0];
-            let parent_local_ind = part.local_index_of(parent_global_ind);
-            let parent_clause: Vec<Rc<Term>> = 
-                part.part_commands[parent_local_ind]
-                .clause()
-                .to_vec();
-            let clause_set: IndexSet<Rc<Term>> = parent_clause.into_iter().collect();
-            let new_contract: Vec<Rc<Term>> = clause_set.into_iter().collect();
-            let to_compress = &mut part.part_commands[index];
-            self.overwrite_clause(to_compress, new_contract);
-        }
+        let premises = part.part_commands[index].premises();
+        let parent_global_ind = premises[0];
+        let parent_local_ind = part.local_index_of(parent_global_ind);
+        let parent_clause: Vec<Rc<Term>> = 
+            part.part_commands[parent_local_ind]
+            .clause()
+            .to_vec();
+        let clause_set: IndexSet<Rc<Term>> = parent_clause.into_iter().collect();
+        let new_contract: Vec<Rc<Term>> = clause_set.into_iter().collect();
+        let to_compress = &mut part.part_commands[index];
+        self.overwrite_clause(to_compress, new_contract);
+        
     }
 
     fn overwrite_clause(&mut self, to_overwrite: &mut ProofCommand, new_clause: Vec<Rc<Term>>){ // ok
@@ -1414,7 +1407,7 @@ impl<'a> ProofCompressor{
                     } else if prem.0==0{
                         self.proof.commands[prem.1].is_assume()
                     } else {
-                        let ind = self.fetch_owner_subproof(sub_adrs, prem.0).unwrap();
+                        let ind = self.stalk_owner(sub_adrs, prem.0).unwrap();
                         self.subproofs[ind].proof.commands[prem.1].is_assume()
                     }
                 } else {
@@ -1557,6 +1550,10 @@ impl<'a> ProofCompressor{
         ps.rule == "th-resolution" || 
         (self.preserving_binder.contains(&ps.rule) && self.resolution_is_a_premise(&ps, sub_adrs))
     }
+
+    /*fn updated_outer_premise(&self, prem: (usize, usize)) -> (usize, usize){
+
+    }*/
 }
 
 
@@ -1651,7 +1648,7 @@ impl<'a> proof_cache<'a>{
     }
 
     pub fn load(&mut self, parent_depth: usize){
-        let parent_address = self.compressor.fetch_owner_subproof(self.address, parent_depth);
+        let parent_address = self.compressor.stalk_owner(self.address, parent_depth);
         self.mem[parent_depth] = self.compressor.dive_into_proof(parent_address);
     }
 
