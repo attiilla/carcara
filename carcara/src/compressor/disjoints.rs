@@ -1,5 +1,4 @@
 use super::{ProofCommand, SubproofMeta};
-use crate::ast::proof::*;
 use crate::ast::term::Term;
 use crate::ast::rc::Rc;
 use indexmap::IndexSet;

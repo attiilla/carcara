@@ -22,7 +22,7 @@ pub(super) struct PartTracker {
 #[derive(Debug)]
 struct TrackerData {
     parts_belonged: HashSet<usize>,    //the parts (i, j) belong to
-    part_count: HashMap<usize, usize>, //stores the number of times (i,j) appears on the part key
+    part_count: HashMap<usize, usize>, // HashMap<key,val> that stores the number of times val the command (i,j) appears on the part key
 }
 
 impl PartTracker {
@@ -44,7 +44,6 @@ impl PartTracker {
         let req = 
             if self.is_premise_of_part_conclusion(index, part_ind) {3} 
             else {2};
-        self.is_premise_of_resolution(index) &&
         self.counting_in_part(index, part_ind)>=req &&
         self.is_resolution_part(part_ind)
     }
