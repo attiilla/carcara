@@ -314,10 +314,6 @@ impl<'a> ProofCompressor{
         if let ProofCommand::Step(ps) = command{
             let depth: usize = ind.0;
             let mut containing: Vec<usize> = pt.get_containing_parts(ind, true);
-
-            // First we check if this is one of the steps that can't be deleted
-            // If it is conclusion of a part or can't be deleted, we create a 
-            // new part with this step as conclusion
             if self.must_be_a_new_conclusion(ind, &pt, sub_adrs){
                 let new_part_ind: usize = pt.add_step_to_new_part(ind, true);
                 containing.push(new_part_ind);
@@ -334,17 +330,12 @@ impl<'a> ProofCompressor{
                         outer_premises.insert(prem);
                     }
                     pt.mark_for_part(prem, containing_part);
-                    pt.set_resolutions_premise(prem); // To optimize
+                    pt.set_as_resolution_premise(prem);
                 }
                 
-
-                // Now the data in the ProofCommand is added to the DisjointParts of the Tracker
                 let position = pt.parts[containing_part].part_commands.len();
                 pt.insert_to_part(ind, containing_part, command);
 
-                // Check if this step must be collected in this part
-                // The step have to be used as premise 2 times to nodes that are not the conclusion
-                // So, if it is premise to the conclusion it has to be premise 3 times
                 if pt.must_be_collected(ind, containing_part, command){
                     pt.add_to_units_queue_of_part(ind,containing_part, position, command, proof_pool);
                 }
@@ -642,7 +633,7 @@ impl<'a> ProofCompressor{
         for p in & pt.parts{
             let queue = &p.units_queue;
             if p.compressible && !queue.is_empty(){
-                let mut args = Vec::new();
+                let mut args;
                 let queue_local = &p.queue_local;
                 let args_queue = &p.args_queue;
                 let mut premises: Vec<Premise<'_>>=  Vec::new();
@@ -652,7 +643,7 @@ impl<'a> ProofCompressor{
                 let mut first: &ProofCommand = &p.part_commands[0];
                 let mut location: (usize, usize) = p.original_index[0];
                 // Verifies if the conclusion was substituted
-                (first, location) = p.get_substitute(first, location);
+                (first, location) = p.resolve_substitute(first, location);
 
 
                 if let ProofCommand::Step(ps) = cache.get(location){
@@ -664,7 +655,7 @@ impl<'a> ProofCompressor{
                             match p.inv_ind.get(&prem){
                                 Some(&position) => {
                                     let command = &commands[position];
-                                    let (command, location) = p.get_substitute(command, prem);
+                                    let (command, location) = p.resolve_substitute(command, prem);
                                     premises.push(Premise::new(location,command));
                                 }
                                 None => panic!("Every inner premise should be in the inverse index")
@@ -692,7 +683,7 @@ impl<'a> ProofCompressor{
                         let location: (usize, usize) = self.get_new_index_of_outer_premise(sub_adrs, *old_location).unwrap();
                         let local_ind = queue_local[i];
                         let local_step = &p.part_commands[local_ind];
-                        let (local_step, location) = p.get_substitute(local_step, location);
+                        let (local_step, location) = p.resolve_substitute(local_step, location);
                         match p.inv_ind.get(&location){
                             Some(&on_part) => {
                                 let new_premise = Premise::new(location,&p.part_commands[on_part]);
@@ -1309,53 +1300,42 @@ impl<'a> ProofCompressor{
             Some(v) => self.subproofs[v].depth,
             None => 0,
         };
-        let sp_stack: &Vec<SubproofMeta> = &self.subproofs;
         let void_proof: Vec<ProofCommand> = vec![];
-        let mut cache: Vec<&Vec<ProofCommand>> = vec![&void_proof;depth+1];
-        cache[depth] = self.dive_into_proof(sub_adrs);
+        let mut cache: proof_cache<'_> = proof_cache::new(&self, sub_adrs);
         let mut ans: Vec<Premise> = vec![];
         let data = &part.part_commands[index];
         let remaining_set: HashSet<_> = remaining.iter().copied().collect();
-        
-        let op_prem: Option<&Vec<(usize, usize)>> = data.premises_old(sp_stack);
-        if let Some(premises) = op_prem{
-            for &prem in premises{
-                if remaining_set.contains(&prem){
-                    let new_comm: ProofCommand;
-                    if cache[prem.0].is_empty(){
-                        let new_sub = match prem.0{
-                            0 => None,
-                            i => Some(i-1)
-                        };
-                        cache[prem.0] = self.dive_into_proof(new_sub);
+        let premises: &Vec<(usize, usize)> = data.premises();
+        for &prem in premises{
+            if remaining_set.contains(&prem){
+                let new_comm: ProofCommand;
+                let local: usize = part.local_index_of(prem);
+                let local_command = &part.part_commands[local];
+                match cache.get(prem){
+                    ProofCommand::Assume { id, .. } => 
+                    new_comm = ProofCommand::Assume{id: id.clone(),
+                                                    term: local_command.clause()[0].clone() 
+                                                    },
+                    ProofCommand::Step(ps) => {
+                        let mut ps_temp = ps.clone();
+                        ps_temp.clause = local_command.clause().to_vec();
+                        new_comm = ProofCommand::Step(ps_temp);
                     }
-                    let local: usize = part.local_index_of(prem);
-                    let local_command = &part.part_commands[local];
-                    match &cache[prem.0][prem.1]{
-                        ProofCommand::Assume { id, .. } => 
-                        new_comm = ProofCommand::Assume{id: id.clone(),
-                                                        term: local_command.clause()[0].clone() 
-                                                        },
-                        ProofCommand::Step(ps) => {
+                    ProofCommand::Subproof(ph_sp) => {
+                        let sp = self.access_subproof(ph_sp);
+                        let sub_conclusion = sp.commands.last().unwrap();
+                        if let ProofCommand::Step(ps) = sub_conclusion{
                             let mut ps_temp = ps.clone();
                             ps_temp.clause = local_command.clause().to_vec();
                             new_comm = ProofCommand::Step(ps_temp);
-                        }
-                        ProofCommand::Subproof(ph_sp) => {
-                            let sp = self.access_subproof(ph_sp);
-                            let sub_conclusion = sp.commands.last().unwrap();
-                            if let ProofCommand::Step(ps) = sub_conclusion{
-                                let mut ps_temp = ps.clone();
-                                ps_temp.clause = local_command.clause().to_vec();
-                                new_comm = ProofCommand::Step(ps_temp);
-                            } else {
-                                panic!("The last element of a subproof should be a Step");
-                            }
+                        } else {
+                            panic!("The last element of a subproof should be a Step");
                         }
                     }
-                    new_commands.push((new_comm,prem));
                 }
-            }
+                new_commands.push((new_comm,prem));
+            
+        }
         }
         for (c,loc) in new_commands.iter(){
             ans.push(Premise::new(*loc,c));
@@ -1369,15 +1349,15 @@ impl<'a> ProofCompressor{
         let comm = &part.part_commands[index];
         let remaining_set: HashSet<_> = remaining.iter().copied().collect();
         let old_args = comm.args(); 
-        if let Some(premises) = comm.premises_old(sp_stack){
-            let n: usize = if remaining_set.contains(&premises[0]) {1} else {2};
-            for (i, &p) in premises.iter().enumerate().skip(n){
-                if remaining_set.contains(&p){
-                    ans.push(old_args[2*i-2].clone());
-                    ans.push(old_args[2*i-1].clone());
-                }
+        let premises: &Vec<(usize, usize)> = comm.premises();
+        let n: usize = if remaining_set.contains(&premises[0]) {1} else {2};
+        for (i, &p) in premises.iter().enumerate().skip(n){
+            if remaining_set.contains(&p){
+                ans.push(old_args[2*i-2].clone());
+                ans.push(old_args[2*i-1].clone());
             }
         }
+        
         ans
     }
     
