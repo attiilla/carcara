@@ -1,4 +1,4 @@
-use super::{ProofCommand, SubproofMeta};
+use super::ProofCommand;
 use crate::ast::term::Term;
 use crate::ast::rc::Rc;
 use indexmap::IndexSet;
@@ -123,10 +123,6 @@ impl<'a> DisjointPart {
         self.marked_for_deletion.insert(index);
     }
 
-    pub fn substituted_by(&self, subs_index: (usize, usize)) -> Option<&(usize, usize)> {
-        self.subs_table.get(&subs_index)
-    }
-
     pub fn is_behaved(&self, local_index: usize) -> bool {
         //ok
         match &self.original_index.get(local_index) {
@@ -143,9 +139,8 @@ impl<'a> DisjointPart {
         match self.subs_table.get(&old_index) {
             None => (substituted,old_index),
             Some(substitute_ind) => {
-                let position = *self.inv_ind.get(substitute_ind).unwrap_or_else(|| {
-                    panic!("The step {:?} is not in the inverted index", substitute_ind)
-                });
+                let position = *self.inv_ind.get(substitute_ind).unwrap_or_else(
+                    || panic!("The step {:?} is not in the inverted index", substitute_ind) );
                 (&self.part_commands[position],*substitute_ind)
             }
         }
@@ -165,6 +160,8 @@ impl<'a> DisjointPart {
         (self.all_premises_remain(command) && self.some_premises_changed(command, modified)) ||
         (self.some_premises_remains(command) && command.is_resolution())
     }
+
+    //pub fn resolve_deque(&self,)
 
     pub fn must_be_substituted(&self, command: &ProofCommand) -> bool {
         self.single_premise_remains(command) && command.is_resolution()

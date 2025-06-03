@@ -2,14 +2,10 @@ use std::collections::{HashMap, HashSet};
 
 use super::disjoints::*;
 use super::error::*;
-use super::SubproofMeta;
-//use super::Proof;
 use crate::ast::pool::PrimitivePool;
 use crate::ast::proof::*;
 use crate::ast::TermPool;
-//use crate::compressor::error::*;
-//use crate::compressor::dsjoints::*;
-//stores the information from the clause (i,j) across distinct parts
+
 #[derive(Debug)]
 pub(super) struct PartTracker {
     track_data: HashMap<(usize, usize), TrackerData>,
@@ -84,7 +80,7 @@ impl PartTracker {
             }
             None => {
                 // The step is new
-                let tracker = TrackerData::new(part_ind, None);
+                let tracker = TrackerData::new(part_ind);
                 self.track_data.insert(step, tracker);
             }
         }
@@ -107,24 +103,6 @@ impl PartTracker {
             Some(tracker) => Ok(tracker.parts_belonged.iter().copied().collect()),
             None => Err(CollectionError::NodeWithoutInwardEdge),
         }
-    }
-
-    pub fn insert_to_part_old(
-        &mut self,
-        step: (usize, usize),
-        part_ind: usize,
-        commands: &[ProofCommand],
-    ) {
-        //ok
-        let command_cloned: ProofCommand = match commands.get(step.1) {
-            Some(p) => p.clone(),
-            None => panic!("The index is out of bounds."),
-        };
-        let n = self.parts[part_ind].part_commands.len();
-        self.parts[part_ind].part_commands.push(command_cloned);
-        self.parts[part_ind].original_index.push(step);
-        self.parts[part_ind].inv_ind.insert(step, n);
-        //self.update_inv_index(step, part_ind, n);
     }
 
     pub fn insert_to_part(
@@ -185,46 +163,6 @@ impl PartTracker {
         }
     }
 
-    pub fn add_to_units_queue_of_part_old(
-        &mut self,
-        step: (usize, usize),
-        part_ind: usize,
-        position: usize,
-        sp_stack: &Vec<SubproofMeta>,
-        proof_pool: &mut PrimitivePool,
-    ) {
-        //ok
-        match self.parts.get_mut(part_ind) {
-            Some(part) => {
-                let literal = match &part.part_commands[position] {
-                    ProofCommand::Assume { term, .. } => term.clone(),
-                    ProofCommand::Step(ps) => ps.clause[0].clone(),
-                    ProofCommand::Subproof(ssp) => {
-                        let sp = &sp_stack[ssp.context_id].proof;
-                        match sp.commands.last() {
-                            None => panic!("This subproof is empty"),
-                            Some(pc) => match pc {
-                                ProofCommand::Step(ps) => ps.clause[0].clone(),
-                                _ => panic!("The last command of a subproof should be a step"),
-                            },
-                        }
-                    }
-                };
-                let (parity, atom) = literal.remove_all_negations();
-                let bool_constant = if parity % 2 == 0 {
-                    proof_pool.bool_false()
-                } else {
-                    proof_pool.bool_true()
-                };
-                let args = (atom.clone(), bool_constant);
-                part.units_queue.insert(step);
-                part.queue_local.insert(position);
-                part.args_queue.insert(args);
-            }
-            None => panic!("Impossible adding to queue of a part that doesn't exist"),
-        }
-    }
-
     pub fn set_as_resolution_premise(&mut self, step: (usize, usize)) {
         //ok
         self.resolutions_premises.insert(step);
@@ -242,16 +180,6 @@ impl PartTracker {
             Some(dp) => dp.compressible,
             None => panic!("There is no part with such a high index"),
         }
-    }
-
-    pub fn resolution_parts(&self, step: (usize, usize)) -> Vec<usize> {
-        let mut ans: Vec<usize> = Vec::new();
-        for (i, p) in self.parts.iter().enumerate() {
-            if p.compressible {
-                ans.push(i);
-            }
-        }
-        ans
     }
 
     pub fn non_resolution_parts(&self, step: (usize, usize)) -> Vec<usize> {
@@ -277,7 +205,7 @@ impl PartTracker {
 }
 
 impl TrackerData {
-    pub fn new(first_part: usize, ind: Option<usize>) -> TrackerData {
+    pub fn new(first_part: usize) -> TrackerData {
         //ok
         let parts_belonged: HashSet<usize> = std::iter::once(first_part).collect();
         let part_count: HashMap<usize, usize> = std::iter::once((first_part, 1)).collect();
