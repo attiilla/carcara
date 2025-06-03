@@ -225,7 +225,7 @@ impl PartTracker {
         }
     }
 
-    pub fn set_resolutions_premise(&mut self, step: (usize, usize)) {
+    pub fn set_as_resolution_premise(&mut self, step: (usize, usize)) {
         //ok
         self.resolutions_premises.insert(step);
     }

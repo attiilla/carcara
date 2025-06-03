@@ -652,17 +652,13 @@ impl<'a> ProofCompressor{
                     for &prem in &ps.premises{
                         if prem.0 == depth {
                             let commands: &Vec<ProofCommand> = &p.part_commands;
-                            match p.inv_ind.get(&prem){
-                                Some(&position) => {
-                                    let command = &commands[position];
-                                    let (command, location) = p.resolve_substitute(command, prem);
-                                    premises.push(Premise::new(location,command));
-                                }
-                                None => panic!("Every inner premise should be in the inverse index")
-                            }
+                            let local_position: usize = p.local_index_of(prem);
+                            let command: &ProofCommand = &commands[local_position];
+                            let (command, location): (&ProofCommand, (usize,usize)) = p.resolve_substitute(command, prem);
+                            premises.push(Premise::new(location,command));
                         } else {
-                            let new_sub = self.stalk_owner(sub_adrs, prem.0);
-                            let fixed = self.get_current_fix(new_sub);
+                            let new_sub: Option<usize> = self.stalk_owner(sub_adrs, prem.0);
+                            let fixed: &HashMap<(usize, usize), Option<(usize, usize)>> = self.get_current_fix(new_sub);
                             match fixed.get(&prem){
                                 Some(&Some(location)) => {
                                     let command = cache.get(location);
@@ -678,20 +674,14 @@ impl<'a> ProofCompressor{
                     
                     // Now the premises and arguments for the collected clauses will be added
                     // build premises
-                    for (i, location) in queue.iter().enumerate(){
-                        let old_location: &(usize, usize) = location;
+                    for (i, old_location) in queue.iter().enumerate(){
                         let location: (usize, usize) = self.get_new_index_of_outer_premise(sub_adrs, *old_location).unwrap();
-                        let local_ind = queue_local[i];
-                        let local_step = &p.part_commands[local_ind];
-                        let (local_step, location) = p.resolve_substitute(local_step, location);
-                        match p.inv_ind.get(&location){
-                            Some(&on_part) => {
-                                let new_premise = Premise::new(location,&p.part_commands[on_part]);
-                                premises.push(new_premise);
-                            }
-                            None => panic!("Treat this case if premise is not in the part")
-                        };
-                        
+                        let unary_local_ind: usize = queue_local[i];
+                        let unary_step: &ProofCommand = &p.part_commands[unary_local_ind];
+                        let (local_step, location): (&ProofCommand, (usize,usize)) = p.resolve_substitute(unary_step, location);
+                        let local_position: usize = p.local_index_of(location);
+                        let new_premise = Premise::new(location,&p.part_commands[local_position]);
+                        premises.push(new_premise);
                     }
                     
                     for (lit, polarity) in args_queue{
