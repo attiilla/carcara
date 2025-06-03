@@ -21,31 +21,6 @@ pub struct DisjointPart {
     pub recomputed: HashSet<(usize,usize)>,
 }
 
-impl ProofCommand {
-    pub fn premises_old<'a>(
-        &'a self,
-        sp_stack: &'a Vec<SubproofMeta>,
-    ) -> Option<&'a Vec<(usize, usize)>> {
-        // ok
-        match &self {
-            ProofCommand::Assume { .. } => None,
-            ProofCommand::Step(ps) => Some(&ps.premises),
-            ProofCommand::Subproof(ssp) => {
-                let sp = &sp_stack[ssp.context_id].proof;
-                match sp.commands.last() {
-                    Some(pc) => match pc {
-                        ProofCommand::Step(ps) => Some(&ps.premises),
-                        _ => panic!("The last command of a subproof should be a step"),
-                    },
-                    None => {
-                        panic!("An empty subproof doesn't concludes anything. This proof is wrong")
-                    }
-                }
-            }
-        }
-    }
-}
-
 impl<'a> DisjointPart {
     pub fn new(is_resolution: bool, ind: usize) -> Self {
         Self {
@@ -71,7 +46,7 @@ impl<'a> DisjointPart {
     ) -> bool {
         //ok
         let premises = command.premises();
-        premises.iter().all(|prem| !self.marked_to_removal(prem))
+        premises.iter().all(|prem| !self.is_collected(prem))
         
     }
 
@@ -82,7 +57,7 @@ impl<'a> DisjointPart {
         //ok
         let premises = command.premises();
         let remain: usize = premises.iter().fold(0, |acc, prem| {
-                if self.marked_to_removal(prem) {
+                if self.is_collected(prem) {
                     acc
                 } else {
                     acc + 1
@@ -98,7 +73,7 @@ impl<'a> DisjointPart {
         //ok
         let premises = command.premises();
         let remain: usize = premises.iter().fold(0, |acc, prem| {
-            if self.marked_to_removal(prem) {
+            if self.is_collected(prem) {
                 acc
             } else {
                 acc + 1
@@ -116,7 +91,7 @@ impl<'a> DisjointPart {
         let premises = command.premises(); 
         let ans: Vec<_> = premises
                 .iter()
-                .filter(|&prem| !self.marked_to_removal(prem))
+                .filter(|&prem| !self.is_collected(prem))
                 .copied()
                 .collect();
         ans
@@ -132,7 +107,7 @@ impl<'a> DisjointPart {
         premises.iter().any(|prem| modified.contains(prem))
     }
 
-    pub fn marked_to_removal(&self, step: &(usize, usize)) -> bool {
+    pub fn is_collected(&self, step: &(usize, usize)) -> bool {
         //ok
         self.units_queue.contains(step)
     }
@@ -160,7 +135,7 @@ impl<'a> DisjointPart {
         }
     }
 
-    pub fn get_substitute(
+    pub fn resolve_substitute(
         &'a self,
         substituted: &'a ProofCommand,
         old_index: (usize, usize),
