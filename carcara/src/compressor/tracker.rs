@@ -23,7 +23,7 @@ struct TrackerData {
 
 impl PartTracker {
     pub fn new(end_in_resolution: bool) -> Self {
-        //okp
+        //ok
         let mut parts: Vec<DisjointPart> = Vec::new();
         parts.push(DisjointPart::new(false, 0)); //the part 0 must contain all the assumes
         parts.push(DisjointPart::new(end_in_resolution, 1)); //the part 1 must contain the conclusion
@@ -116,7 +116,7 @@ impl PartTracker {
         let n = self.parts[part_ind].part_commands.len();
         self.parts[part_ind].part_commands.push(command_cloned);
         self.parts[part_ind].original_index.push(step);
-        self.parts[part_ind].inv_ind.insert(step, n);
+        self.parts[part_ind].insert_on_inverse_index(step, n);
     }
     
     pub fn is_premise_of_part_conclusion(&self, index: (usize,usize), part_ind: usize) -> bool{

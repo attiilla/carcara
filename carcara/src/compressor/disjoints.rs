@@ -16,7 +16,7 @@ pub struct DisjointPart {
     pub compressed: bool,
     pub ind: usize,
     pub subs_table: HashMap<(usize, usize), (usize, usize)>,
-    pub inv_ind: HashMap<(usize, usize), usize>,
+    inv_ind: HashMap<(usize, usize), usize>,
     pub behaved_steps: IndexSet<(usize, usize)>,
     pub recomputed: HashSet<(usize,usize)>,
 }
@@ -146,15 +146,16 @@ impl<'a> DisjointPart {
         }
     }
 
-    pub fn local_index_of(&self, index: (usize, usize)) -> usize{
+    pub fn local_index_of(&self, index: (usize, usize), sub_adrs: Option<usize>) -> usize{
         *self.inv_ind.get(&index).unwrap_or_else(|| {
-            panic!("The step {:?} is not in the inverted index", index)
+            panic!("The step {:?} is not in the inverted index.
+            Addrss is {:?} and part is {:?}", index, sub_adrs, self.ind)
         })
     }
 
-    /*pub fn inverse_index(&self) -> &HashMap<(usize,usize), usize>{
-        &self.inv_ind
-    }*/
+    pub fn insert_on_inverse_index(&mut self, index: (usize, usize), local_ind: usize){
+        self.inv_ind.insert(index, local_ind);
+    }
 
     pub fn must_be_recomputed(&self, command: &ProofCommand, modified: &mut HashSet<(usize,usize)>) -> bool {
         (self.all_premises_remain(command) && self.some_premises_changed(command, modified)) ||
