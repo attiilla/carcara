@@ -48,8 +48,8 @@ pub struct ProofCompressor{
     fixed: HashMap<(usize,usize), Option<(usize,usize)>>,
 
     // Maps the outer steps used by the proof to their sub_adrs
-    // Always empty here, added just to make the code more readable
-    outer: HashMap<(usize,usize), Option<usize>>,
+    // Always empty here, added just for consistency
+    outer: HashMap<usize,(Vec<usize>, Option<usize>)>,
 
 }
 
@@ -58,8 +58,7 @@ struct SubproofMeta{
     proof: Subproof,
     fixed: HashMap<(usize,usize),Option<(usize,usize)>>, // premises that can't be deleted are the keys, their updated indexes are the values
     depth: usize,
-    outer: HashMap<(usize,usize),Option<usize>>, // Maps outer premises to owners sub_adrs
-    implicit_premises: HashMap<usize, Vec<usize>>,
+    outer: HashMap<usize,(Vec<usize>, Option<usize>)>, // Maps outer premises to owners sub_adrs
     new_ind: usize,
     parent_adrs: Option<usize>,
     discharge: Vec<(usize,usize)>,
@@ -239,6 +238,26 @@ impl<'a> ProofCompressor{
         }
     }
 
+    // Returns the address of the last subproof inside the subproof addressed by sub_adrs
+    fn recursively_implicit_premises(&self, sub_adrs: Option<usize>, src_depth: usize) -> IndexSet<(usize,usize)>{
+        match sub_adrs{
+            None => panic!("You code tried to compute the implicit premises of the main proof. 
+            It does not have implicit premises"),
+            Some(k) => {
+                let mut ans: IndexSet<(usize,usize)> = 
+                match self.subproofs[k].outer.get(&(src_depth)){
+                    Some((v,_)) => v.iter().map(|&x| (src_depth, x)).collect(),
+                    None => IndexSet::new(),
+                };
+
+                if self.subproofs[k+1].depth > src_depth+1{
+                    ans.append(&mut self.recursively_implicit_premises(Some(k+1), src_depth))
+                }
+                ans
+            }
+        }
+    }
+
     fn relocate_subproofs(&mut self, sub_adrs: Option<usize>){ //ok
         let depth: usize = self.get_depth(sub_adrs);
 
@@ -257,22 +276,7 @@ impl<'a> ProofCompressor{
         }
         
         for &prem in &fixed_clauses{ //set the clauses as fixed
-            let me: usize = sub_adrs.expect("This must be dead code, as the first proof level will never be realocated");
-
-            if prem.0==0{
-                //self.tidy_up_outer_dependencies(me,prem,sub_adrs);
-                self.fixed.insert(prem,None);
-                self.subproofs[me].outer.insert(prem,None);
-            } else {
-                let owner_op: Option<usize> = self.stalk_owner(sub_adrs, prem.0);
-                let fixed: &mut HashMap<(usize,usize),Option<(usize,usize)>> = match owner_op{
-                    None => &mut self.fixed,
-                    Some(owner) => &mut self.subproofs[owner].fixed,
-                };
-                fixed.insert(prem,None);
-                
-                self.subproofs[me].outer.insert(prem, owner_op);
-            }
+            self.tidy_up_outer_dependencies(prem,sub_adrs);
         }
         
 
@@ -294,7 +298,6 @@ impl<'a> ProofCompressor{
                     fixed: HashMap::new(),
                     depth: depth+1,
                     outer: HashMap::new(),
-                    implicit_premises: HashMap::new(),
                     new_ind: i,
                     parent_adrs: sub_adrs,
                     discharge: vec![],
@@ -349,17 +352,22 @@ impl<'a> ProofCompressor{
     fn handle_edge_command(&self, 
         pt: &mut PartTracker, 
         c: &ProofCommand, 
-        commands: &Vec<ProofCommand>,
+        commands: &[ProofCommand],
         ind: (usize, usize),
         sub_adrs: Option<usize>,
         proof_pool: &mut PrimitivePool
     ){
         let depth = ind.0;
         let is_subproof = matches!(c, ProofCommand::Subproof(_));
+        let premises: &Vec<(usize, usize)>  = if is_subproof{
+            &self.implicit_premises(c, depth)
+        } else {
+            c.premises()
+        };
         
         let containing: Vec<usize> = pt.get_containing_parts(ind, true);
         let mut premise_not_r: Vec<(usize,usize)> = vec![];
-        for &prem in c.premises(){
+        for &prem in premises{
             if prem.0==depth{
                 if self.step_is_resolution(prem, sub_adrs){
                     pt.add_step_to_new_part(prem, true); // creates new parts for the premises that are resolutions
@@ -411,9 +419,17 @@ impl<'a> ProofCompressor{
         ind: (usize, usize),
         sub_adrs: Option<usize>
     ){
-        let depth = ind.0;
+        let depth: usize = ind.0;
+        let is_subproof = matches!(c, ProofCommand::Subproof(_));
+        let premises: &Vec<(usize, usize)>  = if is_subproof{
+            &self.implicit_premises(c, depth)
+        } else {
+            c.premises()
+        };
+        
+        
         let containing: Vec<usize> = pt.get_containing_parts(ind, self.is_resolution_or_pseudo(c,sub_adrs));
-        for &prem in c.premises(){
+        for &prem in premises{
             if prem.0==depth{
                 // If the premise is a resolution, it will be the conclusion of a new part
                 if self.step_is_resolution(prem, sub_adrs){
@@ -439,16 +455,16 @@ impl<'a> ProofCompressor{
         sub_adrs: Option<usize>,
         proof_pool: &mut PrimitivePool)
     {
-        let outer_owners: &HashMap<(usize, usize), Option<usize>> = match sub_adrs{
+        let outer_owners: &HashMap<usize, (Vec<usize>, Option<usize>)> = match sub_adrs{
             Some(v) => {
                 &self.subproofs[v].outer
             }
             None => &self.outer
         };
         for &outer_step in collectible_outer_premises.iter(){
-            let outer_owner_address: Option<usize> = *outer_owners.get(&outer_step).unwrap_or_else(|| 
+            let outer_owner_address: Option<usize> = outer_owners.get(&outer_step.0).unwrap_or_else(|| 
                 panic!("Outer step {:?} not mapped on compressor of {:?}", &outer_step, sub_adrs)
-            );
+            ).1;
             /*let adjusted_outer_step: (usize, usize) = self.get_new_index_of_outer_premise(sub_adrs, outer_step).unwrap_or_else(
                 || panic!("Adjusted step of {:?} not found on compressor of {:?}", &outer_step, sub_adrs)
             );*/
@@ -998,20 +1014,20 @@ impl<'a> ProofCompressor{
             Some(v) => &mut self.subproofs[v].fixed,
         };
         for (old_ind, destination) in fixed.iter_mut() {
-            let new_ind: (usize, usize) = *table.get(old_ind).unwrap();
+            let new_ind: (usize, usize) = table[old_ind];
             *destination = Some(new_ind);
         }
     }
 
     fn get_new_index_of_outer_premise(&self, sub_adrs: Option<usize>, old_ind: (usize,usize))-> (usize,usize){
-        let outer = match sub_adrs{
+        let outer: &HashMap<usize, (Vec<usize>, Option<usize>)> = match sub_adrs{
             None => &self.outer,
             Some(v) => &self.subproofs[v].outer,
         };
 
-        let op = match outer.get(&old_ind){
-            Some(None) => self.fixed[&old_ind],
-            Some(Some(v)) => self.subproofs[*v].fixed[&old_ind],
+        let op = match outer.get(&old_ind.0){
+            Some((_, None)) => self.fixed[&old_ind],
+            Some(&(_, Some(v))) => self.subproofs[v].fixed[&old_ind],
             None => Some(old_ind)
         };
         match op{
@@ -1384,6 +1400,35 @@ impl<'a> ProofCompressor{
         match sub_adrs{
             None => &mut self.proof.commands,
             Some(i) => &mut self.subproofs[i].proof.commands
+        }
+    }
+
+    fn tidy_up_outer_dependencies(&mut self, prem: (usize, usize), sub_adrs: Option<usize>){
+        let adrs: usize = sub_adrs.expect("This must be dead code, as the first proof level will never be realocated");
+        let owner_op: Option<usize> = self.stalk_owner(sub_adrs, prem.0);
+        let fixed: &mut HashMap<(usize,usize),Option<(usize,usize)>> = match owner_op{
+            None => &mut self.fixed,
+            Some(owner) => &mut self.subproofs[owner].fixed,
+        };
+        fixed.insert(prem,None);
+        self.insert_or_append_to_outer(adrs, prem, owner_op);
+    }
+
+    fn insert_or_append_to_outer(&mut self, adrs: usize, prem: (usize, usize), prem_own_addrss: Option<usize>){
+        match self.subproofs[adrs].outer.get_mut(&prem.0){
+            Some((v,_)) => v.push(prem.1),
+            None => {
+                self.subproofs[adrs].outer.insert(prem.0,(vec![prem.1],prem_own_addrss));
+            }
+        }
+    }
+
+    fn implicit_premises(&self, command: &ProofCommand, src_depth: usize) -> Vec<(usize, usize)>{
+        if let ProofCommand::Subproof(sp) = command{
+            let set: IndexSet<(usize, usize)> = self.recursively_implicit_premises(Some(sp.context_id), src_depth);
+            set.iter().cloned().collect()
+        } else {
+            panic!("Implicit premises should only be called for subproofs")
         }
     }
 
