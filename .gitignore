@@ -2,7 +2,6 @@
 /benchmarks
 /benchmarks_solutions
 sample/*
-!sample/fails
 scripts/*
 !scripts/generate_proofs.sh
 !scripts/check_folder.sh
@@ -15,3 +14,6 @@ scripts/*
 /.vscode/settings.json
 /fetch.sh
 /carcara/src/compressor_new
+ben/*
+.lldbinit
+tasks.json
