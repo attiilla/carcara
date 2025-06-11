@@ -1,6 +1,6 @@
 #!/bin/bash
-# Receives a folder <folder_name> as argument, then tries to produce a proof for every problem in <folder_name>
-# and store those proofs in <folder_name>_solutions (the proofs are stored in their respective subfolders)
+# Receives a folder <folder_name> as argument, then tries to produce a proof for every problem in <folder_name> and it's 
+# subfolders, then stores those proofs in <folder_name>_solutions (the proofs are stored in their respective subfolders)
 
 arg=$1
 cleaning=$2

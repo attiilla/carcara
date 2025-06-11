@@ -1,15 +1,11 @@
 //Question: outer_premises that aren't resolution can be thrown out after cloning their data to the parts?
 //Only steps that are resolution and are premise of another resolution are compressed by lower units
 //benchmarks/small/SH_problems_all_filtered/Green_veriT/x2020_07_28_19_01_13_405_7253502.smt2 rodando ~/carcara/wt-atila/target/release/carcara check -i --allow-int-real-subtyping --expand-let-bindings test.alethe x2020_07_28_19_01_13_405_7253502.smt2
-//Uncontracted resolution with two pivots in one premise
 //build_term!(pool, (not { term }))
-//Refac
 //To optimize: steps without premises can all go to part 0?
 //To optimize: references in parts
 //To optimize: mark as resolution premise only if not resolution
-//To optimize: i believe an uncompressible step can be just in the first part it was added to
-//To optimize: i am not collecting subproofs even if they can be collected. Collect them all
-//To check: when part conclusion is substituted
+//CORNER CASE TO TEST: when part conclusion is substituted
 //CORNER CASE TO TEST: Node is a subproof that isn't used as premise for any node of same depth
 //CORNER CASE TO TEST: The collectable node is from another subproof level
 //CORNER CASE TO TEST: is_premise_of_part_conclusion must check if the conclusion is a pseudo-resolution
@@ -22,11 +18,8 @@ use crate::checker::rules::Premise;
 use crate::compressor::error::*;
 use crate::ast::proof::*;
 use crate::ast::pool::PrimitivePool;
-//use crate::ast::node::*;
 use std::collections::{HashSet, HashMap};
 use std::{mem, vec};
-//use std::ops::Index;
-//use crate::checker::rules::Premise;
 use crate::checker::rules::resolution::{apply_generic_resolution, binary_resolution, unremove_all_negations};
 use crate::checker::error::CheckerError;
 use disjoints::*;
@@ -47,7 +40,7 @@ pub struct ProofCompressor{
     // of the Commands inside the new proof being build
     fixed: HashMap<(usize,usize), Option<(usize,usize)>>,
 
-    // Maps the outer steps used by the proof to their sub_adrs
+    // Maps the outer steps used by the proof to their original proof sub_adrs
     // Always empty here, added just for consistency
     outer: HashMap<usize,(Vec<usize>, Option<usize>)>,
 
@@ -56,9 +49,9 @@ pub struct ProofCompressor{
 #[derive(Debug)]
 struct SubproofMeta{
     proof: Subproof,
-    fixed: HashMap<(usize,usize),Option<(usize,usize)>>, // premises that can't be deleted are the keys, their updated indexes are the values
+    fixed: HashMap<(usize,usize),Option<(usize,usize)>>, // same as in ProofCompressor
     depth: usize,
-    outer: HashMap<usize,(Vec<usize>, Option<usize>)>, // Maps outer premises to owners sub_adrs
+    outer: HashMap<usize,(Vec<usize>, Option<usize>)>, // almost the same as in ProofCompressor, but not always empty here
     new_ind: usize,
     parent_adrs: Option<usize>,
     discharge: Vec<(usize,usize)>,
