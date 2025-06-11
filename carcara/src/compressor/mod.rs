@@ -103,8 +103,6 @@ impl<'a> ProofCompressor{
 
     pub fn compress_proof(mut self, verbose: bool, proof_pool: &mut PrimitivePool) -> Proof{
         env::set_var("RUST_BACKTRACE", "1");
-
-        //print_proof(&self.proof.commands, "".to_string(), 0, 0);
         if verbose{
             let _ = &mut self.lower_units_verbose(None,  proof_pool);
         } else {
@@ -141,11 +139,7 @@ impl<'a> ProofCompressor{
         //calls this same algorithm over every subproof
         if sub_adrs.is_none(){
             for i in 0..self.subproofs.len(){
-                /*if i==8{
-                    self.lower_units_verbose(Some(i), proof_pool);
-                }else{*/
-                    self.lower_units(Some(i), proof_pool);
-                //}
+                self.lower_units(Some(i), proof_pool);
             }
         }
     }
@@ -175,23 +169,16 @@ impl<'a> ProofCompressor{
         // collect units
         let mut pt: PartTracker = self.collect_units(sub_adrs, proof_pool);
         for p in &pt.parts{
-            //if p.ind==1 && sub_adrs.is_none(){ //comment
                 self.print_part(p);
                 println!("Collected: {:?}", &p.units_queue);
-            //}
         }
-        /*if pt.parts.iter().fold(0, |acc, part| acc+part.units_queue.len()) == 0{
-            return;
-        }*/
     
         // turn every part of a proof in a valid reasoning
         self.fix_broken_proof(&mut pt, sub_adrs, proof_pool);
         println!("after fix");
         for p in &pt.parts{
-            //if p.ind==1 && sub_adrs.is_none(){ //comment
                 self.print_part(p);
                 println!("Substituted: {:?}",&p.subs_table);
-            //}
         }
         
 
@@ -199,17 +186,12 @@ impl<'a> ProofCompressor{
         self.reinsert_collected_clauses(&mut pt, sub_adrs, proof_pool);
         println!("after reinsert");
         for p in &pt.parts{
-            //if p.ind==1 && sub_adrs.is_none(){ //comment
-                self.print_part(p);
-                //intln!("New conclusion part {:?}: {:?}", &p.ind, &p.new_conclusion);
-            //}
+            self.print_part(p);
         }
 
 
         // combines the parts to create a valid proof
         let new_commands: Vec<ProofCommand> = self.rebuild_verbose(&mut pt, sub_adrs);
-        //println!("New commands {:?}", &new_commands);
-        //println!("Socorro Naldo!!!!");
         self.position_insert(new_commands, sub_adrs);
         
 
@@ -377,32 +359,17 @@ impl<'a> ProofCompressor{
                 }
             }
         }
-        if !self.is_pseudo_assume(ind, commands, sub_adrs){ //check if this step comes from an assume, 
-            // In this case it's premise already is going to be added to part 0.
+
+        //check if this step comes from an assume and nothing more, 
+        // In this case it's premise already is going to be added to part 0.
+        if !self.is_pseudo_assume(ind, commands, sub_adrs){ 
             // Here we will add the non-resolution premises to non-resolution parts where this node belongs to 
             // or create a single part for this node and all it's non-resolution premises
             if !premise_not_r.is_empty(){ // checks if there is a non-resolution, and if step is not or
-                let non_resolution_parts = pt.non_resolution_parts(ind);
                 let new_part_ind: usize = pt.add_step_to_new_part(ind, false);
                 for &prem in &premise_not_r{
                     pt.mark_for_part(prem, new_part_ind);
                 }
-                /*
-                if non_resolution_parts.is_empty(){ // checks if every part of this step is a resolution part, so we will create a new part
-                    let new_part_ind: usize = pt.add_step_to_new_part(ind, false);
-                    // containing.push(new_part_ind);
-                    for &prem in &premise_not_r{
-                        pt.mark_for_part(prem, new_part_ind);
-                    }
-                } else{
-                    let new_part_ind: usize = pt.add_step_to_new_part(ind, false);
-                    non_resolution_parts.push(new_part_ind)
-                    for &containing_part in &non_resolution_parts{
-                        for &prem in &premise_not_r{
-                            pt.mark_for_part(prem, containing_part);
-                        }
-                    }
-                }*/
             }
         }
         
@@ -472,9 +439,6 @@ impl<'a> ProofCompressor{
             let outer_owner_address: Option<usize> = outer_owners.get(&outer_step.0).unwrap_or_else(|| 
                 panic!("Outer step {:?} not mapped on compressor of {:?}", &outer_step, sub_adrs)
             ).1;
-            /*let adjusted_outer_step: (usize, usize) = self.get_new_index_of_outer_premise(sub_adrs, outer_step).unwrap_or_else(
-                || panic!("Adjusted step of {:?} not found on compressor of {:?}", &outer_step, sub_adrs)
-            );*/
             let adjusted_outer_step: (usize, usize) = self.get_new_index_of_outer_premise(sub_adrs, outer_step);
             let outer_commands: &Vec<ProofCommand> = self.dive_into_proof(outer_owner_address);
             let outer_c = &outer_commands[adjusted_outer_step.1];
@@ -551,7 +515,8 @@ impl<'a> ProofCompressor{
                     }
                 }
                 
-                ProofCommand::Subproof(_) => {//WARNING Corner Case: Let with premise in another depth
+                ProofCommand::Subproof(_) => {
+                    //WARNING Corner Case: Let with premise in another depth
                     //CORNER CASE TO TEST: in get_containing_parts: Node is a subproof that isn't used as premise for any node of same depth
 
                     // Case 1
@@ -615,10 +580,8 @@ impl<'a> ProofCompressor{
                 };
                 for clause in &to_recompute{
                     if clause.rule=="contraction"{
-                        self.re_contract(p, clause.location, sub_adrs); //WARNING maybe add proof pool
-                    }/* else if clause.rule=="reordering"{
-                        self.re_reorder(p, clause.location, sub_adrs, &global_to_local)
-                    }*/
+                        self.re_contract(p, clause.location, sub_adrs);
+                    }
                     else if clause.substitute{
                         p.substitute(clause.index, p.remaining_premises(clause.location)[0]);
                     } else {
@@ -768,8 +731,6 @@ impl<'a> ProofCompressor{
         // Builds the premises field and insert the assumes in the proof
         for (i, a) in assumes.iter().rev().enumerate(){
             let index: (usize, usize) = pt.parts[0].original_index[n-i-1];
-            //println!();
-            //println!("On part 0 I see {:?}:{:?} - {:?}",a.id(),index,a.clause());
             if depth==index.0{
                 let com = ProofCommand::Assume {
                     id: format!("{}a{:?}", &base_string, a_count), 
@@ -807,18 +768,13 @@ impl<'a> ProofCompressor{
                      part.is_recomputed(index))                &&  // or, if it was added, this part version was recomputed
                     !part.marked_for_deletion.contains(&index) &&  // ensures it is not substituted
                     index.0==depth
-                {   
-                    //println!("entered");
-                    
+                {
                     let mut com = c.clone();
                     match &mut com{ //update 
                         ProofCommand::Assume{..} => (),
                         ProofCommand::Step(ps) => {
                             if !self.sp_binder.contains(&ps.rule){
-                                //println!("Now on {:?}:{:?} we will substitute its premises",c.id(), index);
-                                //println!("Old: {:?}",&ps.premises);
                                 self.update_vec(index,&mut ps.premises, &table, sub_adrs, part, &mut part_table);
-                                //println!("New: {:?}",&ps.premises);
                                 ps.id = format!("{}t{:?}", &base_string, t_count);
                                 t_count+=1;
                             }
@@ -1162,8 +1118,8 @@ impl<'a> ProofCompressor{
     fn re_contract(&mut self, 
         part: &mut DisjointPart, 
         index: usize,
-        sub_adrs: Option<usize> //test
-    ){ // ok
+        sub_adrs: Option<usize>
+    ){
         let premises = part.part_commands[index].premises();
         let parent_global_ind = premises[0];
         let parent_local_ind = part.local_index_of(parent_global_ind, sub_adrs);
@@ -1247,8 +1203,6 @@ impl<'a> ProofCompressor{
                     let resolvent_set: IndexSet<Rc<Term>> = r.into_iter().map(|x| unremove_all_negations(proof_pool,x)).collect();    
                     let resolvent: Vec<Rc<Term>> = resolvent_set.into_iter().collect();
                     let formatted_premises = premises.iter().map(|x| x.index).collect();
-                    /*step.clause = resolvent;
-                    step.args = args;*/
                     (resolvent, formatted_premises, args)
                 }
                 _ => {
@@ -1268,7 +1222,7 @@ impl<'a> ProofCompressor{
         index: usize, 
         sub_adrs: Option<usize>, 
         new_commands: &'a mut Vec<(ProofCommand,(usize,usize))>
-    ) -> Vec<Premise<'a>>{ // ok
+    ) -> Vec<Premise<'a>>{
         let depth: usize = self.get_depth(sub_adrs);
         let mut cache: ProofCache<'_> = ProofCache::new(self, sub_adrs);
         let mut ans: Vec<Premise> = vec![];
@@ -1389,7 +1343,7 @@ impl<'a> ProofCompressor{
                 Some(v) => &mut subproof_meta[v].proof.commands,
             };
 
-            // The step with the subproof conclusion had was adjusted at the parent level
+            // The step with the subproof conclusion was adjusted at the parent level
             // I.e., the subproof at depth 3 was adjusted while running the algorithm at level 2
             // This operation puts the adjusted conclusion
             mem::swap(&mut commands[new_ind], sub.commands.last_mut().unwrap());
@@ -1493,7 +1447,6 @@ impl<'a> ProofCompressor{
             }
         }
         Ok((current, useless_premise))
-        //Err(CheckerError::DivOrModByZero)
     }
 
     //returns true if, and only if the compressible parts of this command can be expanded from this point
