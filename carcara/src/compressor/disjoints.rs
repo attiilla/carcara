@@ -44,7 +44,6 @@ impl<'a> DisjointPart {
         &self,
         command: &ProofCommand,
     ) -> bool {
-        //ok
         let premises = command.premises();
         premises.iter().all(|prem| !self.is_collected(prem))
         
@@ -54,7 +53,6 @@ impl<'a> DisjointPart {
         &self,
         command: &ProofCommand,
     ) -> bool {
-        //ok
         let premises = command.premises();
         let remain: usize = premises.iter().fold(0, |acc, prem| {
                 if self.is_collected(prem) {
@@ -70,7 +68,6 @@ impl<'a> DisjointPart {
         &self,
         command: &ProofCommand,
     ) -> bool {
-        //ok
         let premises = command.premises();
         let remain: usize = premises.iter().fold(0, |acc, prem| {
             if self.is_collected(prem) {
@@ -86,7 +83,6 @@ impl<'a> DisjointPart {
         &self,
         ind: usize,
     ) -> Vec<(usize, usize)> {
-        //ok
         let command = &self.part_commands[ind];
         let premises = command.premises(); 
         let ans: Vec<_> = premises
@@ -98,22 +94,18 @@ impl<'a> DisjointPart {
     }
 
     pub fn some_premises_changed(
-        &self,
         command: &ProofCommand,
         modified: &mut HashSet<(usize, usize)>,
     ) -> bool {
-        //ok
         let premises = command.premises();
         premises.iter().any(|prem| modified.contains(prem))
     }
 
     pub fn is_collected(&self, step: &(usize, usize)) -> bool {
-        //ok
         self.units_queue.contains(step)
     }
 
     pub fn substitute(&mut self, index: (usize, usize), trgt_index: (usize, usize)) {
-        // ok
         let table = &mut self.subs_table;
         if let Some(&end_index) = table.get(&trgt_index) {
             table.insert(index, end_index);
@@ -124,7 +116,6 @@ impl<'a> DisjointPart {
     }
 
     pub fn is_behaved(&self, local_index: usize) -> bool {
-        //ok
         match &self.original_index.get(local_index) {
             Some(&global_index) => self.behaved_steps.contains(&global_index),
             None => panic!("Index out of bounds. The part is smaller than the index"),
@@ -158,11 +149,9 @@ impl<'a> DisjointPart {
     }
 
     pub fn must_be_recomputed(&self, command: &ProofCommand, modified: &mut HashSet<(usize,usize)>) -> bool {
-        (self.all_premises_remain(command) && self.some_premises_changed(command, modified)) ||
+        (self.all_premises_remain(command) && Self::some_premises_changed(command, modified)) ||
         (self.some_premises_remains(command) && command.is_resolution())
     }
-
-    //pub fn resolve_deque(&self,)
 
     pub fn must_be_substituted(&self, command: &ProofCommand) -> bool {
         self.single_premise_remains(command) && command.is_resolution()

@@ -1,13 +1,11 @@
 //Question: outer_premises that aren't resolution can be thrown out after cloning their data to the parts?
-//Only steps that are resolution and are premise of another resolution are compressed by lower units
 //benchmarks/small/SH_problems_all_filtered/Green_veriT/x2020_07_28_19_01_13_405_7253502.smt2 rodando ~/carcara/wt-atila/target/release/carcara check -i --allow-int-real-subtyping --expand-let-bindings test.alethe x2020_07_28_19_01_13_405_7253502.smt2
 //build_term!(pool, (not { term }))
 //To optimize: steps without premises can all go to part 0?
 //To optimize: references in parts
 //To optimize: mark as resolution premise only if not resolution
-//CORNER CASE TO TEST: when part conclusion is substituted
+//CORNER CASE TO TEST: When part conclusion is substituted
 //CORNER CASE TO TEST: Node is a subproof that isn't used as premise for any node of same depth
-//CORNER CASE TO TEST: The collectable node is from another subproof level
 //CORNER CASE TO TEST: is_premise_of_part_conclusion must check if the conclusion is a pseudo-resolution
 mod tracker;
 mod disjoints;
@@ -129,21 +127,21 @@ impl<'a> ProofCompressor{
             self.relocate_subproofs(sub_adrs);
         }
         
-        // break the proof in parts that have only resolution and preserving binders
-        // collect units
+        // Break the proof in parts that have only resolution and preserving binders
+        // Then, collect units that are used more than once before the last step
         let mut pt: PartTracker = self.collect_units(sub_adrs, proof_pool);
         
-        // turn every part of a proof in a valid reasoning
+        // Turn every part of a proof in a valid reasoning
         self.fix_broken_proof(&mut pt, sub_adrs, proof_pool);
         
-        // reinsert the collected units to each part
+        // Reinsert the collected units to each part
         self.reinsert_collected_clauses(&mut pt, sub_adrs, proof_pool);
         
-        // combines the parts to create a valid proof
+        // Combines the parts to create a valid proof
         let new_commands: Vec<ProofCommand> = self.rebuild(&mut pt, sub_adrs);
         self.position_insert(new_commands, sub_adrs);
 
-        //calls this same algorithm over every subproof
+        // Calls this same algorithm over every subproof
         if sub_adrs.is_none(){
             for i in 0..self.subproofs.len(){
                 self.lower_units(Some(i), proof_pool);
@@ -424,10 +422,6 @@ impl<'a> ProofCompressor{
                     }
                 }
             }
-            for &containing_part in &containing{
-                // Now the data in the ProofStep should be added to the DisjointParts of the Tracker
-                pt.insert_to_part(ind,containing_part, c);
-            }
         } else {
             for &prem in c.premises(){
                 if prem.0==depth{
@@ -443,11 +437,11 @@ impl<'a> ProofCompressor{
                     }
                 }
             }
-            for &containing_part in &containing{
-                // Now the data in the ProofStep should be added to the DisjointParts of the Tracker
-                pt.insert_to_part(ind,containing_part, c);
-            }
         };
+        for &containing_part in &containing{
+            // Now the data in the ProofStep should be added to the DisjointParts of the Tracker
+            pt.insert_to_part(ind,containing_part, c);
+        }
     }
 
     fn handle_collectible_outer_premises(&self, 
@@ -581,8 +575,7 @@ impl<'a> ProofCompressor{
                 for &q in queue{
                     modified.insert(q);
                 }
-                for (i, c) in p.part_commands.iter().rev().enumerate(){
-                    let local_ind: usize = n-1-i;
+                for (local_ind, c) in p.part_commands.iter().enumerate().rev(){
                     let index: (usize, usize) = p.original_index[local_ind];
                     if p.must_be_recomputed(c, &mut modified) & (depth==index.0){
                         to_recompute.push(

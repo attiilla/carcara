@@ -23,10 +23,8 @@ struct TrackerData {
 
 impl PartTracker {
     pub fn new(end_in_resolution: bool) -> Self {
-        //ok
-        let mut parts: Vec<DisjointPart> = Vec::new();
-        parts.push(DisjointPart::new(false, 0)); //the part 0 must contain all the assumes
-        parts.push(DisjointPart::new(end_in_resolution, 1)); //the part 1 must contain the conclusion
+        // the part 0 must contain all the assumes, the part 1 must contain the conclusion
+        let parts: Vec<DisjointPart> = vec![DisjointPart::new(false, 0),DisjointPart::new(end_in_resolution, 1)];
         Self {
             track_data: HashMap::new(),
             parts,
@@ -67,12 +65,10 @@ impl PartTracker {
     
 
     pub fn set_is_conclusion(&mut self, step: (usize, usize)) {
-        //ok
         self.is_conclusion.insert(step);
     }
 
     pub fn mark_for_part(&mut self, step: (usize, usize), part_ind: usize) {
-        //ok
         match self.track_data.get_mut(&step) {
             // The step is already in some part
             Some(tracker) => {
@@ -87,7 +83,6 @@ impl PartTracker {
     }
 
     pub fn add_step_to_new_part(&mut self, step: (usize, usize), is_resolution: bool) -> usize {
-        //ok
         let new_part_ind: usize = self.parts.len();
         self.parts
             .push(DisjointPart::new(is_resolution, self.next_part));
@@ -98,7 +93,6 @@ impl PartTracker {
     }
 
     pub fn parts_containing(&self, step: (usize, usize)) -> Result<Vec<usize>, CollectionError> {
-        //ok
         match self.track_data.get(&step) {
             Some(tracker) => Ok(tracker.parts_belonged.iter().copied().collect()),
             None => Err(CollectionError::NodeWithoutInwardEdge),
@@ -111,7 +105,6 @@ impl PartTracker {
         part_ind: usize,
         command: &ProofCommand,
     ) {
-        //ok
         let command_cloned: ProofCommand = command.clone();
         let n = self.parts[part_ind].part_commands.len();
         self.parts[part_ind].part_commands.push(command_cloned);
@@ -126,7 +119,6 @@ impl PartTracker {
     }
 
     pub fn counting_in_part(&self, step: (usize, usize), part_ind: usize) -> usize {
-        //ok
         match self.track_data.get(&step) {
             Some(tracker) => match tracker.part_count.get(&part_ind) {
                 Some(ans) => *ans,
@@ -144,7 +136,6 @@ impl PartTracker {
         command: &ProofCommand,
         proof_pool: &mut PrimitivePool,
     ) {
-        //ok
         match self.parts.get_mut(part_ind) {
             Some(part) => {
                 let literal = command.clause()[0].clone();
@@ -164,38 +155,19 @@ impl PartTracker {
     }
 
     pub fn set_as_resolution_premise(&mut self, step: (usize, usize)) {
-        //ok
         self.resolutions_premises.insert(step);
     }
 
     pub fn is_premise_of_resolution(&self, step: (usize, usize)) -> bool {
-        //ok
         self.resolutions_premises.contains(&step)
     }
     
 
     pub fn is_resolution_part(&self, part_ind: usize) -> bool {
-        //ok
         match self.parts.get(part_ind) {
             Some(dp) => dp.compressible,
             None => panic!("There is no part with such a high index"),
         }
-    }
-
-    pub fn non_resolution_parts(&self, step: (usize, usize)) -> Vec<usize> {
-        //ok
-        let mut ans: Vec<usize> = Vec::new();
-        let mut containing: Vec<usize> = vec![];
-        match self.parts_containing(step) {
-            Ok(v) => containing = v,
-            _ => (),
-        };
-        for &i in &containing {
-            if !self.parts[i].compressible {
-                ans.push(i);
-            }
-        }
-        ans
     }
 
     pub fn set_as_behaved(&mut self, step: (usize, usize), part_ind: usize) {
@@ -206,14 +178,12 @@ impl PartTracker {
 
 impl TrackerData {
     pub fn new(first_part: usize) -> TrackerData {
-        //ok
         let parts_belonged: HashSet<usize> = std::iter::once(first_part).collect();
         let part_count: HashMap<usize, usize> = std::iter::once((first_part, 1)).collect();
         TrackerData { parts_belonged, part_count }
     }
 
     pub fn add_one_more_to_part(&mut self, part_ind: usize) {
-        //ok
         if self.parts_belonged.contains(&part_ind) {
             // step already seen in this part
             if let Some(count) = self.part_count.get_mut(&part_ind) {
