@@ -1,4 +1,5 @@
 #!/bin/bash
+# Receives a folder <folder_name> as argument, then tries to compress and check every proof in <folder_name>_solutions and it's subfolders
 
 # Define the function to process each file
 process_file() {
@@ -42,7 +43,7 @@ if [ $# -lt 1 ]; then
     exit 1
 fi
 
-dir=$1
+base_dir="$1"
 shift
 total=0
 worked=0
@@ -68,11 +69,24 @@ for arg in "$@"; do
     esac
 done
 
-# Find all .alethe files in the sample directory and its subdirectories
+# Check if the solutions folder exists
+solutions_dir="${base_dir}_solutions"
+if [ ! -d "$solutions_dir" ]; then
+    echo "Error: Solutions directory '$solutions_dir' not found"
+    exit 1
+fi
+
+# Find all .alethe files in the solutions directory and its subdirectories
 while IFS= read -r -d '' alethe_file; do
-    # Extract the corresponding .smt2 file
-    smt2_file="${alethe_file%.alethe}.smt2"
+    # Get the relative path from the solutions directory
+    relative_path="${alethe_file#$solutions_dir/}"
+    
+    # Construct the corresponding .smt2 file path in the base directory
+    smt2_file="${base_dir}/${relative_path%.alethe}.smt2"
+    
+    # The compressed file stays in the same location as the alethe file
     compressed_file="${alethe_file%.alethe}.Calethe"
+    
     # Check if the paired .smt2 file exists
     if [ -f "$smt2_file" ]; then
         # Process the files and store the result
@@ -86,7 +100,6 @@ while IFS= read -r -d '' alethe_file; do
                 # Count lines in both files
                 original_lines=$(wc -l < "$alethe_file")
                 compressed_lines=$(wc -l < "$compressed_file")
-                echo "Counting"
                 echo "$alethe_file: $original_lines"
                 echo "$compressed_file: $compressed_lines"
                 difference=$((original_lines - compressed_lines))
@@ -112,9 +125,9 @@ while IFS= read -r -d '' alethe_file; do
         esac
         ((total++))
     else
-        echo "Error: Matching .smt2 file not found for $alethe_file"
+        echo "Error: Matching .smt2 file not found for $alethe_file (expected at $smt2_file)"
     fi
-done < <(find $dir -maxdepth 1 -type f -name '*.alethe' -print0)
+done < <(find "$solutions_dir" -type f -name '*.alethe' -print0)
 
 echo ""
 echo "Worked on $worked examples out of $total"

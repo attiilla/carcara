@@ -1,45 +1,77 @@
 #!/bin/bash
+# Receives a folder <folder_name> as argument, then tries to produce a proof for every problem in <folder_name>
+# and store those proofs in <folder_name>_solutions (the proofs are stored in their respective subfolders)
+
 arg=$1
 cleaning=$2
+timeout_duration=300
 
 if [ "$arg" != "clear" ]; then
     if [ -d "$arg" ]; then
-        for file in "$arg"/*.smt2; do
-            #remove (get-unsat-core) from problem files
+        # Create the solutions directory by appending "_solutions" to the input directory name
+        solutions_dir="${arg}_solutions"
+        mkdir -p "$solutions_dir"
+        
+        # Find all .smt2 files recursively
+        find "$arg" -type f -name "*.smt2" | while read -r file; do
+            # Remove (get-unsat-core) from problem files
             last_line=$(tail -n 1 "$file")
             if [ "$last_line" == "(get-unsat-core)" ]; then
                 sed -i '$ d' "$file"
             fi
+            
+            # Get relative path and create output directory structure
+            rel_path="${file#$arg/}"
+            output_dir="$solutions_dir/$(dirname "$rel_path")"
+            mkdir -p "$output_dir"
+            
             base_name=$(basename "$file" .smt2)
-            output="$arg/$base_name.alethe"
-            #--enum-inst makes the proof generating too slow, add when testing for large sets in server
-            cvc5 --dump-proofs --simplification=none --proof-format=alethe --proof-alethe-res-pivots --dag-thresh=0 --proof-granularity=theory-rewrite "$file" > "$output"
-            {
-                # Read first line separately
-                IFS= read -r first_line
+            output="$output_dir/$base_name.alethe"
+            
+            # Run cvc5 command with timeout
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')]Processing $file..."
+            if timeout $timeout_duration cvc5 --dump-proofs --simplification=none --proof-format=alethe --proof-alethe-res-pivots --dag-thresh=0 --proof-granularity=theory-rewrite "$file" > "$output"; then
+                # Process the output file if command succeeded
+                {
+                    # Read first line separately
+                    IFS= read -r first_line
+                    
+                    # Skip first line if it's exactly "unsat"
+                    if [ "$first_line" != "unsat" ]; then
+                        echo "$first_line"
+                    fi
+                    
+                    # Copy the rest of the file
+                    cat
+                    
+                    # Remove trailing blank lines
+                } < "$output" | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' > "$output.tmp"
+                mv "$output.tmp" "$output"
                 
-                # Skip first line if it's exactly "unsat"
-                if [ "$first_line" != "unsat" ]; then
-                    echo "$first_line"
+                # Print completion message with timestamp
+                echo "[$(date '+%Y-%m-%d %H:%M:%S')] Created: $output"
+                echo
+            else
+                # Handle timeout
+                timeout_status=$?
+                if [ $timeout_status -eq 124 ]; then
+                    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Timeout: $file (after $timeout_duration seconds)"
+                    echo
+                    rm -f "$output"  # Remove partial output if any
+                else
+                    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Error processing: $file (exit code $timeout_status)"
+                    echo
+                    rm -f "$output"  # Remove partial output if any
                 fi
-                
-                # Copy the rest of the file
-                cat
-                
-                # Remove trailing blank lines
-            } < "$output" | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}' > "$output.tmp"
-            mv "$output.tmp" "$output"
+            fi
         done
     else
         echo "Directory $arg does not exist."
     fi    
 else
-    for file in "$cleaning"/*.alethe; do
-        rm "$file"
-    done 
-
-    for file in "$cleaning"/*.Calethe; do
-        rm "$file"
-    done 
+    # Clear mode - remove all .alethe and .Calethe files in the specified directory and subdirectories
+    echo "Cleaning up .alethe and .Calethe files in $cleaning..."
+    find "$cleaning" -type f -name "*.alethe" -delete
+    find "$cleaning" -type f -name "*.Calethe" -delete
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Cleanup completed"
 fi
-
