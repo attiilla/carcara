@@ -12,19 +12,31 @@
 mod tracker;
 mod disjoints;
 mod error;
-use crate::ast::term::Term;
-use crate::ast::rc::Rc;
-use crate::checker::rules::Premise;
-use crate::compressor::error::*;
-use crate::ast::proof::*;
-use crate::ast::pool::PrimitivePool;
-use std::collections::{HashSet, HashMap};
-use std::{mem, vec};
-use crate::checker::rules::resolution::{apply_generic_resolution, binary_resolution, unremove_all_negations};
-use crate::checker::error::CheckerError;
+use crate::{
+    ast::{
+        proof::*,
+        pool::PrimitivePool,
+        rc::Rc,
+        term::Term,
+    },
+    checker::{
+        error::CheckerError,
+        rules::Premise,
+        rules::resolution::{apply_generic_resolution, binary_resolution, unremove_all_negations},
+    },
+    compressor::error::*,
+};
+
+use std::{
+    borrow::Cow,
+    collections::{HashSet, HashMap},
+    env,
+    mem, 
+    vec,
+};
+
 use disjoints::*;
 use indexmap::IndexSet;
-use std::env;
 use tracker::*;
 
 
@@ -1476,14 +1488,9 @@ impl<'a> ProofCompressor{
         .collect();
         for (i, (premise, (pivot, polarity))) in premises[1..].iter().zip(args).enumerate() {
             let result = binary_resolution(pool, &mut current, premise.clause, pivot, polarity);
-            match result {
-                Err(_) => {
-                    useless_premise.push(i+1);
-                }
-                Ok(()) => {
-                    ()
-                }
-            };
+            if let Err(_) = result{
+                useless_premise.push(i+1);
+            }
         }
         Ok((current, useless_premise))
         //Err(CheckerError::DivOrModByZero)
