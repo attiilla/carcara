@@ -28,7 +28,6 @@ use crate::{
 };
 
 use std::{
-    borrow::Cow,
     collections::{HashSet, HashMap},
     env,
     mem, 
@@ -39,6 +38,7 @@ use disjoints::*;
 use indexmap::IndexSet;
 use tracker::*;
 
+type ResolveResult<'a> = Result<(IndexSet<(u32, &'a Rc<Term>)>,Vec<usize>), CheckerError>;
 
 #[derive(Debug)]
 pub struct ProofCompressor{
@@ -76,6 +76,13 @@ struct ReResolveInfo{
     location: usize,
     index: (usize, usize),
     rule: String,
+}
+
+#[derive(Debug)]
+struct ReResolveReturn{
+    clause: Vec<Rc<Term>>,
+    premises: Vec<(usize,usize)>,
+    args: Vec<Rc<Term>>,
 }
 
 
@@ -585,15 +592,15 @@ impl<'a> ProofCompressor{
                     else if clause.substitute{
                         p.substitute(clause.index, p.remaining_premises(clause.location)[0]);
                     } else {
-                        let (new_clause, 
-                            new_premises, 
-                            _new_args
-                        ) = self.re_resolve(
+                        let recomputed: ReResolveReturn = self.re_resolve(
                                 p, 
                                 clause.location, 
                                 sub_adrs, 
                                 proof_pool
                             );
+                        let new_clause: Vec<Rc<Term>> = recomputed.clause;
+                        let new_premises: Vec<(usize, usize)> = recomputed.premises;
+                        let _new_args: Vec<Rc<Term>> = recomputed.args;
                         p.set_recomputed(clause.index);
                         match &mut p.part_commands[clause.location]{
                             ProofCommand::Assume { .. } => panic!("Assumes don't have args nor premises"),
@@ -677,7 +684,7 @@ impl<'a> ProofCompressor{
                     panic!("The conclusion of a compressible part should not be an assume nor a subproof.")
                 }
                 
-                let resolution: Result<(IndexSet<(u32, &Rc<Term>)>, Vec<usize>), CheckerError> = Self::resolve_when_possible(&premises, &args, proof_pool);
+                let resolution: ResolveResult = Self::resolve_when_possible(&premises, &args, proof_pool);
                 match resolution{
                     Ok((v, useless))=>{
                         let mut conclusion_prem = vec![];
@@ -847,16 +854,14 @@ impl<'a> ProofCompressor{
                     term: a.clause()[0].clone()
                 };
                 let mut part_table: HashMap<(usize,usize),(usize,usize)> = HashMap::new();
-                ProofCompressor::insert_command_on_new_proof_verbose(
-                                            &mut new_commands,
-                                                            com,
-                                                            &mut table,
-                                                            index,
-                                                            depth,
-                                                            &pt.parts[0],
-                                                            &mut part_table,
-                                                            sub_adrs
-                                                        );
+                self.insert_command_on_new_proof_verbose(
+                                              &mut new_commands,
+                                                        com,
+                                                        &mut table,
+                                                        (index, sub_adrs),
+                                                        &pt.parts[0],
+                                                        &mut part_table,
+                                                    );
                 a_count+=1;
                 discharge.push((depth,i));
 
@@ -930,15 +935,13 @@ impl<'a> ProofCompressor{
 
                         }
                     }
-                    ProofCompressor::insert_command_on_new_proof_verbose(
-                        &mut new_commands,
-                                        com,
-                                        &mut table,
-                                        index,
-                                        depth,
-                                        part,
-                                        &mut part_table,
-                                        sub_adrs
+                    self.insert_command_on_new_proof_verbose(
+                          &mut new_commands,
+                                    com,
+                                    &mut table,
+                                    (index, sub_adrs),
+                                    part,
+                                    &mut part_table,
                                     );
                 }
             }
@@ -1022,26 +1025,28 @@ impl<'a> ProofCompressor{
     }
 
     fn insert_command_on_new_proof_verbose(
+        &self,
         new_proof: &mut Vec<ProofCommand>, 
         com: ProofCommand, 
         table: &mut HashMap<(usize,usize),(usize,usize)>,
-        index: (usize,usize), 
-        depth: usize,
+        index_sub_adrs: ((usize,usize), Option<usize>), 
         part: &DisjointPart,
         part_table: &mut HashMap<(usize,usize),(usize,usize)>,
-        sub_adrs: Option<usize>
     ){
+        let index: (usize, usize) = index_sub_adrs.0;
+        let sub_adrs: Option<usize> = index_sub_adrs.1;
+        let depth: usize = self.get_depth(sub_adrs);
         let n = new_proof.len();
-        if !part.is_recomputed(index){
-            if sub_adrs.is_none(){
-                println!("Here, {:?} was globally mapped to {:?}",index,(depth,n));
-            }
-            table.insert(index,(depth,n));
-        } else {
+        if part.is_recomputed(index){
             if sub_adrs.is_none(){
                 println!("Here, {:?} was locally (p{:?}) mapped to {:?}",index,part.ind,(depth,n));    
             }
             part_table.insert(index, (depth,n));
+        } else {
+            if sub_adrs.is_none(){
+                println!("Here, {:?} was globally mapped to {:?}",index,(depth,n));
+            }
+            table.insert(index,(depth,n));
         }
         new_proof.push(com);
     }
@@ -1162,7 +1167,7 @@ impl<'a> ProofCompressor{
         sub_adrs: Option<usize>,
         proof_pool: &mut PrimitivePool,
     ) -> 
-    (Vec<Rc<Term>>,Vec<(usize,usize)>,Vec<Rc<Term>>){
+    ReResolveReturn{
         let mut remaining: Vec<(usize, usize)> = part.remaining_premises(index);
         let table: &HashMap<(usize, usize), (usize, usize)> = &part.subs_table;
         let mut new_commands: Vec<(ProofCommand,(usize,usize))> = Vec::new();
@@ -1188,7 +1193,11 @@ impl<'a> ProofCompressor{
                 Ok(r) => {
                     let resolvent: Vec<Rc<Term>> = r.into_iter().map(|x| unremove_all_negations(proof_pool,x)).collect();
                     let formatted_premises = premises.iter().map(|x| x.index).collect();
-                    (resolvent, formatted_premises, vec![])
+                    ReResolveReturn{
+                        clause: resolvent,
+                        premises: formatted_premises, 
+                        args: vec![]
+                    }
                 }
                 _ => panic!("Error: Clauses couldn't be resolved\n
                         Resolving for {:?} on part {:?}\n
@@ -1203,7 +1212,12 @@ impl<'a> ProofCompressor{
                     let resolvent_set: IndexSet<Rc<Term>> = r.into_iter().map(|x| unremove_all_negations(proof_pool,x)).collect();    
                     let resolvent: Vec<Rc<Term>> = resolvent_set.into_iter().collect();
                     let formatted_premises = premises.iter().map(|x| x.index).collect();
-                    (resolvent, formatted_premises, args)
+                    ReResolveReturn{
+                        clause: resolvent,
+                        premises: formatted_premises, 
+                        args
+                    }
+                    
                 }
                 _ => {
                     eprintln!("Error: Clauses couldn't be resolved on {:?}", sub_adrs);
@@ -1402,7 +1416,7 @@ impl<'a> ProofCompressor{
                 ProofCommand::Step(ps) => 
                 println!("{:?}; {:?} - Step {:?} {:?}: {:?}; prem: {:?}; arg: {:?}", i, part.original_index[i], &ps.id,&ps.rule,&ps.clause,&ps.premises, &ps.args),
                 ProofCommand::Subproof(sp_ph) => {
-                    let sp = self.access_subproof(&sp_ph);
+                    let sp = self.access_subproof(sp_ph);
                     match sp.commands.last(){
                         None => panic!("empty"),
                         Some(ProofCommand::Step(ps)) => println!("{:?}; {:?} - Sub {:?} {:?}: {:?}; prem: {:?}; disc: {:?}", i, part.original_index[i], &ps.id,&ps.rule,&ps.clause,&ps.premises, &ps.discharge),
@@ -1412,12 +1426,12 @@ impl<'a> ProofCompressor{
             }
         }
     }
-
+    
     fn resolve_when_possible( 
-        premises: &Vec<Premise<'a>>, 
-        args: &'a Vec<Rc<Term>>, 
+        premises: &[Premise<'a>], 
+        args: &'a [Rc<Term>], 
         pool: &mut PrimitivePool,
-    ) -> Result<(IndexSet<(u32, &'a Rc<Term>)>,Vec<usize>), CheckerError>{
+    ) -> ResolveResult<'a>{
         
         let args: Vec<_> = args
         .chunks(2)
@@ -1442,7 +1456,7 @@ impl<'a> ProofCompressor{
         .collect();
         for (i, (premise, (pivot, polarity))) in premises[1..].iter().zip(args).enumerate() {
             let result = binary_resolution(pool, &mut current, premise.clause, pivot, polarity);
-            if let Err(_) = result{
+            if result.is_err(){
                 useless_premise.push(i+1);
             }
         }
@@ -1453,7 +1467,7 @@ impl<'a> ProofCompressor{
     fn internal_command(&self, ps: &ProofStep, sub_adrs: Option<usize>) -> bool{
         ps.rule == "resolution" || 
         ps.rule == "th-resolution" || 
-        (self.preserving_binder.contains(&ps.rule) && self.resolution_is_a_premise(&ps, sub_adrs))
+        (self.preserving_binder.contains(&ps.rule) && self.resolution_is_a_premise(ps, sub_adrs))
     }
 
     fn is_resolution_or_pseudo(&self, c: &ProofCommand, sub_adrs: Option<usize>) -> bool{
@@ -1465,7 +1479,7 @@ impl<'a> ProofCompressor{
 }
 
 
-fn print_proof(p: &Vec<ProofCommand>, indentation: String, base: usize, depth: usize) -> usize{
+fn print_proof(p: &[ProofCommand], indentation: String, base: usize, depth: usize) -> usize{
     let mut from = base;
     let mut sub_len: usize = 0;
     let it: Box<dyn Iterator<Item = (usize, &ProofCommand)>> = if depth == 0 {
@@ -1477,7 +1491,7 @@ fn print_proof(p: &Vec<ProofCommand>, indentation: String, base: usize, depth: u
         match c{
             ProofCommand::Assume { id, term } => println!("{}{} - {} Assume: {}; ({},{})", &indentation, i+from, id, term, depth, i),
             ProofCommand::Step(ps) => {
-                let mut s: String = format!("{}{} - {} {}: {:?}", &indentation, from+i, &ps.id, &ps.rule, &ps.clause).to_string();
+                let mut s: String = format!("{}{} - {} {}: {:?}", &indentation, from+i, &ps.id, &ps.rule, &ps.clause);
                 if !ps.premises.is_empty(){
                     let prem = format!(", premises: {:?}", &ps.premises);
                     s = s + &prem;
@@ -1503,7 +1517,7 @@ fn print_proof(p: &Vec<ProofCommand>, indentation: String, base: usize, depth: u
                 match sp.commands.last(){
                     None => panic!("Empty subproof at printer"),
                     Some(ProofCommand::Step(ps)) => {
-                        let mut s: String = format!("{}{} - {} {}: {:?}", &indentation, from+i, &ps.id, &ps.rule, &ps.clause).to_string();
+                        let mut s: String = format!("{}{} - {} {}: {:?}", &indentation, from+i, &ps.id, &ps.rule, &ps.clause);
                         if !ps.premises.is_empty(){
                             let prem = format!(", premises: {:?}", &ps.premises);
                             s = s + &prem;
@@ -1537,8 +1551,8 @@ pub struct ProofCache<'a>{
 
 impl<'a> ProofCache<'a>{
     pub fn new(compressor: &'a ProofCompressor, sub_adrs: Option<usize>) -> ProofCache<'a>{
-        let depth = compressor.get_depth(sub_adrs);
         static EMPTY_ENTRY: Vec<ProofCommand> = vec![];
+        let depth = compressor.get_depth(sub_adrs);
         let mut cache = ProofCache{
             mem: vec![&EMPTY_ENTRY;depth+1],
             address: sub_adrs,
