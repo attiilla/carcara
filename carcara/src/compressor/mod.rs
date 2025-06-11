@@ -38,8 +38,6 @@ use disjoints::*;
 use indexmap::IndexSet;
 use tracker::*;
 
-type ResolveResult<'a> = Result<(IndexSet<(u32, &'a Rc<Term>)>,Vec<usize>), CheckerError>;
-
 #[derive(Debug)]
 pub struct ProofCompressor{
     proof: Proof,
@@ -84,6 +82,8 @@ struct ReResolveReturn{
     premises: Vec<(usize,usize)>,
     args: Vec<Rc<Term>>,
 }
+
+type ResolveResult<'a> = Result<(IndexSet<(u32, &'a Rc<Term>)>,Vec<usize>), CheckerError>;
 
 
 impl<'a> ProofCompressor{
@@ -347,22 +347,28 @@ impl<'a> ProofCompressor{
         sub_adrs: Option<usize>,
         proof_pool: &mut PrimitivePool
     ){
-        let depth = ind.0;
-        let is_subproof = matches!(c, ProofCommand::Subproof(_));
-        let premises: &Vec<(usize, usize)>  = if is_subproof{
-            &self.implicit_premises(c, depth)
-        } else {
-            c.premises()
-        };
-        
+        let depth: usize = ind.0;
+        let is_subproof: bool = matches!(c, ProofCommand::Subproof(_));
         let containing: Vec<usize> = pt.get_containing_parts(ind, true);
         let mut premise_not_r: Vec<(usize,usize)> = vec![];
-        for &prem in premises{
-            if prem.0==depth{
-                if self.step_is_resolution(prem, sub_adrs){
-                    pt.add_step_to_new_part(prem, true); // creates new parts for the premises that are resolutions
-                } else {
-                    premise_not_r.push(prem); // stores the premises that aren't resolutions
+        if is_subproof{
+            for &prem in &self.implicit_premises(c, depth){
+                if prem.0==depth{
+                    if self.step_is_resolution(prem, sub_adrs){
+                        pt.add_step_to_new_part(prem, true); // creates new parts for the premises that are resolutions
+                    } else {
+                        premise_not_r.push(prem); // stores the premises that aren't resolutions
+                    }
+                }
+            }
+        } else {
+            for &prem in c.premises(){
+                if prem.0==depth{
+                    if self.step_is_resolution(prem, sub_adrs){
+                        pt.add_step_to_new_part(prem, true); // creates new parts for the premises that are resolutions
+                    } else {
+                        premise_not_r.push(prem); // stores the premises that aren't resolutions
+                    }
                 }
             }
         }
@@ -402,32 +408,46 @@ impl<'a> ProofCompressor{
     ){
         let depth: usize = ind.0;
         let is_subproof = matches!(c, ProofCommand::Subproof(_));
-        let premises: &Vec<(usize, usize)>  = if is_subproof{
-            &self.implicit_premises(c, depth)
-        } else {
-            c.premises()
-        };
-        
-        
         let containing: Vec<usize> = pt.get_containing_parts(ind, self.is_resolution_or_pseudo(c,sub_adrs));
-        for &prem in premises{
-            if prem.0==depth{
-                // If the premise is a resolution, it will be the conclusion of a new part
-                if self.step_is_resolution(prem, sub_adrs){
-                    pt.add_step_to_new_part(prem, true); // creates new parts for the premises that are resolutions
-                } 
-                // If the premise is not a resolution, just add it to the parts containing the current step 
-                else {
-                    for &containing_part in &containing{
-                        pt.mark_for_part(prem, containing_part);
+        if is_subproof{
+            for &prem in &self.implicit_premises(c, depth){
+                if prem.0==depth{
+                    // If the premise is a resolution, it will be the conclusion of a new part
+                    if self.step_is_resolution(prem, sub_adrs){
+                        pt.add_step_to_new_part(prem, true); // creates new parts for the premises that are resolutions
+                    } 
+                    // If the premise is not a resolution, just add it to the parts containing the current step 
+                    else {
+                        for &containing_part in &containing{
+                            pt.mark_for_part(prem, containing_part);
+                        }
                     }
                 }
             }
-        }
-        for &containing_part in &containing{
-            // Now the data in the ProofStep should be added to the DisjointParts of the Tracker
-            pt.insert_to_part(ind,containing_part, c);
-        }
+            for &containing_part in &containing{
+                // Now the data in the ProofStep should be added to the DisjointParts of the Tracker
+                pt.insert_to_part(ind,containing_part, c);
+            }
+        } else {
+            for &prem in c.premises(){
+                if prem.0==depth{
+                    // If the premise is a resolution, it will be the conclusion of a new part
+                    if self.step_is_resolution(prem, sub_adrs){
+                        pt.add_step_to_new_part(prem, true); // creates new parts for the premises that are resolutions
+                    } 
+                    // If the premise is not a resolution, just add it to the parts containing the current step 
+                    else {
+                        for &containing_part in &containing{
+                            pt.mark_for_part(prem, containing_part);
+                        }
+                    }
+                }
+            }
+            for &containing_part in &containing{
+                // Now the data in the ProofStep should be added to the DisjointParts of the Tracker
+                pt.insert_to_part(ind,containing_part, c);
+            }
+        };
     }
 
     fn handle_collectible_outer_premises(&self, 
