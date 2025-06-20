@@ -47,7 +47,7 @@ mod utils;
 
 use crate::benchmarking::{CollectResults, OnlineBenchmarkResults, RunMeasurement};
 use checker::{error::CheckerError, CheckerStatistics};
-use compressor::ProofCompressor;
+use compressor::{ProofCompressor, CompressorStatistics};
 use parser::{ParserError, Position};
 use std::io;
 use std::time::{Duration, Instant};
@@ -276,18 +276,31 @@ pub fn compress<T: io::BufRead>(
     proof: T,
     verbose: bool,
     parser_config: parser::Config,
+    collect_stats: bool
 ) -> Result<(ast::Problem, ast::Proof, ast::PrimitivePool), Error> {
-    //let mut run: RunMeasurement = RunMeasurement::default();
+    let mut run_measures: RunMeasurement = RunMeasurement::default();
 
-    // Parsing
-    //let total = Instant::now();
+    //Parsing
+    let total = Instant::now();
     let (pb, pf, mut pool) = parser::parse_instance(problem, proof, parser_config)?;
-    //run.parsing = total.elapsed();
+    run_measures.parsing = total.elapsed();
 
 
     //Compressing
+    let compressing = Instant::now();
     let compressor = ProofCompressor::from(pf);
-    let compressed = compressor.compress_proof(verbose, &mut pool);
+    let compressed = if collect_stats{
+        let mut compressor_stats = CompressorStatistics {
+            file_name: "this",
+            collect_units: Duration::ZERO,
+            fix_broken_proof: Duration::ZERO,
+            reinsert: Duration::ZERO,
+            rebuild: Duration::ZERO,
+        };
+        compressor.compress_proof(verbose, &mut pool, Some(&mut compressor_stats))
+    }else{
+        compressor.compress_proof(verbose, &mut pool, None)
+    };
     Ok((pb, compressed, pool))
 }
 

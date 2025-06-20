@@ -28,7 +28,8 @@ use crate::{
 use std::{
     collections::{HashSet, HashMap},
     env,
-    mem, 
+    mem,
+    time::{Duration, Instant}, 
     vec,
 };
 
@@ -52,6 +53,24 @@ pub struct ProofCompressor{
     // Always empty here, added just for consistency
     outer: HashMap<usize,(Vec<usize>, Option<usize>)>,
 
+}
+
+/*CompressorStatistics {
+            file_name: "this",
+            collect_units: Duration::ZERO,
+            fix_broken_proof: Duration::ZERO,
+            reinsert: Duration::ZERO,
+            rebuild: Duration::ZERO,
+        }; */
+
+
+#[derive(Clone)]
+pub struct CompressorStatistics<'s> {
+    pub file_name: &'s str,
+    pub collect_units: Duration,
+    pub fix_broken_proof: Duration,
+    pub reinsert: Duration,
+    pub rebuild: Duration,
 }
 
 #[derive(Debug)]
@@ -106,12 +125,12 @@ impl<'a> ProofCompressor{
         }
     }
 
-    pub fn compress_proof(mut self, verbose: bool, proof_pool: &mut PrimitivePool) -> Proof{
+    pub fn compress_proof(mut self, verbose: bool, proof_pool: &mut PrimitivePool, mut stats: Option<&mut CompressorStatistics>) -> Proof{
         env::set_var("RUST_BACKTRACE", "1");
         if verbose{
             let _ = &mut self.lower_units_verbose(None,  proof_pool);
         } else {
-            let _ = &mut self.lower_units(None,  proof_pool);
+            let _ = &mut self.lower_units(None,  proof_pool, stats);
         }
         
 
@@ -120,33 +139,64 @@ impl<'a> ProofCompressor{
         self.proof
     }
 
-    fn lower_units(&mut self, sub_adrs: Option<usize>, proof_pool: &mut PrimitivePool) {
+    fn lower_units(&mut self, sub_adrs: Option<usize>, proof_pool: &mut PrimitivePool, stats: Option<&mut CompressorStatistics>) {
         // Check for steps that can't be deleted and subproof locations
         // Collect every subproof into an array and replace them with placeholders
         if sub_adrs.is_none(){
             self.relocate_subproofs(sub_adrs);
         }
-        
-        // Break the proof in parts that have only resolution and preserving binders
-        // Then, collect units that are used more than once before the last step
-        let mut pt: PartTracker = self.collect_units(sub_adrs, proof_pool);
-        
-        // Turn every part of a proof in a valid reasoning
-        self.fix_broken_proof(&mut pt, sub_adrs, proof_pool);
-        
-        // Reinsert the collected units to each part
-        self.reinsert_collected_clauses(&mut pt, sub_adrs, proof_pool);
-        
-        // Combines the parts to create a valid proof
-        let new_commands: Vec<ProofCommand> = self.rebuild(&mut pt, sub_adrs);
-        self.position_insert(new_commands, sub_adrs);
+        match stats{
+            Some(s)=>{
+                // Break the proof in parts that have only resolution and preserving binders
+                // Then, collect units that are used more than once before the last step
+                let (d_collect, mut pt) = self.collect_units(sub_adrs, proof_pool);
+                s.collect_units+=d_collect;
+                
+                // Turn every part of a proof in a valid reasoning
+                let d_fix = self.fix_broken_proof(&mut pt, sub_adrs, proof_pool);
+                s.fix_broken_proof+=d_fix;
+                
+                // Reinsert the collected units to each part
+                let d_rein = self.reinsert_collected_clauses(&mut pt, sub_adrs, proof_pool);
+                s.reinsert+=d_rein;
+                
+                // Combines the parts to create a valid proof
+                let (d_reb,new_commands) = self.rebuild(&mut pt, sub_adrs);
+                s.rebuild+=d_reb;
 
-        // Calls this same algorithm over every subproof
-        if sub_adrs.is_none(){
-            for i in 0..self.subproofs.len(){
-                self.lower_units(Some(i), proof_pool);
+                self.position_insert(new_commands, sub_adrs);
+
+                // Calls this same algorithm over every subproof
+                if sub_adrs.is_none(){
+                    for i in 0..self.subproofs.len(){
+                        self.lower_units(Some(i), proof_pool, Some(s));
+                    }
+                }
+            }
+            None => {
+                // Break the proof in parts that have only resolution and preserving binders
+                // Then, collect units that are used more than once before the last step
+                let (_, mut pt) = self.collect_units(sub_adrs, proof_pool);
+                
+                // Turn every part of a proof in a valid reasoning
+                self.fix_broken_proof(&mut pt, sub_adrs, proof_pool);
+                
+                // Reinsert the collected units to each part
+                self.reinsert_collected_clauses(&mut pt, sub_adrs, proof_pool);
+                
+                // Combines the parts to create a valid proof
+                let (_, new_commands) = self.rebuild(&mut pt, sub_adrs);
+                self.position_insert(new_commands, sub_adrs);
+
+                // Calls this same algorithm over every subproof
+                if sub_adrs.is_none(){
+                    for i in 0..self.subproofs.len(){
+                        self.lower_units(Some(i), proof_pool, None);
+                    }
+                }
             }
         }
+        
     }
 
     fn lower_units_verbose(&mut self, sub_adrs: Option<usize>, proof_pool: &mut PrimitivePool) {
@@ -168,11 +218,10 @@ impl<'a> ProofCompressor{
             println!("Fixed {:?}",&mt_sp.fixed);
             println!("Outer: {:?}",&mt_sp.outer);
         }
-        
 
         // break the proof in parts that has only resolution and preserving binders
         // collect units
-        let mut pt: PartTracker = self.collect_units(sub_adrs, proof_pool);
+        let (mut _d, mut pt) = self.collect_units(sub_adrs, proof_pool);
         for p in &pt.parts{
                 self.print_part(p);
                 println!("Collected: {:?}", &p.units_queue);
@@ -483,8 +532,8 @@ impl<'a> ProofCompressor{
         }
     }
 
-    fn collect_units(&mut self, sub_adrs: Option<usize>, proof_pool: &mut PrimitivePool) -> PartTracker{
-        
+    fn collect_units(&mut self, sub_adrs: Option<usize>, proof_pool: &mut PrimitivePool) -> (Duration, PartTracker){
+        let now = Instant::now();
         let mut collectible_outer_premises: IndexSet<(usize,usize)> = IndexSet::new();
         let depth: usize = self.get_depth(sub_adrs);
         let commands: &Vec<ProofCommand> = self.dive_into_proof(sub_adrs);
@@ -557,14 +606,16 @@ impl<'a> ProofCompressor{
             };
         }
         self.handle_collectible_outer_premises(&mut collectible_outer_premises, &mut pt, sub_adrs, proof_pool);
-        pt
+        let elapsed = now.elapsed();
+        (elapsed, pt)
     }
 
     fn fix_broken_proof(&mut self, 
         pt: &mut PartTracker, 
         sub_adrs: Option<usize>, 
-        proof_pool: &mut PrimitivePool)
+        proof_pool: &mut PrimitivePool) -> Duration
     {
+        let now = Instant::now();
         let depth: usize = self.get_depth(sub_adrs);        
         for p in &mut pt.parts{
             if p.compressible{
@@ -628,9 +679,17 @@ impl<'a> ProofCompressor{
                 }
             }
         }
+        let elapsed = now.elapsed();
+        elapsed
     }
 
-    fn reinsert_collected_clauses(&self, pt: &mut PartTracker, sub_adrs: Option<usize>, proof_pool: &mut PrimitivePool){
+    fn reinsert_collected_clauses(
+        &self, 
+        pt: &mut PartTracker, 
+        sub_adrs: Option<usize>, 
+        proof_pool: &mut PrimitivePool) -> Duration
+    {
+        let now = Instant::now();
         let depth = self.get_depth(sub_adrs);
         let mut cache = ProofCache::new(self, sub_adrs);
 
@@ -731,9 +790,12 @@ impl<'a> ProofCompressor{
             }
             pt.parts[ind].compressed = true;
         }
+        let elapsed = now.elapsed();
+        elapsed
     }
 
-    fn rebuild(&mut self, pt: &mut PartTracker, sub_adrs: Option<usize>) -> Vec<ProofCommand>{
+    fn rebuild(&mut self, pt: &mut PartTracker, sub_adrs: Option<usize>) -> (Duration, Vec<ProofCommand>){
+        let now = Instant::now();
         let depth: usize = self.get_depth(sub_adrs);
         let mut a_count: usize = 0;
         let mut t_count: usize = 0;
@@ -825,7 +887,8 @@ impl<'a> ProofCompressor{
             }
         }
         self.fill_fixed(table,sub_adrs);
-        new_commands
+        let elapsed = now.elapsed();
+        (elapsed, new_commands)
     }
 
     fn get_depth(&self, sub_adrs: Option<usize>) -> usize {

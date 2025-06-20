@@ -230,13 +230,13 @@ impl From<CheckingOptions> for checker::Config {
     }
 }
 
-#[derive(Args, Clone)]
+#[derive(Args)]
 struct CompressOptions {
     /// Print details of compression when used
     /// Debug purpose only
 
     #[clap(long)]
-    verbose: bool
+    verbose: bool,
 }
 
 #[derive(ArgEnum, Clone)]
@@ -457,6 +457,9 @@ struct CompressCommandOptions {
 
     #[clap(flatten)]
     compress: CompressOptions,
+
+    #[clap(flatten)]
+    stats: StatsOptions,
 }
 
 #[derive(Args)]
@@ -732,13 +735,15 @@ fn bench_command(options: BenchCommandOptions) -> CliResult<()> {
 
 fn compress_command(
     options: CompressCommandOptions,
-) -> CliResult<(ast::Problem, ast::Proof, ast::PrimitivePool)> {    
+) -> CliResult<(ast::Problem, ast::Proof, ast::PrimitivePool)> {
+    let collect_stats = options.stats.stats;
     let (problem, proof) = get_instance(&options.input)?;
     compress(
         problem,
         proof,
         options.compress.verbose,
         options.parsing.into(),
+        collect_stats
     )
     .map_err(CliError::CarcaraError)
 }
