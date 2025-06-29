@@ -19,21 +19,21 @@ process_file() {
     fi
 
     if [ "$elaborating" = true ]; then
-        ./target/debug/carcara elaborate "$alethe_file" "$smt2_file" > "${base_name}.Ealethe" 2>/dev/null
+        ./target/debug/carcara elaborate -i --allow-int-real-subtyping --expand-let-bindings "$alethe_file" "$smt2_file" --pipeline polyeq lia-generic local reordering hole > "${base_name}.Ealethe" 2>/dev/null
         if [ $? -ne 0 ]; then
             echo "$alethe_file;;;;;;;;"
         return 2
     fi
     alethe_file="${base_name}.Ealethe"
     fi
-
+    
     if [ "$sharing" = true ]; then
         ./target/debug/carcara compress --allow-int-real-subtyping --expand-let-bindings --stats "$alethe_file" "$smt2_file" > "${base_name}.Calethe" 2>"$stats_file"
     else
         ./target/debug/carcara compress --allow-int-real-subtyping --expand-let-bindings --no-print-with-sharing --stats "$alethe_file" "$smt2_file" > "${base_name}.Calethe" 2>"$stats_file"
     fi
     
-    local stats_content=$(cat "$stats_file")
+    local stats_content=$(grep -v '^\[' "$stats_file")
     rm "$stats_file"
 
     if [ $? -ne 0 ]; then
@@ -77,11 +77,11 @@ for arg in "$@"; do
         sharing)
             sharing=true
             ;;
-        elaborating)
+        elaborate)
             elaborating=true
             ;;
         *)
-            echo "Error: Invalid argument '$arg'. Only 'sharing' and 'elaborating' are allowed."
+            echo "Error: Invalid argument '$arg'. Only 'sharing' and 'elaborate' are allowed."
             exit 1
             ;;
     esac
@@ -138,23 +138,24 @@ while IFS= read -r -d '' alethe_file; do
                 else
                     ((zero_diff++))
                 fi
-                echo "$output;;;;;" >> "$results_csv"
+                echo "$output;;;;;1;" >> "$results_csv"
                 ;;
             1)
                 ((check_err++))
-                echo "$output;1;;;;" >> "$results_csv"
+                echo "$output;1;;;;;" >> "$results_csv"
                 ;;
             2)
                 ((elab_err++))
-                echo "$output;;1;;;" >> "$results_csv"
+                echo "$output;;1;;;;" >> "$results_csv"
                 ;;
             3)
                 ((compress_err++))
-                echo "$output;;;1;;" >> "$results_csv"
+                echo "$output;;;1;;;" >> "$results_csv"
                 ;;
             *)
                 ((post_check_err++))
-                echo "$output;;;;1;" >> "$results_csv"
+                line_count=$(wc -l < "$base_name.alethe")
+                echo "$output;;;;1 ($line_count);;" >> "$results_csv"
                 ;;
         esac
         ((total++))
