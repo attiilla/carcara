@@ -274,6 +274,7 @@ pub fn check_and_elaborate<T: io::BufRead>(
 pub fn compress<T: io::BufRead>(
     problem: T,
     proof: T,
+    file_name: String,
     verbose: bool,
     parser_config: parser::Config,
     collect_stats: bool
@@ -287,15 +288,17 @@ pub fn compress<T: io::BufRead>(
 
 
     //Compressing
-    let compressing = Instant::now();
     let compressor = ProofCompressor::from(pf);
     let compressed = if collect_stats{
         let mut compressor_stats = CompressorStatistics {
-            file_name: "this",
+            file_name,
             collect_units: Duration::ZERO,
             fix_broken_proof: Duration::ZERO,
             reinsert: Duration::ZERO,
             rebuild: Duration::ZERO,
+            total: Duration::ZERO,
+            original_size: 0,
+            final_size: None,
         };
         compressor.compress_proof(verbose, &mut pool, Some(&mut compressor_stats))
     }else{

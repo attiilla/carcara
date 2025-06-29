@@ -27,6 +27,7 @@ use crate::{
 
 use std::{
     collections::{HashSet, HashMap},
+    fmt,
     env,
     mem,
     time::{Duration, Instant}, 
@@ -55,22 +56,45 @@ pub struct ProofCompressor{
 
 }
 
-/*CompressorStatistics {
-            file_name: "this",
-            collect_units: Duration::ZERO,
-            fix_broken_proof: Duration::ZERO,
-            reinsert: Duration::ZERO,
-            rebuild: Duration::ZERO,
-        }; */
-
-
-#[derive(Clone)]
-pub struct CompressorStatistics<'s> {
-    pub file_name: &'s str,
+#[derive(Clone, Debug)]
+pub struct CompressorStatistics{
+    pub file_name: String,
     pub collect_units: Duration,
     pub fix_broken_proof: Duration,
     pub reinsert: Duration,
     pub rebuild: Duration,
+    pub total: Duration,
+    pub original_size: usize,
+    pub final_size: Option<usize>,
+}
+
+impl fmt::Display for CompressorStatistics {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Helper function to format Duration in milliseconds
+        fn format_duration(d: Duration) -> String {
+            format!("{:.1}ms", d.as_secs_f64() * 1000.0)
+        }
+        let compression: String = match self.final_size{
+            Some(s) => {
+                let c = (s as i64)-(self.original_size as i64);
+                c.to_string()
+            }
+            None => "None".to_owned()
+        };
+        write!(
+            f,
+            "{};{};{};{};{};{};{};{};{}",
+            self.file_name,
+            format_duration(self.collect_units),
+            format_duration(self.fix_broken_proof),
+            format_duration(self.reinsert),
+            format_duration(self.rebuild),
+            format_duration(self.total),
+            self.original_size,
+            self.final_size.map_or("".to_owned(), |s| format!("{}", s)),
+            compression
+        )
+    }
 }
 
 #[derive(Debug)]
@@ -103,7 +127,7 @@ struct ReResolveReturn{
 type ResolveResult<'a> = Result<(IndexSet<(u32, &'a Rc<Term>)>,Vec<usize>), CheckerError>;
 
 
-impl<'a> ProofCompressor{
+impl<'a,'b> ProofCompressor{
     pub fn from(p: Proof)->Self{
         Self{
             proof: p,
@@ -126,20 +150,31 @@ impl<'a> ProofCompressor{
     }
 
     pub fn compress_proof(mut self, verbose: bool, proof_pool: &mut PrimitivePool, mut stats: Option<&mut CompressorStatistics>) -> Proof{
+        let now = Instant::now();
         env::set_var("RUST_BACKTRACE", "1");
         if verbose{
-            let _ = &mut self.lower_units_verbose(None,  proof_pool);
+            let _ = self.lower_units_verbose(None, proof_pool, None);
+            let _ = self.reassemble(None);
         } else {
-            let _ = &mut self.lower_units(None,  proof_pool, stats);
-        }
-        
-
-        // remove the placeholders and insert the subproofs again in the final proof
-        self.reassemble();
+            
+            let s = self.lower_units(None,  proof_pool, stats);
+            // remove the placeholders and insert the subproofs again in the final proof
+            let s = self.reassemble(s);
+            if let Some(stats) = s{
+                stats.total = now.elapsed();
+                eprintln!("{}",stats);
+            }
+        };
         self.proof
     }
 
-    fn lower_units(&mut self, sub_adrs: Option<usize>, proof_pool: &mut PrimitivePool, stats: Option<&mut CompressorStatistics>) {
+    fn lower_units(
+        &'a mut self, 
+        sub_adrs: Option<usize>, 
+        proof_pool: &mut PrimitivePool, 
+        stats: Option<&'b mut CompressorStatistics>
+    ) -> Option<&'b mut CompressorStatistics> 
+    {
         // Check for steps that can't be deleted and subproof locations
         // Collect every subproof into an array and replace them with placeholders
         if sub_adrs.is_none(){
@@ -147,6 +182,14 @@ impl<'a> ProofCompressor{
         }
         match stats{
             Some(s)=>{
+                // Counts the size of the proof
+                if sub_adrs.is_none(){
+                    s.original_size = self.proof.commands.len();
+                    for sub in &self.subproofs{
+                        s.original_size += sub.proof.commands.len();
+                    }
+                }
+
                 // Break the proof in parts that have only resolution and preserving binders
                 // Then, collect units that are used more than once before the last step
                 let (d_collect, mut pt) = self.collect_units(sub_adrs, proof_pool);
@@ -172,6 +215,7 @@ impl<'a> ProofCompressor{
                         self.lower_units(Some(i), proof_pool, Some(s));
                     }
                 }
+                Some(s)
             }
             None => {
                 // Break the proof in parts that have only resolution and preserving binders
@@ -194,12 +238,18 @@ impl<'a> ProofCompressor{
                         self.lower_units(Some(i), proof_pool, None);
                     }
                 }
+                None
             }
         }
-        
     }
 
-    fn lower_units_verbose(&mut self, sub_adrs: Option<usize>, proof_pool: &mut PrimitivePool) {
+    fn lower_units_verbose(
+        &'a mut self, 
+        sub_adrs: Option<usize>, 
+        proof_pool: &mut PrimitivePool, 
+        _stats: Option<&'b mut CompressorStatistics>
+    ) -> Option<&'b mut CompressorStatistics> 
+    {
         // Check for steps that can't be deleted and subproof locations
         // Collect every subproof into an array and replace them with placeholders
         println!("verbiage {:?}", sub_adrs);
@@ -252,9 +302,10 @@ impl<'a> ProofCompressor{
         //calls this same algorithm over every subproof
         if sub_adrs.is_none(){
             for i in 0..self.subproofs.len(){
-                self.lower_units_verbose(Some(i), proof_pool);
+                self.lower_units_verbose(Some(i), proof_pool, None);
             }
         }
+        None
     }
 
     // This functions receives the current address of a subproof level and a target level, then
@@ -1416,10 +1467,12 @@ impl<'a> ProofCompressor{
         }
     }
 
-    fn reassemble(&mut self){
+    fn reassemble(&'a mut self, mut stats: Option<&'b mut CompressorStatistics>)->Option<&'b mut CompressorStatistics>{
         let n: usize = self.subproofs.len();
+        let mut compressed_size = 0;
         let mut subproof_meta: Vec<SubproofMeta> = mem::take(&mut self.subproofs);
         for sub_ind in (0..n).rev(){
+            compressed_size += subproof_meta[sub_ind].proof.commands.len();
             let parent_adrs: Option<usize> = subproof_meta[sub_ind].parent_adrs;
             let new_ind: usize = subproof_meta[sub_ind].new_ind;
             let meta: SubproofMeta = subproof_meta.pop().unwrap();
@@ -1438,6 +1491,13 @@ impl<'a> ProofCompressor{
             // This operation puts the adjusted conclusion
             mem::swap(&mut commands[new_ind], sub.commands.last_mut().unwrap());
             commands[new_ind] = ProofCommand::Subproof(sub);
+        }
+        compressed_size+=self.proof.commands.len();
+        if let Some(S) = stats{
+            S.final_size = Some(compressed_size);
+            Some(S)
+        } else {
+            None
         }
     }
 

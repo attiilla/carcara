@@ -738,9 +738,11 @@ fn compress_command(
 ) -> CliResult<(ast::Problem, ast::Proof, ast::PrimitivePool)> {
     let collect_stats = options.stats.stats;
     let (problem, proof) = get_instance(&options.input)?;
+    let file_name = options.input.proof_file.clone(); 
     compress(
         problem,
         proof,
+        file_name,
         options.compress.verbose,
         options.parsing.into(),
         collect_stats
