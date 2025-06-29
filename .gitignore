@@ -1,6 +1,6 @@
 /target
-/benchmarks
-/benchmarks_solutions
+/benchmarks*
+/ben*
 sample/*
 scripts/*
 !scripts/generate_proofs.sh
