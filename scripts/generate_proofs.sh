@@ -71,7 +71,7 @@ if [ "$arg" != "clear" ]; then
 else
     # Clear mode - remove all .alethe and .Calethe files in the specified directory and subdirectories
     echo "Cleaning up .alethe and .Calethe files in $cleaning..."
-    find "$cleaning" -type f -name "*.alethe" -delete
+
     find "$cleaning" -type f -name "*.Calethe" -delete
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Cleanup completed"
 fi
