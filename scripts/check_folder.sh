@@ -88,7 +88,7 @@ for arg in "$@"; do
 done
 
 # Check if the solutions folder exists
-solutions_dir="${base_dir}_solutions"
+solutions_dir="${base_dir}_solutions_T"
 if [ ! -d "$solutions_dir" ]; then
     echo "Error: Solutions directory '$solutions_dir' not found"
     exit 1
