@@ -63,6 +63,7 @@ pub struct CompressorStatistics{
     pub fix_broken_proof: Duration,
     pub reinsert: Duration,
     pub rebuild: Duration,
+    pub reassemble: Duration,
     pub total: Duration,
     pub original_size: usize,
     pub final_size: Option<usize>,
@@ -70,9 +71,9 @@ pub struct CompressorStatistics{
 
 impl fmt::Display for CompressorStatistics {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // Helper function to format Duration in milliseconds
         fn format_duration(d: Duration) -> String {
-            format!("{:.1}ms", d.as_secs_f64() * 1000.0)
+            let num = d.as_secs_f64() * 1000.0;
+            num.to_string().replace('.', ",")
         }
         let compression: String = match self.final_size{
             Some(s) => {
@@ -83,12 +84,13 @@ impl fmt::Display for CompressorStatistics {
         };
         write!(
             f,
-            "{};{};{};{};{};{};{};{};{}",
+            "{};{:?};{:?};{:?};{:?};{:?};{:?};{};{};{}",
             self.file_name,
             format_duration(self.collect_units),
             format_duration(self.fix_broken_proof),
             format_duration(self.reinsert),
             format_duration(self.rebuild),
+            format_duration(self.reassemble),
             format_duration(self.total),
             self.original_size,
             self.final_size.map_or("".to_owned(), |s| format!("{}", s)),
@@ -159,8 +161,11 @@ impl<'a,'b> ProofCompressor{
             
             let s = self.lower_units(None,  proof_pool, stats);
             // remove the placeholders and insert the subproofs again in the final proof
+            let reassembly_start = Instant::now();
             let s = self.reassemble(s);
+            let reassemble_time = reassembly_start.elapsed();
             if let Some(stats) = s{
+                stats.reassemble = reassemble_time;
                 stats.total = now.elapsed();
                 eprintln!("{}",stats);
             }

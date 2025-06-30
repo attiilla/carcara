@@ -296,6 +296,7 @@ pub fn compress<T: io::BufRead>(
             fix_broken_proof: Duration::ZERO,
             reinsert: Duration::ZERO,
             rebuild: Duration::ZERO,
+            reassemble: Duration::ZERO,
             total: Duration::ZERO,
             original_size: 0,
             final_size: None,
