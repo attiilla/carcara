@@ -14,14 +14,14 @@ process_file() {
     # Run the first command
     ./target/debug/carcara check -i --allow-int-real-subtyping --expand-let-bindings "$alethe_file" "$smt2_file" > /dev/null 2>/dev/null
     if [ $? -ne 0 ]; then
-        echo "$alethe_file;;;;;;;;"
+        echo "$alethe_file;;;;;;;;;"
         return 1
     fi
 
     if [ "$elaborating" = true ]; then
         ./target/debug/carcara elaborate -i --allow-int-real-subtyping --expand-let-bindings "$alethe_file" "$smt2_file" --pipeline polyeq lia-generic local reordering hole > "${base_name}.Ealethe" 2>/dev/null
         if [ $? -ne 0 ]; then
-            echo "$alethe_file;;;;;;;;"
+            echo "$alethe_file;;;;;;;;;"
         return 2
     fi
     alethe_file="${base_name}.Ealethe"
@@ -37,14 +37,14 @@ process_file() {
     rm "$stats_file"
 
     if [ $? -ne 0 ]; then
-        echo "$alethe_file;;;;;;;;"
+        echo "$alethe_file;;;;;;;;;"
         return 3
     fi
 
     # Run the third command
     output=$(./target/debug/carcara check -i --allow-int-real-subtyping --expand-let-bindings "${base_name}.Calethe" "$smt2_file" 2>/dev/null)
     if [ $? -ne 0 ]; then
-        echo "$alethe_file;;;;;;;;"
+        echo "$alethe_file;;;;;;;;;"
         return 4
     fi
     echo "$stats_content"
@@ -88,7 +88,7 @@ for arg in "$@"; do
 done
 
 # Check if the solutions folder exists
-solutions_dir="${base_dir}_solutions_T"
+solutions_dir="${base_dir}_solutions"
 if [ ! -d "$solutions_dir" ]; then
     echo "Error: Solutions directory '$solutions_dir' not found"
     exit 1
@@ -97,7 +97,7 @@ fi
 # Create or initialize the results CSV file
 results_csv="${base_dir}/results.csv"
 if [ ! -f "$results_csv" ]; then
-    echo "proof_name;collect_units;fix;reinsert;rebuild;total time;original_lines;compressed_lines;line_difference;checker_err;elab_err;compress_err;invalid_compress;worked" > "$results_csv"
+    echo "proof_name;collect_units;fix;reinsert;rebuild;reassemble;total time (seconds);original_lines;compressed_lines;line_difference;checker_err;elab_err;compress_err;invalid_compress;worked" > "$results_csv"
 fi
 
 # Find all .alethe files in the solutions directory and its subdirectories
